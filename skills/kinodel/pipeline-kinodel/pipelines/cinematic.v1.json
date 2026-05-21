@@ -1,0 +1,227 @@
+{
+  "schema": "kinodel.pipeline_spec.v1",
+  "pipeline_id": "cinematic.v1",
+  "display_name": "Cinematic Pipeline",
+  "version": 1,
+  "status": "active",
+  "description": "Machine-readable Kinodel p0-p11 cinematic route. Render-stage adapter_profile values are capability-contract hints for validation/binding; project provider defaults are selected at BriefGate and persisted in brief.json.",
+  "compatibility": {
+    "legacy_goal_aliases": true,
+    "hard_gate_aliases": [
+      "p4",
+      "p7"
+    ]
+  },
+  "project_layout_profile": "cinematic",
+  "final_chunk": {
+    "type": "cinema_chunk",
+    "path": "final_chunk.json",
+    "schema": "kinodel.final_chunk.v1"
+  },
+  "chunk_dependencies": [],
+  "stages": [
+    {
+      "goal": "p0_briefgate",
+      "type": "briefgate",
+      "input_contract": "user-approved brief collected before project initialization",
+      "reads": [],
+      "writes": [
+        "brief.json"
+      ],
+      "validator": "kinodel.brief.v1"
+    },
+    {
+      "goal": "p1_story",
+      "type": "agent_stage",
+      "owner_skill": "storytell-kinodel",
+      "requires_capabilities": [
+        "narrative_planning.cinematic.v1"
+      ],
+      "reads": [
+        "brief.json"
+      ],
+      "writes": [
+        "story.json"
+      ],
+      "validator": "kinodel.story.v1"
+    },
+    {
+      "goal": "p2_main_frame_plan",
+      "type": "agent_stage",
+      "owner_skill": "wardrobe-kinodel",
+      "requires_capabilities": [
+        "visual_anchor_planning.single.v1"
+      ],
+      "reads": [
+        "brief.json",
+        "story.json"
+      ],
+      "writes": [
+        "wardrobe_request.json"
+      ],
+      "validator": "kinodel.render_requests.v1"
+    },
+    {
+      "goal": "p3_main_frame_render",
+      "type": "render_stage",
+      "reads": [
+        "wardrobe_request.json"
+      ],
+      "writes": [
+        "render_results/main_frame_result.json"
+      ],
+      "request_artifact": "wardrobe_request.json",
+      "result_artifact": "render_results/main_frame_result.json",
+      "modality": "image",
+      "adapter_profile": "fal:hidream_o1",
+      "validator": "kinodel.render_result.v1"
+    },
+    {
+      "goal": "p4_story_main_gate",
+      "type": "review_gate",
+      "gate_alias": "p4",
+      "gate_kind": "checkpoint",
+      "label": "Story/Main Frame ReviewGate",
+      "stop": true,
+      "choices": [
+        "A",
+        "B",
+        "C",
+        "D"
+      ],
+      "reads": [
+        "render_results/main_frame_result.json"
+      ],
+      "writes": [],
+      "previews": [
+        "render_results/main_frame_result.json"
+      ],
+      "resume_scope": "cinematic"
+    },
+    {
+      "goal": "p5_storyboard_plan",
+      "type": "agent_stage",
+      "owner_skill": "storyboard-kinodel",
+      "requires_capabilities": [
+        "story_frame_planning.cinematic.v1"
+      ],
+      "reads": [
+        "brief.json",
+        "story.json",
+        "render_results/main_frame_result.json"
+      ],
+      "writes": [
+        "storyboard_requests.json"
+      ],
+      "validator": "kinodel.render_requests.v1",
+      "selected_from": [
+        "render_results/main_frame_result.json"
+      ]
+    },
+    {
+      "goal": "p6_story_images_render",
+      "type": "render_stage",
+      "reads": [
+        "storyboard_requests.json"
+      ],
+      "writes": [
+        "render_results/story_frames_result.json"
+      ],
+      "request_artifact": "storyboard_requests.json",
+      "result_artifact": "render_results/story_frames_result.json",
+      "modality": "image",
+      "adapter_profile": "fal:hidream_o1_edit",
+      "validator": "kinodel.render_result.v1"
+    },
+    {
+      "goal": "p7_story_images_gate",
+      "type": "review_gate",
+      "gate_alias": "p7",
+      "gate_kind": "checkpoint",
+      "label": "Story Images ReviewGate",
+      "stop": true,
+      "choices": [
+        "A",
+        "B",
+        "C",
+        "D"
+      ],
+      "reads": [
+        "render_results/story_frames_result.json"
+      ],
+      "writes": [],
+      "previews": [
+        "render_results/story_frames_result.json"
+      ],
+      "resume_scope": "cinematic"
+    },
+    {
+      "goal": "p8_video_plan",
+      "type": "agent_stage",
+      "owner_skill": "filmmaker-kinodel",
+      "requires_capabilities": [
+        "video_motion_planning.i2v_flf2v.v1"
+      ],
+      "reads": [
+        "brief.json",
+        "story.json",
+        "render_results/story_frames_result.json"
+      ],
+      "writes": [
+        "video_requests.json"
+      ],
+      "validator": "kinodel.render_requests.v1",
+      "selected_from": [
+        "render_results/story_frames_result.json"
+      ]
+    },
+    {
+      "goal": "p9_video_render",
+      "type": "render_stage",
+      "reads": [
+        "video_requests.json"
+      ],
+      "writes": [
+        "render_results/shot_videos_result.json"
+      ],
+      "request_artifact": "video_requests.json",
+      "result_artifact": "render_results/shot_videos_result.json",
+      "modality": "video",
+      "adapter_profile": "fal:veo31_lite_i2v",
+      "validator": "kinodel.render_result.v1"
+    },
+    {
+      "goal": "p10_montage",
+      "type": "montage_stage",
+      "owner_skill": "montage-kinodel",
+      "reads": [
+        "render_results/shot_videos_result.json"
+      ],
+      "writes": [
+        "outputs/final.mp4"
+      ],
+      "validator": "kinodel.montage_output.v1",
+      "selected_from": [
+        "render_results/shot_videos_result.json"
+      ],
+      "requires_capabilities": [
+        "montage_assembly.simple.v1"
+      ]
+    },
+    {
+      "goal": "p11_final_chunk",
+      "type": "chunk_write_stage",
+      "reads": [
+        "brief.json",
+        "story.json",
+        "render_results/shot_videos_result.json",
+        "outputs/final.mp4"
+      ],
+      "writes": [
+        "final_chunk.json"
+      ],
+      "chunk_type": "cinema_chunk",
+      "validator": "kinodel.final_chunk.v1"
+    }
+  ]
+}

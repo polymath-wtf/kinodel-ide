@@ -1,0 +1,8 @@
+{
+  "schema": "kinodel.story.v1",
+  "project_id": "project_id",
+  "status": "pending",
+  "story": "",
+  "hook_candidates": [],
+  "scene_count": 0
+}

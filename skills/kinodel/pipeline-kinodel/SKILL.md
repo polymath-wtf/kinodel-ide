@@ -1,0 +1,209 @@
+---
+name: pipeline-kinodel
+description: Primary architecture framework for the Kinodel AI filmmaking factory.
+  Defines the canonical artifact-centric route, /goal checkpoints, hard ReviewGates,
+  artifact layering, and skill ownership. Load first for any Kinodel production, audit,
+  refactor, or troubleshooting task.
+license: MIT
+metadata:
+  hermes:
+    trigger: kinodel, kinodel pipeline, kinodel architecture, create kinodel project,
+      new kinodel project, init kinodel, explain kinodel workflow, produce cinematic,
+      storyboard, main frame, reviewgate, user gate, /goal kinodel
+    category: kinodel
+    schema_version: 4
+    tags:
+    - create-kinodel-project
+    - explain-kinodel-workflow
+    - goal-kinodel
+    - init-kinodel
+    - kinodel
+    - kinodel-architecture
+    - kinodel-pipeline
+    - main-frame
+    - new-kinodel-project
+    - pipeline
+    - produce-cinematic
+    - reviewgate
+    - storyboard
+    - user-gate
+---
+
+# Pipeline-Kinodel
+
+Kinodel is an artifact-centric AI film factory. This skill defines law and route only; it does not render, write stage content, or hold provider payload examples.
+
+Hot path:
+
+```text
+BriefGate
+→ brief.json
+→ story.json
+→ wardrobe_request.json
+→ main_frame render
+→ ReviewGate p4
+→ storyboard_requests.json
+→ story images render
+→ ReviewGate p7
+→ video_requests.json
+→ video render
+→ montage
+→ final_chunk.json
+```
+
+## Non-negotiable laws
+
+1. Producer is a state machine, not a content warehouse.
+2. Specialists write owned artifacts to disk and return status only.
+3. Pass paths and selected media refs, not full JSON bodies or logs.
+4. BriefGate, p4, and p7 are hard turn stops. Render completion is not approval.
+5. Never render before a complete request artifact with non-empty `jobs` exists.
+6. Never resume by vibe or by newest file in `outputs/`; resume by `project_id` + validated artifacts.
+7. Provider/runtime garbage stays in `/tmp/kinodel/<project_id>/<run_id>/` or worker debug output, not durable project knowledge.
+8. `render_results/*.json.selected_outputs` is the chaining truth; `outputs/` is an archive/cache, not state.
+9. `final_chunk.json` stores the finished cinematic memory only, not the production trace.
+10. BriefGate video workflow and provider choice are part of durable project state. The current default is ComfyUI i2v 480p 4s (`comfyui` / local-comfyui provider family, one 4s clip per approved story frame) unless the user selects `fal`, `flf2v`, `t2v` with a supported workflow, or another explicit provider. fal.ai remains a supported optional/fallback stack, not the default for this user's normal Kinodel runs.
+
+## /goal route
+
+Use the goal names from `references/goal-pipeline.md` for production control:
+
+| Goal | Owner | Writes | Stop? |
+| --- | --- | --- | --- |
+| p0_briefgate | producer | `brief.json` after approval | yes |
+| p1_story | storytell | `story.json` | no |
+| p2_main_frame_plan | wardrobe | `wardrobe_request.json` | no |
+| p3_main_frame_render | render | `render_results/main_frame_result.json` | no |
+| p4_story_main_gate | producer/critic optional | optional `qc/*` | yes |
+| p5_storyboard_plan | storyboard | `storyboard_requests.json` | no |
+| p6_story_images_render | render | `render_results/story_frames_result.json` | no |
+| p7_story_images_gate | producer/critic optional | optional `qc/*` | yes |
+| p8_video_plan | filmmaker | `video_requests.json` | no |
+| p9_video_render | render | `render_results/shot_videos_result.json` | no |
+| p10_montage | montage | `outputs/final.mp4` | no |
+| p11_final_chunk | producer | `final_chunk.json` | no |
+
+### flf2v (First-Last Frame to Video) Workflow
+When using `flf2v`, the p5/p6 stage produces story frames that serve as both visual references and potentially 'first/last' frame pairs for the video generator. The `filmmaker-kinodel` must account for these pairs when writing `video_requests.json`. 8s is the standard duration for `flf2v` transitions.
+
+For full checkpoint conditions, load `references/goal-pipeline.md`.
+
+## Skill ownership
+
+- `producer-kinodel`: talks to user, advances goals, validates handoffs, starts packaged workers, writes final memory.
+- `kinodel-project-layout`: initializes project tree after BriefGate approval.
+- `storytell-kinodel`: reads `brief.json`, writes `story.json`.
+- `wardrobe-kinodel`: reads brief/story, writes one main-frame render request.
+- `storyboard-kinodel`: reads approved main frame refs, writes story-frame requests.
+- `filmmaker-kinodel`: reads approved story-frame refs, writes video requests.
+- `render-kinodel`: executes explicit render request artifacts only.
+- `critic-kinodel`: optional QC notes at gates; never owns rewrites.
+- `montage-kinodel`: assembles approved video refs into final MP4.
+- `comfyui`: low-level backup provider knowledge, not primary route.
+
+Load only the current owner skill. In normal production, Producer should not load designer skills into the main chat; it should spawn them with `delegate_task` using a compact handoff envelope and then validate the written artifact. Load specialist skills in the main context only for debugging/refactoring that specific skill.
+
+## Project layout
+
+Canonical project root:
+
+```text
+~/projects/<project_id>/v1/
+  brief.json
+  story.json
+  wardrobe_request.json
+  storyboard_requests.json
+  video_requests.json
+  render_results/
+    main_frame_result.json
+    story_frames_result.json
+    shot_videos_result.json
+  qc/
+  outputs/
+  final_chunk.json
+```
+
+Initialize only after BriefGate approval:
+
+```bash
+python3 ~/.hermes/skills/kinodel/kinodel-project-layout/scripts/init_project.py <project_id> '<brief_json>'
+```
+
+If the initializer is missing, use `bugs/missing-init-project-fallback.md`; layout/scaffold details are owned by `kinodel-project-layout`.
+
+## Artifact contract
+
+Every durable JSON artifact includes `project_id`. Working stage artifacts include `status: "pending" | "complete"`; gates reject `pending`.
+
+Planner request files (`wardrobe_request.json`, `storyboard_requests.json`, `video_requests.json`) contain only provider-neutral fields:
+
+```json
+{"schema":"kinodel.render_requests.v1","project_id":"id","status":"complete","stage":"story_frames","jobs":[{"kind":"i2i","render_prompt":"...","input_media":["https://..."],"output_name":"shot_01.png"}]}
+```
+
+Provider payloads, queue URLs, retry state, raw responses, logs, and costs are forbidden in planner artifacts.
+
+Render result manifests contain compact refs:
+
+```json
+{"schema":"kinodel.render_result.v1","project_id":"id","status":"complete","stage":"story_frames","selected_outputs":[{"shot_id":"shot_01","kind":"image","path":"outputs/shot_01.png","url":"https://..."}],"attempts":[],"selection_policy":"selected_outputs are current truth"}
+```
+
+For the full artifact contract, handoff map, and L0-L6 context model, load `references/artifact.md`.
+
+## ReviewGate contract
+
+p4 and p7 use the same text-first gate:
+
+```text
+Reply with one letter:
+A — approve this gate
+B — auto-fix via critic
+C — edit-fix, with your notes
+D — stop here
+```
+
+After showing preview refs and asking, stop the turn. The next user message decides. Buttons may mirror the text choices but cannot replace them.
+
+## Provider stack defaults
+
+BriefGate persists the chosen video workflow and provider family into `brief.json`; Producer, specialist agents, and render worker must follow those fields instead of hardcoding or inventing workflow/provider choices. `pipeline_spec.json` render-stage `adapter_profile` is a capability-contract hint for validation/binding, not the project provider default and not permission to override `brief.json`.
+
+- Normal default: `comfyui` / local-comfyui provider family.
+- Resolution source of truth: `render-kinodel/references/resolution-guide.md`. Do not calculate dimensions ad hoc in agent prose.
+- ComfyUI images/main/story frames: `local-comfyui:img2img_klein`, explicit `brief.image.width/height` from the guide; default 1:1 image `1K` = 1024x1024.
+- ComfyUI videos: default workflow is `brief.video.workflow="i2v"` / `brief.video.flow="i2v"` via `local-comfyui:img2vid_wan_lora`, explicit `brief.video.width/height` from the guide; default 1:1 video `480p` = 480x480, `seconds_per_shot="4s"`.
+- fal option: `fal:hidream_o1` for main frames, `fal:hidream_o1_edit` for story frames, `fal:veo31_lite_i2v` for videos, 4s, 480p, audio off.
+- Nano Banana 2 remains supported as an explicit fallback/override.
+- `fal:veo31_lite_flf2v`: only for explicit first-last-frame transitions, usually 8s, until a production ComfyUI flf2v workflow exists.
+- Polling: adaptive/economical; no one-second provider spam.
+
+Provider payload details live in `render-kinodel/references/provider-payload-cookbook.md`.
+
+## Progressive references
+
+Load only when needed:
+
+Ownership pointers: Layout/scaffold details live in `kinodel-project-layout`; ReviewGate UI in `producer-kinodel/references/gate-ui.md`; render request schemas in `render-kinodel/references/request-contract.md`.
+
+- `render-kinodel/references/resolution-guide.md` — canonical image/video quality and aspect-ratio dimension tables (`1K`/`1.5K`/`2K` images; `480p`/`720p`/`1080p` videos).
+- `references/changing-format-defaults.md` — cross-skill checklist for changing Kinodel canonical defaults such as aspect ratio, platform, image quality, video quality, pixel dimensions, provider examples, workflow templates, and regression tests.
+- `references/universal-runtime-compatibility-audit.md` — pre-upgrade audit checklist and compatibility pitfalls for universal runtime patches: CompiledRoute, explicit gate decisions, serial/music naming, render promotion, chunk statuses, and `render_worker.py` result promotion. Load before auditing or applying pipeline runtime patches.
+- `references/artifact.md` — canonical handoff/request/result map plus L0-L6 context/cache sandwich.
+- `references/artifact.md` — canonical handoff/request/result map plus L0-L6 context/cache sandwich.
+- `references/goal-pipeline.md` — exact `/goal` checkpoints and exit conditions.
+- `references/producer-playbook.md` — longer orchestrator playbook; kept intentionally for now.
+- `references/worker-contract-index.md` — architecture-only index to worker-owned contracts; no copied contracts.
+- `references/reference-optimization.md` — class-level rules for slimming pipeline references and assigning ownership.
+- `references/universal-pipeline-runtime.md` — planning notes for future pipeline-spec runtime, create-pipeline, serial/music/timelapse pipelines, two-level contracts, checkpoints, and chunk dependencies. Load for architecture refactors before touching live skills.
+- `references/phase-a-spec-validator.md` — exact Phase A artifacts and verification commands for the pipeline_spec schema, `cinematic.v1`, and static validator. Load before continuing Phase B or auditing the Phase A baseline.
+- `references/phase-b-producer-runtime.md` — exact Phase B state_guard runtime changes, CompiledRoute shape, explicit gate-decision rule, and verification commands. Load before continuing Phase C or auditing spec-aware Producer behavior.
+- `references/phase-c-layout-contracts-templates.md` — exact Phase C initializer/profile/contracts/templates artifacts and verification commands. Load before continuing Phase D or auditing project creation/capability binding.
+- `bugs/bugs-mapping.md` — compact map of still-relevant bug signatures and links.
+- `bugs/audit.md` — maintenance-only audit/remediation checklist; do not load during normal production.
+
+## Refactor rule
+
+If a detail is an example, provider payload, incident postmortem, or troubleshooting cookbook, keep it out of `SKILL.md` and place it in a reference or script. `SKILL.md` must remain a stable cache-friendly routing map.
+
+When optimizing `references/`, preserve class-level ownership boundaries: pipeline keeps law/route/artifact maps; Producer keeps orchestration and gate UI; Render keeps schemas/provider payloads; Layout keeps scaffolding; specialist skills keep stage contracts; `bugs/` keeps compact failure signatures. Load `references/reference-optimization.md` for larger reference-library cleanups.

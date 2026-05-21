@@ -1,0 +1,26 @@
+{
+  "template_id": "fal_nano_banana_2_t2i",
+  "provider": "fal:nano_banana_2",
+  "kind": "t2i",
+  "method": "POST",
+  "endpoint": "https://queue.fal.run/fal-ai/nano-banana-2",
+  "job_class": "hosted_image",
+  "body": {
+    "prompt": "{{payload.prompt}}",
+    "aspect_ratio": "{{payload.params.aspect_ratio | default:1:1}}",
+    "resolution": "{{payload.params.resolution | default:1K}}",
+    "output_format": "{{payload.params.output_format | default:png}}",
+    "safety_tolerance": "{{payload.params.safety_tolerance | default:4}}",
+    "num_images": "{{payload.params.num_images | default:1}}",
+    "seed": "{{payload.params.seed | default:null}}",
+    "limit_generations": "{{payload.params.limit_generations | default:true}}",
+    "enable_web_search": "{{payload.params.enable_web_search | default:false}}",
+    "thinking_level": "{{payload.params.thinking_level | default:null}}"
+  },
+  "result": {
+    "request_id": "$.request_id",
+    "status_url": "$.status_url",
+    "response_url": "$.response_url",
+    "output_url": "$.images[0].url"
+  }
+}

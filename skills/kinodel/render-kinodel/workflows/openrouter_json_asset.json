@@ -1,0 +1,29 @@
+{
+  "template_id": "openrouter_json_asset",
+  "provider": "openrouter:json_asset",
+  "kind": "llm_asset",
+  "method": "POST",
+  "endpoint": "https://openrouter.ai/api/v1/chat/completions",
+  "job_class": "llm_asset",
+  "body": {
+    "model": "{{payload.params.model | default:google/gemini-2.5-flash}}",
+    "messages": [
+      {
+        "role": "system",
+        "content": "Return only the requested JSON/text artifact. Do not render binary media."
+      },
+      {
+        "role": "user",
+        "content": "{{payload.prompt}}\n\nReferences: {{payload.references}}"
+      }
+    ],
+    "temperature": "{{payload.params.temperature | default:0.2}}",
+    "response_format": {
+      "type": "{{payload.params.response_format | default:json_object}}"
+    }
+  },
+  "result": {
+    "request_id": "$.id",
+    "output_text": "$.choices[0].message.content"
+  }
+}

@@ -1,0 +1,8 @@
+### ComfyUI Schema Validation Errors (400)
+When injecting parameters via `render.py`, ComfyUI returns a 400 error if values do not strictly match the expected types/lists in the workflow's API schema:
+1. **Seed/Noise**: `RandomNoise` nodes often require positive INTs (`min: 0`). Avoid `-1` (default in many UIs, but invalid in some API validation layers). Use `42` or similar.
+2. **Booleans as Strings**: Some custom nodes (e.g., `ImageResizeKJv2`) expect specific string literals (e.g., "stretch", "crop") for parameters that seem boolean or enum. If validation fails with "Value not in list", check the `node_errors` details to find acceptable string values.
+3. **SageAttention**: `sage_attention` expects a list of string options (e.g. `"disabled"`, `"auto"`), not `false` (boolean). Ensure the schema definition for this input is `type: "string"`.
+4. **Schema fan-out / nested fields**: Workflow schemas may use `node_ids` to inject the same value into multiple nodes and `field_path` for nested custom-node widgets such as rgthree PowerLoraLoader. `run_workflow.py` must support both; otherwise it will throw `KeyError: 'node_id'` or skip nested LoRA toggles.
+5. **ImageResizeKJv2 keep_proportion**: Current KJNodes expect enum strings such as `"stretch"`, `"resize"`, `"crop"`, `"pad"`; old workflows may contain boolean `false`, causing `value_not_in_list`. Inject `crop_resize: "stretch"` or update the workflow/schema.
+6. **Model Paths**: Exact model names (including extensions) must match what is registered in the ComfyUI `model_list`. Check the error response's `details` field to see the exact expected string/path syntax.

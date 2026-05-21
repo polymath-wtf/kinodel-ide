@@ -1,0 +1,158 @@
+{
+  "schema": "kinodel.capability_contracts.v1",
+  "active_pipelines": [
+    "cinematic.v1"
+  ],
+  "capabilities": [
+    {
+      "id": "narrative_planning.cinematic.v1",
+      "status": "active",
+      "bindable": true,
+      "owner_skill": "storytell-kinodel",
+      "stage_types": [
+        "agent_stage"
+      ],
+      "reads": [
+        "brief.json"
+      ],
+      "writes": [
+        "story.json"
+      ]
+    },
+    {
+      "id": "visual_anchor_planning.single.v1",
+      "status": "active",
+      "bindable": true,
+      "owner_skill": "wardrobe-kinodel",
+      "stage_types": [
+        "agent_stage"
+      ],
+      "reads": [
+        "brief.json",
+        "story.json"
+      ],
+      "writes": [
+        "wardrobe_request.json"
+      ]
+    },
+    {
+      "id": "story_frame_planning.cinematic.v1",
+      "status": "active",
+      "bindable": true,
+      "owner_skill": "storyboard-kinodel",
+      "stage_types": [
+        "agent_stage"
+      ],
+      "reads": [
+        "brief.json",
+        "story.json",
+        "render_results/main_frame_result.json"
+      ],
+      "writes": [
+        "storyboard_requests.json"
+      ]
+    },
+    {
+      "id": "video_motion_planning.i2v_flf2v.v1",
+      "status": "active",
+      "bindable": true,
+      "owner_skill": "filmmaker-kinodel",
+      "stage_types": [
+        "agent_stage"
+      ],
+      "reads": [
+        "brief.json",
+        "story.json",
+        "render_results/story_frames_result.json"
+      ],
+      "writes": [
+        "video_requests.json"
+      ]
+    },
+    {
+      "id": "montage_assembly.simple.v1",
+      "status": "active",
+      "bindable": true,
+      "owner_skill": "montage-kinodel",
+      "stage_types": [
+        "montage_stage"
+      ],
+      "reads": [
+        "render_results/shot_videos_result.json"
+      ],
+      "writes": [
+        "outputs/final.mp4"
+      ]
+    },
+    {
+      "id": "review_qc.v1",
+      "status": "active",
+      "bindable": true,
+      "owner_skill": "critic-kinodel",
+      "stage_types": [
+        "review_gate"
+      ],
+      "reads": [
+        "render_results/main_frame_result.json",
+        "render_results/story_frames_result.json"
+      ],
+      "writes": [
+        "qc/critic_notes.json"
+      ]
+    },
+    {
+      "id": "render.image.fal_nano_banana_2.v1",
+      "status": "active",
+      "bindable": true,
+      "owner_skill": "render-kinodel",
+      "stage_types": [
+        "render_stage"
+      ],
+      "adapter_profiles": [
+        "fal:hidream_o1",
+        "fal:hidream_o1_edit",
+        "fal:nano_banana_2",
+        "fal:nano_banana_2_edit"
+      ],
+      "job_kinds": [
+        "t2i",
+        "i2i"
+      ]
+    },
+    {
+      "id": "render.video.fal_veo31_lite.v1",
+      "status": "active",
+      "bindable": true,
+      "owner_skill": "render-kinodel",
+      "stage_types": [
+        "render_stage"
+      ],
+      "adapter_profiles": [
+        "fal:veo31_lite_i2v",
+        "fal:veo31_lite_flf2v"
+      ],
+      "job_kinds": [
+        "i2v",
+        "flf2v"
+      ]
+    },
+    {
+      "id": "serial.season_planning.v1",
+      "status": "planned",
+      "bindable": false,
+      "owner_skill": "season-kinodel",
+      "stage_types": [
+        "agent_stage"
+      ]
+    },
+    {
+      "id": "music.audio_planning.v1",
+      "status": "planned",
+      "bindable": false,
+      "owner_skill": "muse-kinodel",
+      "stage_types": [
+        "agent_stage"
+      ]
+    }
+  ]
+}

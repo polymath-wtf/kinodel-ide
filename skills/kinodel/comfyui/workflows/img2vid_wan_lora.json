@@ -1,0 +1,458 @@
+{
+  "210": {
+    "inputs": {
+      "text": "{{ $json.output.prompt }}",
+      "clip": [
+        "588",
+        1
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "positive prompt"
+    }
+  },
+  "211": {
+    "inputs": {
+      "text": "slow,oversaturated,flickering,deformed sofa, deformed pillows,poorly texture,色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
+      "clip": [
+        "588",
+        1
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "negative prompt"
+    }
+  },
+  "361": {
+    "inputs": {
+      "width": [
+        "402",
+        1
+      ],
+      "height": [
+        "402",
+        2
+      ],
+      "length": [
+        "620",
+        0
+      ],
+      "batch_size": 1,
+      "positive": [
+        "210",
+        0
+      ],
+      "negative": [
+        "211",
+        0
+      ],
+      "vae": [
+        "602",
+        0
+      ],
+      "clip_vision_output": [
+        "528",
+        0
+      ],
+      "start_image": [
+        "402",
+        0
+      ]
+    },
+    "class_type": "WanImageToVideo",
+    "_meta": {
+      "title": "WanImageToVideo"
+    }
+  },
+  "402": {
+    "inputs": {
+      "width": {{ $('Webhook').item.json.body.settings.video_width }},
+      "height": {{ $('Webhook').item.json.body.settings.video_height }},
+      "upscale_method": "lanczos",
+      "keep_proportion": "{{ $('Webhook').item.json.body.settings.crop_resize }}",
+      "pad_color": "0, 0, 0",
+      "crop_position": "{{ $('Webhook').item.json.body.settings.crop_resize_side }}",
+      "divisible_by": 2,
+      "device": "cpu",
+      "image": [
+        "614",
+        0
+      ]
+    },
+    "class_type": "ImageResizeKJv2",
+    "_meta": {
+      "title": "Resize Image v2"
+    }
+  },
+  "472": {
+    "inputs": {
+      "nag_scale": 11,
+      "nag_alpha": 0.25,
+      "nag_tau": 2.5,
+      "input_type": "default",
+      "model": [
+        "588",
+        0
+      ],
+      "conditioning": [
+        "211",
+        0
+      ]
+    },
+    "class_type": "WanVideoNAG",
+    "_meta": {
+      "title": "WanVideoNAG"
+    }
+  },
+  "473": {
+    "inputs": {
+      "nag_scale": 11,
+      "nag_alpha": 0.25,
+      "nag_tau": 2.5,
+      "input_type": "default",
+      "model": [
+        "593",
+        0
+      ],
+      "conditioning": [
+        "211",
+        0
+      ]
+    },
+    "class_type": "WanVideoNAG",
+    "_meta": {
+      "title": "WanVideoNAG"
+    }
+  },
+  "501": {
+    "inputs": {
+      "add_noise": "enable",
+      "noise_seed": 69,
+      "steps": 8,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "beta",
+      "start_at_step": 0,
+      "end_at_step": 4,
+      "return_with_leftover_noise": "enable",
+      "model": [
+        "505",
+        0
+      ],
+      "positive": [
+        "361",
+        0
+      ],
+      "negative": [
+        "361",
+        1
+      ],
+      "latent_image": [
+        "361",
+        2
+      ]
+    },
+    "class_type": "KSamplerAdvanced",
+    "_meta": {
+      "title": "KSampler (Advanced)"
+    }
+  },
+  "502": {
+    "inputs": {
+      "add_noise": "disable",
+      "noise_seed": {{ $('Webhook').item.json.body.settings.seed }},
+      "steps": 8,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "beta",
+      "start_at_step": 4,
+      "end_at_step": 8,
+      "return_with_leftover_noise": "disable",
+      "model": [
+        "506",
+        0
+      ],
+      "positive": [
+        "361",
+        0
+      ],
+      "negative": [
+        "361",
+        1
+      ],
+      "latent_image": [
+        "501",
+        0
+      ]
+    },
+    "class_type": "KSamplerAdvanced",
+    "_meta": {
+      "title": "KSampler (Advanced)"
+    }
+  },
+  "504": {
+    "inputs": {
+      "samples": [
+        "502",
+        0
+      ],
+      "vae": [
+        "602",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "505": {
+    "inputs": {
+      "shift": 8,
+      "model": [
+        "472",
+        0
+      ]
+    },
+    "class_type": "ModelSamplingSD3",
+    "_meta": {
+      "title": "ModelSamplingSD3"
+    }
+  },
+  "506": {
+    "inputs": {
+      "shift": 8,
+      "model": [
+        "473",
+        0
+      ]
+    },
+    "class_type": "ModelSamplingSD3",
+    "_meta": {
+      "title": "ModelSamplingSD3"
+    }
+  },
+  "528": {
+    "inputs": {
+      "crop": "center",
+      "clip_vision": [
+        "529",
+        0
+      ],
+      "image": [
+        "402",
+        0
+      ]
+    },
+    "class_type": "CLIPVisionEncode",
+    "_meta": {
+      "title": "CLIP Vision Encode"
+    }
+  },
+  "529": {
+    "inputs": {
+      "clip_name": "clip_vision_h.safetensors"
+    },
+    "class_type": "CLIPVisionLoader",
+    "_meta": {
+      "title": "Load CLIP Vision"
+    }
+  },
+  "588": {
+    "inputs": {
+      "PowerLoraLoaderHeaderWidget": {
+        "type": "PowerLoraLoaderHeaderWidget"
+      },
+      "lora_1": {
+        "on": {{ $('Webhook').item.json.body.loras[0].enabled }},
+        "lora": "{{ $('Webhook').item.json.body.loras[0].path_high }}",
+        "strength": {{ $('Webhook').item.json.body.loras[0].weight }}
+      },
+      "lora_2": {
+        "on": {{ $('Webhook').item.json.body.loras[1].enabled }},
+        "lora": "{{ $('Webhook').item.json.body.loras[1].path_high }}",
+        "strength": {{ $('Webhook').item.json.body.loras[1].weight }}
+      },
+      "lora_3": {
+        "on": {{ $('Webhook').item.json.body.loras[2].enabled }},
+        "lora": "{{ $('Webhook').item.json.body.loras[2].path_high }}",
+        "strength": {{ $('Webhook').item.json.body.loras[2].weight }}
+      },
+      "lora_4": {
+        "on": {{ $('Webhook').item.json.body.loras[3].enabled }},
+        "lora": "{{ $('Webhook').item.json.body.loras[3].path_high }}",
+        "strength": {{ $('Webhook').item.json.body.loras[3].weight }}
+      },
+      "lora_5": {
+        "on": {{ $('Webhook').item.json.body.loras[4].enabled }},
+        "lora": "{{ $('Webhook').item.json.body.loras[4].path_high }}",
+        "strength": {{ $('Webhook').item.json.body.loras[4].weight }}
+      },
+      "➕ Add Lora": "",
+      "model": [
+        "623",
+        0
+      ],
+      "clip": [
+        "601",
+        0
+      ]
+    },
+    "class_type": "Power Lora Loader (rgthree)",
+    "_meta": {
+      "title": "high lora"
+    }
+  },
+  "593": {
+    "inputs": {
+      "PowerLoraLoaderHeaderWidget": {
+        "type": "PowerLoraLoaderHeaderWidget"
+      },
+      "lora_1": {
+        "on": {{ $('Webhook').item.json.body.loras[0].enabled }},
+        "lora": "{{ $('Webhook').item.json.body.loras[0].path_low }}",
+        "strength": {{ $('Webhook').item.json.body.loras[0].weight }}
+      },
+      "lora_2": {
+        "on": {{ $('Webhook').item.json.body.loras[1].enabled }},
+        "lora": "{{ $('Webhook').item.json.body.loras[1].path_low }}",
+        "strength": {{ $('Webhook').item.json.body.loras[1].weight }}
+      },
+      "lora_3": {
+        "on": {{ $('Webhook').item.json.body.loras[2].enabled }},
+        "lora": "{{ $('Webhook').item.json.body.loras[2].path_low }}",
+        "strength": {{ $('Webhook').item.json.body.loras[2].weight }}
+      },
+      "lora_4": {
+        "on": {{ $('Webhook').item.json.body.loras[3].enabled }},
+        "lora": "{{ $('Webhook').item.json.body.loras[3].path_low }}",
+        "strength": {{ $('Webhook').item.json.body.loras[3].weight }}
+      },
+      "lora_5": {
+        "on": {{ $('Webhook').item.json.body.loras[4].enabled }},
+        "lora": "{{ $('Webhook').item.json.body.loras[4].path_low }}",
+        "strength": {{ $('Webhook').item.json.body.loras[4].weight }}
+      },
+      "➕ Add Lora": "",
+      "model": [
+        "622",
+        0
+      ]
+    },
+    "class_type": "Power Lora Loader (rgthree)",
+    "_meta": {
+      "title": "low lora"
+    }
+  },
+  "601": {
+    "inputs": {
+      "clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+      "type": "wan",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Load CLIP"
+    }
+  },
+  "602": {
+    "inputs": {
+      "vae_name": "wan_2.1_vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "611": {
+    "inputs": {
+      "filename_prefix": "img2vid_endpoint",
+      "format": "auto",
+      "codec": "auto",
+      "video": [
+        "612",
+        0
+      ]
+    },
+    "class_type": "SaveVideo",
+    "_meta": {
+      "title": "Save Video"
+    }
+  },
+  "612": {
+    "inputs": {
+      "fps": 16,
+      "images": [
+        "504",
+        0
+      ]
+    },
+    "class_type": "CreateVideo",
+    "_meta": {
+      "title": "Create Video"
+    }
+  },
+  "614": {
+    "inputs": {
+      "image": "{{ $('Webhook').item.json.body.input.image_url }}",
+      "keep_alpha_channel": false,
+      "output_mode": false
+    },
+    "class_type": "LoadImageFromUrl",
+    "_meta": {
+      "title": "Load Image From URL"
+    }
+  },
+  "620": {
+    "inputs": {
+      "expression": "a*16+1",
+      "a": [
+        "621",
+        0
+      ]
+    },
+    "class_type": "MathExpression|pysssss",
+    "_meta": {
+      "title": "Math Expression 🐍"
+    }
+  },
+  "621": {
+    "inputs": {
+      "value": {{ $('Webhook').item.json.body.settings.duration }}
+    },
+    "class_type": "easy int",
+    "_meta": {
+      "title": "sec duration"
+    }
+  },
+  "622": {
+    "inputs": {
+      "model_name": "{{ $('Webhook').item.json.body.unet.path_low }}",
+      "weight_dtype": "default",
+      "compute_dtype": "default",
+      "patch_cublaslinear": true,
+      "sage_attention": "{{ $('Webhook').item.json.body.settings.sage_attn }}",
+      "enable_fp16_accumulation": false
+    },
+    "class_type": "DiffusionModelLoaderKJ",
+    "_meta": {
+      "title": "Diffusion Model Loader KJ"
+    }
+  },
+  "623": {
+    "inputs": {
+      "model_name": "{{ $('Webhook').item.json.body.unet.path_high }}",
+      "weight_dtype": "default",
+      "compute_dtype": "default",
+      "patch_cublaslinear": true,
+      "sage_attention": "{{ $('Webhook').item.json.body.settings.sage_attn }}",
+      "enable_fp16_accumulation": false
+    },
+    "class_type": "DiffusionModelLoaderKJ",
+    "_meta": {
+      "title": "Diffusion Model Loader KJ"
+    }
+  }
+}

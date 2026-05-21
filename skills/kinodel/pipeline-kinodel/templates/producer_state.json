@@ -1,0 +1,9 @@
+{
+  "schema": "kinodel.producer_state.v1",
+  "project_id": "PROJECT_ID",
+  "pipeline_id": "cinematic.v1",
+  "layout_profile": "cinematic",
+  "current_goal": "p0_briefgate",
+  "stage_cursor": 0,
+  "gate_decisions": []
+}

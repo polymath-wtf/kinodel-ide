@@ -1,0 +1,36 @@
+{
+  "schema": "kinodel.brief.v1",
+  "project_id": "project_id",
+  "status": "complete",
+  "user_vibe": "Raw user story/vibe without extracted technical parameters.",
+  "platform": "square",
+  "aspect_ratio": "1:1",
+  "shot_count": 3,
+  "image": {
+    "resolution": "1K",
+    "format": "png",
+    "width": 1024,
+    "height": 1024
+  },
+  "video": {
+    "workflow": "i2v",
+    "flow": "i2v",
+    "seconds_per_shot": "4s",
+    "resolution": "480p",
+    "enable_audio": false,
+    "width": 480,
+    "height": 480
+  },
+  "provider": "comfyui",
+  "provider_image": "local-comfyui:img2img_klein",
+  "provider_edit": "local-comfyui:img2img_klein",
+  "provider_video": "local-comfyui:img2vid_wan_lora",
+  "provider_flf2v": "fal:veo31_lite_flf2v",
+  "defaults": {
+    "provider": "comfyui",
+    "provider_image": "local-comfyui:img2img_klein",
+    "provider_edit": "local-comfyui:img2img_klein",
+    "provider_video": "local-comfyui:img2vid_wan_lora",
+    "provider_flf2v": "fal:veo31_lite_flf2v"
+  }
+}

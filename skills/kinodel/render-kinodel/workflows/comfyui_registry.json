@@ -1,0 +1,48 @@
+{
+  "schema": "kinodel.render_workflow_registry.v1",
+  "workflows": {
+    "img2img_klein": {
+      "provider": "local-comfyui",
+      "adapter": "comfyui_workflow",
+      "kind": "image",
+      "accepted_job_kinds": ["t2i", "i2i"],
+      "workflow_path": "workflows/img2img_klein.json",
+      "schema_path": "workflows/img2img_klein.schema.json",
+      "default_timeout_s": 900,
+      "concurrency_class": "local_comfyui_image",
+      "max_concurrency": 1,
+      "outputs": {
+        "preferred_media_type": "image",
+        "default_extension": "png",
+        "prefer_source_type": "output"
+      }
+    },
+    "img2vid_wan_lora": {
+      "provider": "local-comfyui",
+      "adapter": "comfyui_workflow",
+      "kind": "video",
+      "accepted_job_kinds": ["i2v"],
+      "workflow_path": "workflows/img2vid_wan_lora.json",
+      "schema_path": "workflows/img2vid_wan_lora.schema.json",
+      "default_timeout_s": 1800,
+      "concurrency_class": "local_comfyui_video",
+      "max_concurrency": 1,
+      "outputs": {
+        "preferred_media_type": "video",
+        "default_extension": "mp4"
+      }
+    }
+  },
+  "aliases": {
+    "comfyui": "kind-aware: img2img_klein for t2i/i2i, img2vid_wan_lora for i2v",
+    "local-comfyui": "kind-aware: img2img_klein for t2i/i2i, img2vid_wan_lora for i2v",
+    "comfyui:img2img_klein": "img2img_klein",
+    "local-comfyui:img2img_klein": "img2img_klein",
+    "comfyui/img2img_klein": "img2img_klein",
+    "local-comfyui/img2img_klein": "img2img_klein",
+    "comfyui:img2vid_wan_lora": "img2vid_wan_lora",
+    "local-comfyui:img2vid_wan_lora": "img2vid_wan_lora",
+    "comfyui/img2vid_wan_lora": "img2vid_wan_lora",
+    "local-comfyui/img2vid_wan_lora": "img2vid_wan_lora"
+  }
+}

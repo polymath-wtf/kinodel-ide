@@ -1,0 +1,27 @@
+{
+  "template_id": "fal_veo31_lite_flf2v",
+  "provider": "fal:veo31_lite_flf2v",
+  "legacy_aliases": ["fal:veo31_lite_flf2video"],
+  "kind": "flf2v",
+  "method": "POST",
+  "endpoint": "https://queue.fal.run/fal-ai/veo3.1/lite/first-last-frame-to-video",
+  "job_class": "hosted_video",
+  "body": {
+    "prompt": "{{payload.prompt}}",
+    "aspect_ratio": "{{payload.params.aspect_ratio | default:auto}}",
+    "duration": "{{payload.params.duration | default:8s}}",
+    "resolution": "{{payload.params.resolution | default:480p}}",
+    "generate_audio": "{{payload.params.generate_audio | payload.params.enable_audio | default:false}}",
+    "safety_tolerance": "{{payload.params.safety_tolerance | default:4}}",
+    "first_frame_url": "{{payload.first_frame_url | payload.image_urls[0] | payload.references[0]}}",
+    "last_frame_url": "{{payload.last_frame_url | payload.image_urls[1] | payload.references[1]}}"
+  },
+  "required": ["payload.prompt", "first_frame_url", "last_frame_url"],
+  "forbidden_body_keys": ["image_url", "duration_seconds", "audio_url"],
+  "result": {
+    "request_id": "$.request_id",
+    "status_url": "$.status_url",
+    "response_url": "$.response_url",
+    "output_url": "$.video.url"
+  }
+}

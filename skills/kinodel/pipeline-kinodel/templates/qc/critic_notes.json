@@ -1,0 +1,6 @@
+{
+  "schema": "kinodel.qc_notes.v1",
+  "project_id": "project_id",
+  "mode": "story_qc|main_frame_qc|storyboard_qc|video_qc",
+  "notes": []
+}

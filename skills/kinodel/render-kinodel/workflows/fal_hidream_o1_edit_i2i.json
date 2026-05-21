@@ -1,0 +1,28 @@
+{
+  "template_id": "fal_hidream_o1_edit_i2i",
+  "provider": "fal:hidream_o1_edit",
+  "kind": "i2i",
+  "method": "POST",
+  "endpoint": "https://queue.fal.run/fal-ai/hidream-o1-image/edit",
+  "job_class": "hosted_image",
+  "body": {
+    "prompt": "{{payload.prompt}}",
+    "reference_image_urls": "{{payload.image_urls}}",
+    "image_size": "{{payload.params.image_size | default:{\"width\":1024,\"height\":1024}}}",
+    "num_inference_steps": "{{payload.params.num_inference_steps | default:50}}",
+    "guidance_scale": "{{payload.params.guidance_scale | default:5}}",
+    "num_images": "{{payload.params.num_images | default:1}}",
+    "output_format": "{{payload.params.output_format | default:png}}",
+    "enable_safety_checker": "{{payload.params.enable_safety_checker | default:false}}",
+    "seed": "{{payload.params.seed | default:null}}",
+    "sync_mode": "{{payload.params.sync_mode | default:null}}",
+    "keep_original_aspect": "{{payload.params.keep_original_aspect | default:false}}"
+  },
+  "required": ["payload.prompt", "payload.image_urls"],
+  "result": {
+    "request_id": "$.request_id",
+    "status_url": "$.status_url",
+    "response_url": "$.response_url",
+    "output_url": "$.images[0].url"
+  }
+}

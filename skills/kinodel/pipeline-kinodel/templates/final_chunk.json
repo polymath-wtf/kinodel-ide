@@ -1,0 +1,25 @@
+{
+  "schema": "kinodel.final_chunk.v1",
+  "project_id": "project_id",
+  "story": "Final concise story of the finished cinematic.",
+  "hook": "Final hook.",
+  "main_frame": {
+    "path": "outputs/main_frame.png"
+  },
+  "story_images": [
+    {
+      "shot_id": "shot_01",
+      "path": "outputs/shot_01.png"
+    }
+  ],
+  "video_clips": [
+    {
+      "shot_id": "shot_01",
+      "path": "outputs/shot_01.mp4"
+    }
+  ],
+  "final_video": {
+    "path": "outputs/final.mp4"
+  },
+  "conclusion": "Why the cinematic works / what it means."
+}

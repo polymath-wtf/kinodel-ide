@@ -1,0 +1,175 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kinodel.local/schemas/pipeline_spec.v1.json",
+  "title": "Kinodel pipeline_spec.v1",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema",
+    "pipeline_id",
+    "display_name",
+    "version",
+    "compatibility",
+    "project_layout_profile",
+    "final_chunk",
+    "chunk_dependencies",
+    "stages"
+  ],
+  "properties": {
+    "schema": {
+      "const": "kinodel.pipeline_spec.v1"
+    },
+    "pipeline_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "display_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "legacy_goal_aliases",
+        "hard_gate_aliases"
+      ],
+      "properties": {
+        "legacy_goal_aliases": {
+          "type": "boolean"
+        },
+        "hard_gate_aliases": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "project_layout_profile": {
+      "type": "string",
+      "minLength": 1
+    },
+    "final_chunk": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "type",
+        "path",
+        "schema"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "chunk_dependencies": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "stages": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "goal",
+          "type",
+          "reads",
+          "writes"
+        ],
+        "properties": {
+          "goal": {
+            "type": "string",
+            "minLength": 1
+          },
+          "type": {
+            "enum": [
+              "briefgate",
+              "context_gate",
+              "agent_stage",
+              "render_stage",
+              "review_gate",
+              "montage_stage",
+              "chunk_write_stage"
+            ]
+          },
+          "reads": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "writes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "owner_skill": {
+            "type": "string"
+          },
+          "requires_capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "validator": {
+            "type": "string"
+          },
+          "request_artifact": {
+            "type": "string"
+          },
+          "result_artifact": {
+            "type": "string"
+          },
+          "modality": {
+            "type": "string"
+          },
+          "adapter_profile": {
+            "type": "string"
+          },
+          "gate_alias": {
+            "type": "string"
+          },
+          "gate_kind": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "stop": {
+            "type": "boolean"
+          },
+          "choices": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "chunk_type": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

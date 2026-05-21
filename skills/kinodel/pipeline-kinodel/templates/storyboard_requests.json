@@ -1,0 +1,17 @@
+{
+  "schema": "kinodel.render_requests.v1",
+  "project_id": "PROJECT_ID",
+  "status": "complete",
+  "stage": "story_frames",
+  "jobs": [
+    {
+      "shot_id": "shot_01",
+      "kind": "i2i",
+      "render_prompt": "Describe story frame 01, consistent with the approved main frame.",
+      "input_media": [
+        "https://example.com/main_frame.png"
+      ],
+      "output_name": "shot_01.png"
+    }
+  ]
+}

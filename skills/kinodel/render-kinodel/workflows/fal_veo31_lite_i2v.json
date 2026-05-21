@@ -1,0 +1,26 @@
+{
+  "template_id": "fal_veo31_lite_i2v",
+  "provider": "fal:veo31_lite_i2v",
+  "legacy_aliases": ["fal:veo"],
+  "kind": "i2v",
+  "method": "POST",
+  "endpoint": "https://queue.fal.run/fal-ai/veo3.1/lite/image-to-video",
+  "job_class": "hosted_video",
+  "body": {
+    "image_url": "{{payload.reference_image_url | payload.image_url | payload.image_urls[0] | payload.references[0]}}",
+    "prompt": "{{payload.prompt}}",
+    "aspect_ratio": "{{payload.params.aspect_ratio | default:auto}}",
+    "duration": "{{payload.params.duration | default:4s}}",
+    "resolution": "{{payload.params.resolution | default:480p}}",
+    "generate_audio": "{{payload.params.generate_audio | payload.params.enable_audio | default:false}}",
+    "safety_tolerance": "{{payload.params.safety_tolerance | default:4}}"
+  },
+  "required": ["payload.prompt", "image_url"],
+  "forbidden_body_keys": ["duration_seconds", "audio_url"],
+  "result": {
+    "request_id": "$.request_id",
+    "status_url": "$.status_url",
+    "response_url": "$.response_url",
+    "output_url": "$.video.url"
+  }
+}

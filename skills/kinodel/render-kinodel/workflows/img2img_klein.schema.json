@@ -1,0 +1,250 @@
+{
+  "description": "Flux2 img2img via PainterFluxImageEdit with 4 reference images + rgthree PowerLoraLoader + optional turbo LoRA. All images loaded from URL.",
+  "kind": "i2i",
+  "parameters": {
+    "seed": {
+      "node_id": "671",
+      "field": "noise_seed",
+      "default": -1,
+      "type": "int"
+    },
+    "height": {
+      "node_id": "814",
+      "field": "value",
+      "default": 1024,
+      "type": "int"
+    },
+    "width": {
+      "node_id": "815",
+      "field": "value",
+      "default": 1024,
+      "type": "int"
+    },
+    "prompt": {
+      "node_id": "820",
+      "field": "prompt",
+      "default": "",
+      "type": "string"
+    },
+    "img_url_1": {
+      "node_id": "823",
+      "field": "image",
+      "default": "",
+      "type": "string"
+    },
+    "img_url_2": {
+      "node_id": "830",
+      "field": "image",
+      "default": "",
+      "type": "string"
+    },
+    "img_url_3": {
+      "node_id": "832",
+      "field": "image",
+      "default": "",
+      "type": "string"
+    },
+    "img_url_4": {
+      "node_id": "845",
+      "field": "image",
+      "default": "",
+      "type": "string"
+    },
+    "crop_resize": {
+      "node_ids": [
+        "826",
+        "831",
+        "833",
+        "846"
+      ],
+      "field": "keep_proportion",
+      "default": "crop",
+      "type": "string"
+    },
+    "crop_resize_side": {
+      "node_ids": [
+        "826",
+        "831",
+        "833",
+        "846"
+      ],
+      "field": "crop_position",
+      "default": "center",
+      "type": "string"
+    },
+    "unet_path": {
+      "node_id": "844",
+      "field": "model_name",
+      "default": "flux\\darkBeastMar0326Latest_dbkleinv2BFS.safetensors",
+      "type": "string"
+    },
+    "sage_attn": {
+      "node_id": "844",
+      "field": "sage_attention",
+      "default": "disabled",
+      "type": "string"
+    },
+    "turbo": {
+      "node_id": "819",
+      "field_path": [
+        "lora_6",
+        "on"
+      ],
+      "default": false,
+      "type": "bool"
+    },
+    "turbo_lora_path": {
+      "node_id": "819",
+      "field_path": [
+        "lora_6",
+        "lora"
+      ],
+      "default": "flux 2/klein/distill/klein_9B_Turbo_r64.safetensors",
+      "type": "string"
+    },
+    "turbo_lora_strength": {
+      "node_id": "819",
+      "field_path": [
+        "lora_6",
+        "strength"
+      ],
+      "default": 0.69,
+      "type": "float"
+    },
+    "lora_1_on": {
+      "node_id": "819",
+      "field_path": [
+        "lora_1",
+        "on"
+      ],
+      "default": true,
+      "type": "bool"
+    },
+    "lora_1_path": {
+      "node_id": "819",
+      "field_path": [
+        "lora_1",
+        "lora"
+      ],
+      "default": "",
+      "type": "string"
+    },
+    "lora_1_strength": {
+      "node_id": "819",
+      "field_path": [
+        "lora_1",
+        "strength"
+      ],
+      "default": 1.0,
+      "type": "float"
+    },
+    "lora_2_on": {
+      "node_id": "819",
+      "field_path": [
+        "lora_2",
+        "on"
+      ],
+      "default": true,
+      "type": "bool"
+    },
+    "lora_2_path": {
+      "node_id": "819",
+      "field_path": [
+        "lora_2",
+        "lora"
+      ],
+      "default": "",
+      "type": "string"
+    },
+    "lora_2_strength": {
+      "node_id": "819",
+      "field_path": [
+        "lora_2",
+        "strength"
+      ],
+      "default": 1.0,
+      "type": "float"
+    },
+    "lora_3_on": {
+      "node_id": "819",
+      "field_path": [
+        "lora_3",
+        "on"
+      ],
+      "default": true,
+      "type": "bool"
+    },
+    "lora_3_path": {
+      "node_id": "819",
+      "field_path": [
+        "lora_3",
+        "lora"
+      ],
+      "default": "",
+      "type": "string"
+    },
+    "lora_3_strength": {
+      "node_id": "819",
+      "field_path": [
+        "lora_3",
+        "strength"
+      ],
+      "default": 1.0,
+      "type": "float"
+    },
+    "lora_4_on": {
+      "node_id": "819",
+      "field_path": [
+        "lora_4",
+        "on"
+      ],
+      "default": true,
+      "type": "bool"
+    },
+    "lora_4_path": {
+      "node_id": "819",
+      "field_path": [
+        "lora_4",
+        "lora"
+      ],
+      "default": "",
+      "type": "string"
+    },
+    "lora_4_strength": {
+      "node_id": "819",
+      "field_path": [
+        "lora_4",
+        "strength"
+      ],
+      "default": 1.0,
+      "type": "float"
+    },
+    "lora_5_on": {
+      "node_id": "819",
+      "field_path": [
+        "lora_5",
+        "on"
+      ],
+      "default": true,
+      "type": "bool"
+    },
+    "lora_5_path": {
+      "node_id": "819",
+      "field_path": [
+        "lora_5",
+        "lora"
+      ],
+      "default": "",
+      "type": "string"
+    },
+    "lora_5_strength": {
+      "node_id": "819",
+      "field_path": [
+        "lora_5",
+        "strength"
+      ],
+      "default": 1.0,
+      "type": "float"
+    }
+  }
+}

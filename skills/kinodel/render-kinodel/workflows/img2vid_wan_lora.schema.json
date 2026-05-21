@@ -1,0 +1,345 @@
+{
+  "description": "Wan 2.1 img2vid with dual-pass KSampler (steps 0-4 high-res / 4-8 low-res), rgthree PowerLoraLoader x2 (high/low), UMT5 CLIP, clip_vision_h, image-conditioned via LoadImageFromUrl.",
+  "kind": "i2v",
+  "parameters": {
+    "prompt": {
+      "node_id": "210",
+      "field": "text",
+      "default": "",
+      "type": "string"
+    },
+    "video_width": {
+      "node_id": "402",
+      "field": "width",
+      "default": 832,
+      "type": "int"
+    },
+    "video_height": {
+      "node_id": "402",
+      "field": "height",
+      "default": 480,
+      "type": "int"
+    },
+    "crop_resize": {
+      "node_id": "402",
+      "field": "keep_proportion",
+      "default": "crop",
+      "type": "string"
+    },
+    "crop_resize_side": {
+      "node_id": "402",
+      "field": "crop_position",
+      "default": "center",
+      "type": "string"
+    },
+    "seed": {
+      "node_id": "502",
+      "field": "noise_seed",
+      "default": 42,
+      "type": "int"
+    },
+    "duration": {
+      "node_id": "621",
+      "field": "value",
+      "default": 4,
+      "type": "int"
+    },
+    "image_url": {
+      "node_id": "614",
+      "field": "image",
+      "default": "",
+      "type": "string"
+    },
+    "unet_path_low": {
+      "node_id": "622",
+      "field": "model_name",
+      "default": "wan\\Dasiwa_SynthSeduction_v9_low.safetensors",
+      "type": "string"
+    },
+    "unet_path_high": {
+      "node_id": "623",
+      "field": "model_name",
+      "default": "wan\\Dasiwa_SynthSeduction_v9_high.safetensors",
+      "type": "string"
+    },
+    "sage_attn": {
+      "node_ids": [
+        "622",
+        "623"
+      ],
+      "field": "sage_attention",
+      "default": "disabled",
+      "type": "string"
+    },
+    "lora_1_high_on": {
+      "node_id": "588",
+      "field_path": [
+        "lora_1",
+        "on"
+      ],
+      "default": true,
+      "type": "bool"
+    },
+    "lora_1_high_path": {
+      "node_id": "588",
+      "field_path": [
+        "lora_1",
+        "lora"
+      ],
+      "default": "",
+      "type": "string"
+    },
+    "lora_1_high_strength": {
+      "node_id": "588",
+      "field_path": [
+        "lora_1",
+        "strength"
+      ],
+      "default": 1.0,
+      "type": "float"
+    },
+    "lora_2_high_on": {
+      "node_id": "588",
+      "field_path": [
+        "lora_2",
+        "on"
+      ],
+      "default": true,
+      "type": "bool"
+    },
+    "lora_2_high_path": {
+      "node_id": "588",
+      "field_path": [
+        "lora_2",
+        "lora"
+      ],
+      "default": "",
+      "type": "string"
+    },
+    "lora_2_high_strength": {
+      "node_id": "588",
+      "field_path": [
+        "lora_2",
+        "strength"
+      ],
+      "default": 1.0,
+      "type": "float"
+    },
+    "lora_3_high_on": {
+      "node_id": "588",
+      "field_path": [
+        "lora_3",
+        "on"
+      ],
+      "default": true,
+      "type": "bool"
+    },
+    "lora_3_high_path": {
+      "node_id": "588",
+      "field_path": [
+        "lora_3",
+        "lora"
+      ],
+      "default": "",
+      "type": "string"
+    },
+    "lora_3_high_strength": {
+      "node_id": "588",
+      "field_path": [
+        "lora_3",
+        "strength"
+      ],
+      "default": 1.0,
+      "type": "float"
+    },
+    "lora_4_high_on": {
+      "node_id": "588",
+      "field_path": [
+        "lora_4",
+        "on"
+      ],
+      "default": true,
+      "type": "bool"
+    },
+    "lora_4_high_path": {
+      "node_id": "588",
+      "field_path": [
+        "lora_4",
+        "lora"
+      ],
+      "default": "",
+      "type": "string"
+    },
+    "lora_4_high_strength": {
+      "node_id": "588",
+      "field_path": [
+        "lora_4",
+        "strength"
+      ],
+      "default": 1.0,
+      "type": "float"
+    },
+    "lora_5_high_on": {
+      "node_id": "588",
+      "field_path": [
+        "lora_5",
+        "on"
+      ],
+      "default": true,
+      "type": "bool"
+    },
+    "lora_5_high_path": {
+      "node_id": "588",
+      "field_path": [
+        "lora_5",
+        "lora"
+      ],
+      "default": "",
+      "type": "string"
+    },
+    "lora_5_high_strength": {
+      "node_id": "588",
+      "field_path": [
+        "lora_5",
+        "strength"
+      ],
+      "default": 1.0,
+      "type": "float"
+    },
+    "lora_1_low_on": {
+      "node_id": "593",
+      "field_path": [
+        "lora_1",
+        "on"
+      ],
+      "default": true,
+      "type": "bool"
+    },
+    "lora_1_low_path": {
+      "node_id": "593",
+      "field_path": [
+        "lora_1",
+        "lora"
+      ],
+      "default": "",
+      "type": "string"
+    },
+    "lora_1_low_strength": {
+      "node_id": "593",
+      "field_path": [
+        "lora_1",
+        "strength"
+      ],
+      "default": 1.0,
+      "type": "float"
+    },
+    "lora_2_low_on": {
+      "node_id": "593",
+      "field_path": [
+        "lora_2",
+        "on"
+      ],
+      "default": true,
+      "type": "bool"
+    },
+    "lora_2_low_path": {
+      "node_id": "593",
+      "field_path": [
+        "lora_2",
+        "lora"
+      ],
+      "default": "",
+      "type": "string"
+    },
+    "lora_2_low_strength": {
+      "node_id": "593",
+      "field_path": [
+        "lora_2",
+        "strength"
+      ],
+      "default": 1.0,
+      "type": "float"
+    },
+    "lora_3_low_on": {
+      "node_id": "593",
+      "field_path": [
+        "lora_3",
+        "on"
+      ],
+      "default": true,
+      "type": "bool"
+    },
+    "lora_3_low_path": {
+      "node_id": "593",
+      "field_path": [
+        "lora_3",
+        "lora"
+      ],
+      "default": "",
+      "type": "string"
+    },
+    "lora_3_low_strength": {
+      "node_id": "593",
+      "field_path": [
+        "lora_3",
+        "strength"
+      ],
+      "default": 1.0,
+      "type": "float"
+    },
+    "lora_4_low_on": {
+      "node_id": "593",
+      "field_path": [
+        "lora_4",
+        "on"
+      ],
+      "default": true,
+      "type": "bool"
+    },
+    "lora_4_low_path": {
+      "node_id": "593",
+      "field_path": [
+        "lora_4",
+        "lora"
+      ],
+      "default": "",
+      "type": "string"
+    },
+    "lora_4_low_strength": {
+      "node_id": "593",
+      "field_path": [
+        "lora_4",
+        "strength"
+      ],
+      "default": 1.0,
+      "type": "float"
+    },
+    "lora_5_low_on": {
+      "node_id": "593",
+      "field_path": [
+        "lora_5",
+        "on"
+      ],
+      "default": true,
+      "type": "bool"
+    },
+    "lora_5_low_path": {
+      "node_id": "593",
+      "field_path": [
+        "lora_5",
+        "lora"
+      ],
+      "default": "",
+      "type": "string"
+    },
+    "lora_5_low_strength": {
+      "node_id": "593",
+      "field_path": [
+        "lora_5",
+        "strength"
+      ],
+      "default": 1.0,
+      "type": "float"
+    }
+  }
+}

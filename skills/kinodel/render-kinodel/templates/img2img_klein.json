@@ -1,0 +1,240 @@
+{
+  "666": {
+    "inputs": {
+      "cfg": 1,
+      "model": ["819", 0],
+      "positive": ["820", 0],
+      "negative": ["669", 0]
+    },
+    "class_type": "CFGGuider",
+    "_meta": {"title": "CFGGuider"}
+  },
+  "667": {
+    "inputs": {
+      "noise": ["671", 0],
+      "guider": ["666", 0],
+      "sampler": ["670", 0],
+      "sigmas": ["679", 0],
+      "latent_image": ["820", 2]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {"title": "SamplerCustomAdvanced"}
+  },
+  "668": {
+    "inputs": {
+      "samples": ["667", 0],
+      "vae": ["803", 0]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {"title": "VAE Decode"}
+  },
+  "669": {
+    "inputs": {
+      "conditioning": ["820", 1]
+    },
+    "class_type": "ConditioningZeroOut",
+    "_meta": {"title": "ConditioningZeroOut"}
+  },
+  "670": {
+    "inputs": {
+      "sampler_name": "euler"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {"title": "KSamplerSelect"}
+  },
+  "671": {
+    "inputs": {
+      "noise_seed": -1
+    },
+    "class_type": "RandomNoise",
+    "_meta": {"title": "RandomNoise"}
+  },
+  "679": {
+    "inputs": {
+      "steps": 10,
+      "width": ["815", 0],
+      "height": ["814", 0]
+    },
+    "class_type": "Flux2Scheduler",
+    "_meta": {"title": "Flux2Scheduler"}
+  },
+  "803": {
+    "inputs": {
+      "vae_name": "flux2-vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {"title": "Load VAE"}
+  },
+  "814": {
+    "inputs": {
+      "value": 1024
+    },
+    "class_type": "easy int",
+    "_meta": {"title": "height base"}
+  },
+  "815": {
+    "inputs": {
+      "value": 1024
+    },
+    "class_type": "easy int",
+    "_meta": {"title": "width base"}
+  },
+  "817": {
+    "inputs": {
+      "clip_name": "qwen_3_8b_fp4mixed.safetensors",
+      "type": "flux2",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {"title": "Load CLIP"}
+  },
+  "819": {
+    "inputs": {
+      "PowerLoraLoaderHeaderWidget": {"type": "PowerLoraLoaderHeaderWidget"},
+      "lora_1": {"on": true, "lora": "", "strength": 1.0},
+      "lora_2": {"on": true, "lora": "", "strength": 1.0},
+      "lora_3": {"on": true, "lora": "", "strength": 1.0},
+      "lora_4": {"on": true, "lora": "", "strength": 1.0},
+      "lora_5": {"on": true, "lora": "", "strength": 1.0},
+      "lora_6": {"on": false, "lora": "flux 2/klein/distill/klein_9B_Turbo_r64.safetensors", "strength": 0.69},
+      "➕ Add Lora": "",
+      "model": ["844", 0],
+      "clip": ["817", 0]
+    },
+    "class_type": "Power Lora Loader (rgthree)",
+    "_meta": {"title": "Power Lora Loader (rgthree)"}
+  },
+  "820": {
+    "inputs": {
+      "prompt": "",
+      "mode": "4_image",
+      "batch_size": 1,
+      "width": ["815", 0],
+      "height": ["814", 0],
+      "clip": ["819", 1],
+      "vae": ["803", 0],
+      "image1": ["826", 0],
+      "image2": ["831", 0],
+      "image3": ["833", 0],
+      "image4": ["846", 0]
+    },
+    "class_type": "PainterFluxImageEdit",
+    "_meta": {"title": "Painter Flux Image Edit"}
+  },
+  "823": {
+    "inputs": {
+      "image": "",
+      "keep_alpha_channel": false,
+      "output_mode": false
+    },
+    "class_type": "LoadImageFromUrl",
+    "_meta": {"title": "ref image url 1"}
+  },
+  "826": {
+    "inputs": {
+      "width": ["815", 0],
+      "height": ["814", 0],
+      "upscale_method": "lanczos",
+      "keep_proportion": false,
+      "pad_color": "0, 0, 0",
+      "crop_position": "center",
+      "divisible_by": 2,
+      "device": "cpu",
+      "image": ["823", 0]
+    },
+    "class_type": "ImageResizeKJv2",
+    "_meta": {"title": "Resize v2 url 1"}
+  },
+  "830": {
+    "inputs": {
+      "image": "",
+      "keep_alpha_channel": false,
+      "output_mode": false
+    },
+    "class_type": "LoadImageFromUrl",
+    "_meta": {"title": "ref image url 2"}
+  },
+  "831": {
+    "inputs": {
+      "width": ["815", 0],
+      "height": ["814", 0],
+      "upscale_method": "lanczos",
+      "keep_proportion": false,
+      "pad_color": "0, 0, 0",
+      "crop_position": "center",
+      "divisible_by": 2,
+      "device": "cpu",
+      "image": ["830", 0]
+    },
+    "class_type": "ImageResizeKJv2",
+    "_meta": {"title": "Resize v2 url 2"}
+  },
+  "832": {
+    "inputs": {
+      "image": "",
+      "keep_alpha_channel": false,
+      "output_mode": false
+    },
+    "class_type": "LoadImageFromUrl",
+    "_meta": {"title": "ref image url 3"}
+  },
+  "833": {
+    "inputs": {
+      "width": ["815", 0],
+      "height": ["814", 0],
+      "upscale_method": "lanczos",
+      "keep_proportion": false,
+      "pad_color": "0, 0, 0",
+      "crop_position": "center",
+      "divisible_by": 2,
+      "device": "cpu",
+      "image": ["832", 0]
+    },
+    "class_type": "ImageResizeKJv2",
+    "_meta": {"title": "Resize v2 url 3"}
+  },
+  "843": {
+    "inputs": {
+      "filename_prefix": "api",
+      "images": ["668", 0]
+    },
+    "class_type": "SaveImage",
+    "_meta": {"title": "Save Image"}
+  },
+  "844": {
+    "inputs": {
+      "model_name": "flux2.safetensors",
+      "weight_dtype": "default",
+      "compute_dtype": "default",
+      "patch_cublaslinear": false,
+      "sage_attention": false,
+      "enable_fp16_accumulation": false
+    },
+    "class_type": "DiffusionModelLoaderKJ",
+    "_meta": {"title": "Diffusion Model Loader KJ"}
+  },
+  "845": {
+    "inputs": {
+      "image": "",
+      "keep_alpha_channel": false,
+      "output_mode": false
+    },
+    "class_type": "LoadImageFromUrl",
+    "_meta": {"title": "ref image url 4 extra ref"}
+  },
+  "846": {
+    "inputs": {
+      "width": ["815", 0],
+      "height": ["814", 0],
+      "upscale_method": "lanczos",
+      "keep_proportion": false,
+      "pad_color": "0, 0, 0",
+      "crop_position": "center",
+      "divisible_by": 2,
+      "device": "cpu",
+      "image": ["845", 0]
+    },
+    "class_type": "ImageResizeKJv2",
+    "_meta": {"title": "Resize v2 url 4 extra ref"}
+  }
+}

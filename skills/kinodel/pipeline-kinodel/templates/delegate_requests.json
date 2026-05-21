@@ -1,0 +1,63 @@
+{
+  "schema": "kinodel.delegate_requests.v1",
+  "project_id": "project_id",
+  "requests": {
+    "storytell-kinodel": {
+      "project_id": "project_id",
+      "project_dir": "/home/USER/projects/project_id/v1",
+      "stage_goal": "write story",
+      "read": ["brief.json"],
+      "write": "story.json",
+      "return": "status only; do not include full JSON"
+    },
+    "wardrobe-kinodel": {
+      "project_id": "project_id",
+      "project_dir": "/home/USER/projects/project_id/v1",
+      "stage_goal": "plan main_frame",
+      "read": ["brief.json", "story.json"],
+      "write": "wardrobe_request.json",
+      "return": "status only; do not include full JSON"
+    },
+    "storyboard-kinodel": {
+      "project_id": "project_id",
+      "project_dir": "/home/USER/projects/project_id/v1",
+      "stage_goal": "plan story images",
+      "read": ["brief.json", "story.json", "render_results/main_frame_result.json"],
+      "write": "storyboard_requests.json",
+      "return": "status only; use render_results/main_frame_result.json.selected_outputs, do not scan outputs/"
+    },
+    "filmmaker-kinodel": {
+      "project_id": "project_id",
+      "project_dir": "/home/USER/projects/project_id/v1",
+      "stage_goal": "plan videos",
+      "read": ["brief.json", "story.json", "render_results/story_frames_result.json"],
+      "write": "video_requests.json",
+      "return": "status only; use render_results/story_frames_result.json.selected_outputs, do not scan outputs/"
+    },
+    "critic-kinodel": {
+      "project_id": "project_id",
+      "project_dir": "/home/USER/projects/project_id/v1",
+      "stage_goal": "review target artifact",
+      "mode": "story_qc|main_frame_qc|storyboard_qc|video_qc",
+      "read": ["target artifact paths selected by Producer"],
+      "write": "qc/<stage>_critic.json",
+      "return": "notes only; do not rewrite artifacts"
+    },
+    "render-kinodel": {
+      "project_id": "project_id",
+      "project_dir": "/home/USER/projects/project_id/v1",
+      "stage_goal": "execute render request artifact",
+      "read": ["wardrobe_request.json|storyboard_requests.json|video_requests.json"],
+      "write": "render_results/<stage>_result.json",
+      "return": "status and compact generated refs only; Producer updates attempts and selected_outputs"
+    },
+    "montage-kinodel": {
+      "project_id": "project_id",
+      "project_dir": "/home/USER/projects/project_id/v1",
+      "stage_goal": "assemble final video",
+      "read": ["render_results/shot_videos_result.json"],
+      "write": "outputs/final.mp4",
+      "return": "status and final MP4 path only; use selected_outputs, do not scan outputs/"
+    }
+  }
+}

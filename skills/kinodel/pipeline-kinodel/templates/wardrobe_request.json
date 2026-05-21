@@ -1,0 +1,14 @@
+{
+  "schema": "kinodel.render_requests.v1",
+  "project_id": "PROJECT_ID",
+  "status": "complete",
+  "stage": "main_frame",
+  "jobs": [
+    {
+      "kind": "t2i",
+      "render_prompt": "Describe the approved main visual anchor in provider-neutral cinematic language.",
+      "input_media": [],
+      "output_name": "main_frame.png"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "schema": "kinodel.render_result.v1",
+  "project_id": "project_id",
+  "status": "pending",
+  "stage": "story_frames",
+  "selected_outputs": [],
+  "attempts": [],
+  "selection_policy": "outputs/ may contain many generated story frame iterations; selected_outputs contains the current approved shot image refs for downstream video planning."
+}
