@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kinodel.context_pack.v1.schema",
+  "title": "Kinodel resolver context pack",
+  "type": "object",
+  "required": [
+    "schema",
+    "project_id",
+    "pipeline_id",
+    "goal",
+    "consumer_agent",
+    "retrieval_profile",
+    "source_of_truth",
+    "query",
+    "direct_chunks",
+    "projected_chunks",
+    "media_refs",
+    "token_budget",
+    "forbidden"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "schema": {
+      "const": "kinodel.context_pack.v1"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "pipeline_id": {
+      "type": "string"
+    },
+    "goal": {
+      "type": "string"
+    },
+    "consumer_agent": {
+      "type": "string"
+    },
+    "retrieval_profile": {
+      "type": "string"
+    },
+    "source_of_truth": {
+      "enum": [
+        "chunks_only",
+        "approved_artifacts_plus_chunks"
+      ]
+    },
+    "query": {
+      "type": "object"
+    },
+    "direct_chunks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "chunk_id",
+          "artifact_path"
+        ],
+        "properties": {
+          "chunk_id": {
+            "type": "string"
+          },
+          "artifact_path": {
+            "type": "string"
+          },
+          "handoff_mode": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "projected_chunks": {
+      "type": "array"
+    },
+    "media_refs": {
+      "type": "array"
+    },
+    "token_budget": {
+      "type": "object",
+      "required": [
+        "max_context_tokens",
+        "estimated_context_tokens"
+      ],
+      "properties": {
+        "max_context_tokens": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "estimated_context_tokens": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "forbidden": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "not": {
+    "anyOf": [
+      {
+        "required": [
+          "base64"
+        ]
+      },
+      {
+        "required": [
+          "provider_payload"
+        ]
+      },
+      {
+        "required": [
+          "queue_id"
+        ]
+      },
+      {
+        "required": [
+          "raw_response"
+        ]
+      },
+      {
+        "required": [
+          "retry_log"
+        ]
+      },
+      {
+        "required": [
+          "cost_log"
+        ]
+      }
+    ]
+  }
+}

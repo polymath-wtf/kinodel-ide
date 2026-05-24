@@ -1,0 +1,86 @@
+{
+  "schema": "kinodel.episode_chunk.v1",
+  "chunk_id": "episode:<project_id>:<season_id>:<episode_id>:v1",
+  "chunk_type": "episode_chunk",
+  "title": "<episode title>",
+  "status": "planned",
+  "context": {
+    "summary": "Status-aware episode continuity memory. Planned chunks are future setup, not completed facts.",
+    "chunk_role": "continuity_memory",
+    "scope": {
+      "project_id": "<project_id>",
+      "season_id": "<season_id>",
+      "episode_id": "<episode_id>"
+    },
+    "source_artifacts": [
+      "season_plan.json",
+      "story.json",
+      "render_results/*.json",
+      "outputs/final.mp4"
+    ],
+    "canon_policy": "canon"
+  },
+  "references": {
+    "items": []
+  },
+  "action": {
+    "consumer_tasks": [
+      "continue from ending state",
+      "preserve character deltas",
+      "pay off open threads"
+    ],
+    "instructions": [
+      "Direct-load current/previous episode chunk when token-safe; compress older episodes to continuity bullets."
+    ],
+    "forbidden_uses": [
+      "do not treat planned future chunks as completed facts",
+      "do not include provider trace"
+    ]
+  },
+  "focus": {
+    "primary": "continuity",
+    "must_preserve": [
+      "ending state",
+      "emotional state",
+      "open threads",
+      "visual continuity facts"
+    ],
+    "must_not_drift": [
+      "forgotten cliffhanger",
+      "reset relationship changes",
+      "wrong outfit/location state"
+    ],
+    "conflict_resolution": "previous episode ending beats older archive summaries"
+  },
+  "timing": {
+    "mode": "act_sequence",
+    "summary": "Episode act/beat order if available; planned means setup only.",
+    "items": []
+  },
+  "ending_state": {},
+  "character_deltas": [],
+  "continuity_facts": [],
+  "open_threads": [],
+  "payoffs_required": [],
+  "lifecycle_policy": {
+    "planned": "Future/setup only: logline, promise, setup/payoff hints; not completed facts.",
+    "active": "Current episode may be loaded full/direct if token-safe.",
+    "completed": "Continuity facts: ending state, unresolved hooks, character changes, constraints.",
+    "archived": "Not canon; use only as reference_only/inspiration when explicitly selected."
+  },
+  "retrieval_text": "episode_chunk <episode>; status planned active completed archived controls truth; continuity facts, ending state, character deltas, open threads, payoffs; planned future chunks are setup only, not completed facts.",
+  "embedding_profiles": [
+    "default_rag",
+    "deep_retrieval"
+  ],
+  "content_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "craft": {
+    "crafted_by": "craft-kinodel",
+    "craft_version": "kinodel.craft.v1",
+    "quality_checks": [
+      "template:replace_placeholders",
+      "template:run_validate_chunk_schema",
+      "template:run_estimate_chunk_tokens"
+    ]
+  }
+}

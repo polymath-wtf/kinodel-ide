@@ -62,7 +62,7 @@ BriefGate
 7. Provider/runtime garbage stays in `/tmp/kinodel/<project_id>/<run_id>/` or worker debug output, not durable project knowledge.
 8. `render_results/*.json.selected_outputs` is the chaining truth; `outputs/` is an archive/cache, not state.
 9. `final_chunk.json` stores the finished cinematic memory only, not the production trace.
-10. BriefGate video workflow and provider choice are part of durable project state. The current default is ComfyUI i2v 480p 4s (`comfyui` / local-comfyui provider family, one 4s clip per approved story frame) unless the user selects `fal`, `flf2v`, `t2v` with a supported workflow, or another explicit provider. fal.ai remains a supported optional/fallback stack, not the default for this user's normal Kinodel runs.
+11. RAG/chunk resolver outputs are derived handoff/cache, not canon. Durable project memory is owned by crafted chunks and approved artifacts. Prefer direct chunk paths; materialize context packs only per run when a subagent needs a frozen token-budgeted projection.
 
 ## /goal route
 
@@ -92,6 +92,7 @@ For full checkpoint conditions, load `references/goal-pipeline.md`.
 
 - `producer-kinodel`: talks to user, advances goals, validates handoffs, starts packaged workers, writes final memory.
 - `kinodel-project-layout`: initializes project tree after BriefGate approval.
+- `craft-kinodel`: crafts reusable chunk artifacts before indexing/resolver use; packages `context/references/action/focus/timing`, @handles, take/ignore rules, and `retrieval_text`.
 - `storytell-kinodel`: reads `brief.json`, writes `story.json`.
 - `wardrobe-kinodel`: reads brief/story, writes one main-frame render request.
 - `storyboard-kinodel`: reads approved main frame refs, writes story-frame requests.
@@ -188,7 +189,9 @@ Ownership pointers: Layout/scaffold details live in `kinodel-project-layout`; Re
 
 - `render-kinodel/references/resolution-guide.md` — canonical image/video quality and aspect-ratio dimension tables (`1K`/`1.5K`/`2K` images; `480p`/`720p`/`1080p` videos).
 - `references/changing-format-defaults.md` — cross-skill checklist for changing Kinodel canonical defaults such as aspect ratio, platform, image quality, video quality, pixel dimensions, provider examples, workflow templates, and regression tests.
+- `references/gemini-omni-provider-neutral-prompt.md` — Gemini Omni / multimodal video prompt convention for future `omni_video` planning: `craft.context/reference/action/focus/timing`, ingredients inside `craft.reference`, top-level `style`/`camera`/`audio`, and no provider/runtime metadata in final prompts. Load before adding or auditing Gemini Omni, filmmaker chunk refs, or multimodal video request support.
 - `references/universal-runtime-compatibility-audit.md` — pre-upgrade audit checklist and compatibility pitfalls for universal runtime patches: CompiledRoute, explicit gate decisions, serial/music naming, render promotion, chunk statuses, and `render_worker.py` result promotion. Load before auditing or applying pipeline runtime patches.
+- `references/craft-chunk-architecture.md` — planned `craft-kinodel` chunk-crafting architecture: inspect refs, assign `@image`/`@video`/`@audio` handles, bind role/take/ignore/use_cases, and prepare compact `retrieval_text` before indexing/resolver use. Load before implementing chunk schemas, chunk resolver integration, or a packaged Craft skill.
 - `references/artifact.md` — canonical handoff/request/result map plus L0-L6 context/cache sandwich.
 - `references/artifact.md` — canonical handoff/request/result map plus L0-L6 context/cache sandwich.
 - `references/goal-pipeline.md` — exact `/goal` checkpoints and exit conditions.
@@ -199,6 +202,7 @@ Ownership pointers: Layout/scaffold details live in `kinodel-project-layout`; Re
 - `references/phase-a-spec-validator.md` — exact Phase A artifacts and verification commands for the pipeline_spec schema, `cinematic.v1`, and static validator. Load before continuing Phase B or auditing the Phase A baseline.
 - `references/phase-b-producer-runtime.md` — exact Phase B state_guard runtime changes, CompiledRoute shape, explicit gate-decision rule, and verification commands. Load before continuing Phase C or auditing spec-aware Producer behavior.
 - `references/phase-c-layout-contracts-templates.md` — exact Phase C initializer/profile/contracts/templates artifacts and verification commands. Load before continuing Phase D or auditing project creation/capability binding.
+- Phase RAG foundation artifacts now live in this skill package: `contracts/chunks/*.schema.json`, `contracts/context_pack.schema.json`, `scripts/validate_chunk_schema.py`, `scripts/embed_gemini.py`, and `scripts/index_chunks.py`. Use them when implementing or auditing Kinodel RAG/chunk deployment. Current preproduction rule: do not add semantic/vector nearest-neighbor retrieval until the build explicitly needs autonomous semantic search; agents may receive explicitly selected chunk paths/context packs by known indexes/use_case instructions. When auditing readiness before applying a Phase RAG patch, treat `vector search via profile/dim` in older wiki plans as satisfied only by the mock/vector-storage foundation unless the user explicitly asks to activate real sqlite-vec/nearest-neighbor retrieval. Required smoke checks: `validate_pipeline_spec.py` for `cinematic.v1`, `craft-kinodel/scripts/estimate_chunk_tokens.py --self-test`, `scripts/embed_gemini.py --self-test`, `scripts/validate_chunk_schema.py --self-test`, `scripts/index_chunks.py --self-test`, `scripts/index_chunks.py --dry-run --fixtures`, `producer-kinodel/scripts/chunk_resolver.py --self-test`, `craft-kinodel/scripts/backfill_cinema_chunks.py --self-test`, and `scripts/eval_chunk_retrieval.py`. For real-project RAG smoke, backfill or craft completed `cinema_chunk.json` artifacts from finished `final_chunk.json` files, validate/token-check them, index with `index_chunks.py --mock --rebuild`, and resolve direct/indexed context packs; details live in `craft-kinodel/references/rag-smoke-test-cinematic-chunks.md`.
 - `bugs/bugs-mapping.md` — compact map of still-relevant bug signatures and links.
 - `bugs/audit.md` — maintenance-only audit/remediation checklist; do not load during normal production.
 

@@ -1,0 +1,337 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kinodel.common_chunk.v1",
+  "title": "Kinodel crafted chunk common schema",
+  "type": "object",
+  "required": [
+    "schema",
+    "chunk_id",
+    "chunk_type",
+    "title",
+    "status",
+    "context",
+    "references",
+    "action",
+    "focus",
+    "timing",
+    "retrieval_text",
+    "embedding_profiles",
+    "content_hash",
+    "craft"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "schema": {
+      "type": "string",
+      "pattern": "^kinodel\\..+_chunk\\.v1$"
+    },
+    "chunk_id": {
+      "type": "string",
+      "minLength": 3
+    },
+    "chunk_type": {
+      "enum": [
+        "avatar_chunk",
+        "music_chunk",
+        "season_chunk",
+        "episode_chunk",
+        "cinema_chunk",
+        "section_chunk"
+      ]
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "enum": [
+        "draft",
+        "planned",
+        "active",
+        "approved",
+        "completed",
+        "archived"
+      ]
+    },
+    "context": {
+      "type": "object",
+      "required": [
+        "summary"
+      ],
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "object"
+        },
+        "canon_policy": {
+          "enum": [
+            "canon",
+            "inspiration",
+            "reference_only"
+          ]
+        },
+        "source_artifacts": {
+          "type": "array"
+        }
+      }
+    },
+    "references": {
+      "type": "object",
+      "required": [
+        "items"
+      ],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "handle",
+              "modality",
+              "role",
+              "take",
+              "ignore",
+              "use_cases",
+              "priority"
+            ],
+            "anyOf": [
+              {
+                "required": [
+                  "path"
+                ]
+              },
+              {
+                "required": [
+                  "url"
+                ]
+              }
+            ],
+            "properties": {
+              "handle": {
+                "type": "string",
+                "pattern": "^@(image|video|audio|doc|ref)[0-9]+$"
+              },
+              "path": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "modality": {
+                "enum": [
+                  "text",
+                  "image",
+                  "audio",
+                  "video",
+                  "pdf",
+                  "doc",
+                  "mixed"
+                ]
+              },
+              "role": {
+                "type": "string",
+                "minLength": 1
+              },
+              "take": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              },
+              "ignore": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              },
+              "use_cases": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              },
+              "priority": {
+                "enum": [
+                  "P1",
+                  "P2",
+                  "P3",
+                  "P4",
+                  "P5"
+                ]
+              },
+              "consumers": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "metadata": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "action": {
+      "type": "object",
+      "required": [
+        "consumer_tasks",
+        "instructions",
+        "forbidden_uses"
+      ],
+      "properties": {
+        "consumer_tasks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "instructions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "forbidden_uses": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "focus": {
+      "type": "object",
+      "required": [
+        "primary",
+        "must_preserve",
+        "must_not_drift"
+      ],
+      "properties": {
+        "primary": {
+          "type": "string"
+        },
+        "must_preserve": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "must_not_drift": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        }
+      }
+    },
+    "timing": {
+      "type": "object",
+      "required": [
+        "mode"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "not_applicable",
+            "music_sections",
+            "episode_sequence",
+            "act_sequence",
+            "video_beats",
+            "render_sequence"
+          ]
+        },
+        "summary": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "items": {
+          "type": "array"
+        }
+      }
+    },
+    "retrieval_text": {
+      "type": "string",
+      "minLength": 1
+    },
+    "embedding_profiles": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "fast_recall",
+          "default_rag",
+          "deep_retrieval",
+          "full_fidelity"
+        ]
+      },
+      "minItems": 1
+    },
+    "content_hash": {
+      "type": "string",
+      "pattern": "^(sha256:)?[0-9a-fA-F]{64}$"
+    },
+    "craft": {
+      "type": "object",
+      "required": [
+        "crafted_by",
+        "craft_version",
+        "quality_checks"
+      ],
+      "properties": {
+        "crafted_by": {
+          "const": "craft-kinodel"
+        },
+        "craft_version": {
+          "type": "string"
+        },
+        "quality_checks": {
+          "type": "array"
+        }
+      }
+    }
+  },
+  "not": {
+    "anyOf": [
+      {
+        "required": [
+          "base64"
+        ]
+      },
+      {
+        "required": [
+          "provider_payload"
+        ]
+      },
+      {
+        "required": [
+          "queue_id"
+        ]
+      },
+      {
+        "required": [
+          "raw_response"
+        ]
+      },
+      {
+        "required": [
+          "retry_log"
+        ]
+      },
+      {
+        "required": [
+          "cost_log"
+        ]
+      }
+    ]
+  }
+}

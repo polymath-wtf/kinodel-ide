@@ -976,7 +976,7 @@ def unapproved_prior_gates(project_dir: Path, route: dict[str, Any], goal: str) 
     return blocked
 
 
-def build_handoff(project_dir: Path, goal: str, edit_notes: str | None = None, explicit_spec: str | None = None) -> dict[str, Any]:
+def build_handoff(project_dir: Path, goal: str, edit_notes: str | None = None, explicit_spec: str | None = None, chunk_paths: list[str] | None = None, context_pack_path: str | None = None) -> dict[str, Any]:
     route = load_route(project_dir, explicit_spec=explicit_spec)
     delegated = route["delegated"]
     spec = delegated.get(goal)
@@ -989,7 +989,7 @@ def build_handoff(project_dir: Path, goal: str, edit_notes: str | None = None, e
     missing = [r for r in spec["read"] if not rel(project_dir, r).exists()]
     if missing:
         raise SystemExit(f"ERROR: missing required reads: {missing}")
-    return {
+    handoff = {
         "schema": "kinodel.delegate_handoff.v1",
         "contract": "producer.delegated_design_stage.v1",
         "project": {
@@ -1007,7 +1007,34 @@ def build_handoff(project_dir: Path, goal: str, edit_notes: str | None = None, e
         "selected_media": collect_selected(project_dir, spec["selected_from"]),
         "context_cache": compact_context_cache(project_dir, spec["read"]),
         "edit_notes": read_edit_notes(edit_notes),
+        "context_policy": {
+            "direct_chunks_are_primary": True,
+            "semantic_rag_role": "optional inspiration/continuity support only",
+            "render_must_not_query_rag": True,
+            "active_project_artifacts_override_indexed_memory": True,
+        },
     }
+    if chunk_paths:
+        handoff["selected_chunks"] = [
+            {
+                "artifact_path": str(Path(p).expanduser()),
+                "handoff_mode": "direct_selected_chunk",
+                "use_as": "mandatory known context or explicitly selected inspiration/continuity support",
+                "source_of_truth": "durable crafted chunk artifact; active project artifacts still win conflicts",
+            }
+            for p in chunk_paths
+        ]
+    if context_pack_path:
+        context_pack = Path(context_pack_path).expanduser()
+        if not context_pack.exists():
+            raise SystemExit(f"ERROR: context pack path does not exist: {context_pack}")
+        handoff["context_pack"] = {
+            "path": str(context_pack),
+            "source_of_truth": "derived_per_run_cache",
+            "use_as": "compact selected support only; never a durable canon artifact",
+            "broad_rag_forbidden_for_render": True,
+        }
+    return handoff
 
 
 def is_complete(project_dir: Path, artifact: str) -> bool:
@@ -1089,7 +1116,7 @@ def cmd_handoff(args: argparse.Namespace) -> int:
         route = load_route(project_dir, explicit_spec=args.pipeline_spec)
         if goal not in route["delegated"]:
             raise SystemExit(f"ERROR: next goal {goal} is not delegatable; handle in Producer")
-    handoff = build_handoff(project_dir, goal, args.edit_notes, explicit_spec=args.pipeline_spec)
+    handoff = build_handoff(project_dir, goal, args.edit_notes, explicit_spec=args.pipeline_spec, chunk_paths=args.chunk_path, context_pack_path=args.context_pack)
     print(json.dumps(handoff, ensure_ascii=False, indent=2))
     return 0
 
@@ -1141,6 +1168,8 @@ def main() -> int:
     h.add_argument("--project-dir", required=True)
     h.add_argument("--goal", required=True, help="delegated goal name or 'next'")
     h.add_argument("--edit-notes", help="literal edit notes or a path to a notes file")
+    h.add_argument("--chunk-path", action="append", help="selected crafted chunk artifact path to include in the handoff; repeatable")
+    h.add_argument("--context-pack", help="optional resolver-created /tmp context_pack JSON path; derived cache, not canon")
     h.add_argument("--pipeline-spec", help="explicit pipeline_spec.v1 JSON path; Phase B diagnostic/compatibility input")
     h.set_defaults(func=cmd_handoff)
     a = sub.add_parser("approve-gate")

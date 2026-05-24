@@ -1,0 +1,99 @@
+{
+  "schema": "kinodel.avatar_chunk.v1",
+  "chunk_id": "avatar:<avatar_id>:v1",
+  "chunk_type": "avatar_chunk",
+  "title": "<character/persona name>",
+  "status": "active",
+  "context": {
+    "summary": "Stable identity/style capsule for this character/persona.",
+    "chunk_role": "identity_library",
+    "scope": {
+      "project_id": null,
+      "global": true
+    },
+    "source_artifacts": [],
+    "canon_policy": "reference_only"
+  },
+  "references": {
+    "items": [
+      {
+        "handle": "@image1",
+        "path": "refs/front.png",
+        "modality": "image",
+        "role": "front-closeup identity reference",
+        "take": [
+          "face structure",
+          "hair silhouette",
+          "eye shape",
+          "base wardrobe palette"
+        ],
+        "ignore": [
+          "background",
+          "temporary lighting",
+          "render artifacts"
+        ],
+        "use_cases": [
+          "wardrobe main frame",
+          "storyboard close-up",
+          "filmmaker identity lock"
+        ],
+        "priority": "P1",
+        "consumers": [
+          "wardrobe-kinodel",
+          "storyboard-kinodel",
+          "filmmaker-kinodel"
+        ]
+      }
+    ]
+  },
+  "action": {
+    "consumer_tasks": [
+      "preserve identity",
+      "select pose/emotion refs",
+      "prevent face/outfit drift"
+    ],
+    "instructions": [
+      "Use refs by role/take/ignore; do not transfer ignored background into identity prompts."
+    ],
+    "forbidden_uses": [
+      "do not treat background as identity",
+      "do not replace approved face with cinema inspiration"
+    ]
+  },
+  "focus": {
+    "primary": "identity_lock",
+    "must_preserve": [
+      "face",
+      "hair silhouette",
+      "age impression",
+      "core outfit palette"
+    ],
+    "must_not_drift": [
+      "different face",
+      "age drift",
+      "wrong outfit",
+      "background transfer"
+    ],
+    "conflict_resolution": "explicit avatar refs beat style/cinema inspiration for identity"
+  },
+  "timing": {
+    "mode": "not_applicable",
+    "summary": "Static identity chunk.",
+    "items": []
+  },
+  "retrieval_text": "avatar_chunk identity anchor for <name>; preserve face, hair silhouette, age impression, core outfit palette; ignore background, temporary lighting, artifacts; consumers wardrobe storyboard filmmaker; policy identity refs beat style inspiration.",
+  "embedding_profiles": [
+    "default_rag",
+    "deep_retrieval"
+  ],
+  "content_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "craft": {
+    "crafted_by": "craft-kinodel",
+    "craft_version": "kinodel.craft.v1",
+    "quality_checks": [
+      "template:replace_placeholders",
+      "template:run_validate_chunk_schema",
+      "template:run_estimate_chunk_tokens"
+    ]
+  }
+}

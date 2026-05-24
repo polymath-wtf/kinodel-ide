@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kinodel.avatar_chunk.v1.schema",
+  "title": "Kinodel avatar_chunk schema",
+  "allOf": [
+    {
+      "$ref": "common_chunk.schema.json"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "kinodel.avatar_chunk.v1"
+        },
+        "chunk_type": {
+          "const": "avatar_chunk"
+        }
+      }
+    }
+  ]
+}

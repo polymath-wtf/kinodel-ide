@@ -1,0 +1,13 @@
+{
+  "schema": "kinodel.craft_pack.filmmaker.v1",
+  "consumer_agent": "filmmaker-kinodel",
+  "craft_subjects": {
+    "context": "Approved storyboard/video-plan context for each shot/transition.",
+    "references": "Selected first/last frames, avatar refs, motion refs, audio refs, and exact take/ignore rules.",
+    "action": "Write provider-neutral video request prompts from selected refs only.",
+    "focus": "Shot priority: identity lock, motion, transition, final-frame continuity, or audio sync.",
+    "timing": "Shot duration/phase only if already defined by storyboard/video workflow or source audio; no arbitrary defaults."
+  },
+  "preferred_refs": ["avatar_chunk", "episode_chunk", "music_chunk", "cinema_chunk"],
+  "forbidden": ["broad RAG", "provider runtime metadata", "hidden upload handles", "copying music melody/lyrics"]
+}

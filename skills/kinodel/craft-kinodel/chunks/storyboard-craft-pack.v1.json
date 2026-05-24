@@ -1,0 +1,13 @@
+{
+  "schema": "kinodel.craft_pack.storyboard.v1",
+  "consumer_agent": "storyboard-kinodel",
+  "craft_subjects": {
+    "context": "Approved story/episode/season constraints for visual beat planning.",
+    "references": "Approved main frame, avatar refs, visual anchors, style refs, optional music energy refs.",
+    "action": "Plan image prompts/panels that carry story beats and continuity.",
+    "focus": "Beat clarity, character state, composition continuity, style consistency.",
+    "timing": "Story beat/act order or music section alignment when source-derived."
+  },
+  "preferred_refs": ["avatar_chunk", "episode_chunk", "season_chunk", "music_chunk", "cinema_chunk"],
+  "forbidden": ["future episode chunks as completed facts", "unapproved style overrides", "unbound refs"]
+}

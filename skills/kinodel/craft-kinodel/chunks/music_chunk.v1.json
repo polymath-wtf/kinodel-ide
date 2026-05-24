@@ -1,0 +1,149 @@
+{
+  "schema": "kinodel.music_chunk.v1",
+  "chunk_id": "music:<slug>:v1",
+  "chunk_type": "music_chunk",
+  "title": "<music reference title>",
+  "status": "active",
+  "context": {
+    "summary": "Reusable music/vibe inspiration chunk for Muse and music-video planning.",
+    "chunk_role": "music_inspiration",
+    "scope": {
+      "project_id": null,
+      "global": true
+    },
+    "source_artifacts": [
+      "refs/song.mp3",
+      "refs/lyrics.txt",
+      "analysis/alm.json"
+    ],
+    "canon_policy": "inspiration"
+  },
+  "references": {
+    "items": [
+      {
+        "handle": "@audio1",
+        "path": "refs/song.mp3",
+        "modality": "audio",
+        "role": "music vibe reference",
+        "take": [
+          "energy curve",
+          "instrumentation",
+          "vocal delivery",
+          "section contrast",
+          "texture"
+        ],
+        "ignore": [
+          "exact melody",
+          "copyrighted lyrics",
+          "artist identity cloning"
+        ],
+        "use_cases": [
+          "muse inspiration",
+          "montage mood reference",
+          "storyboard rhythm influence"
+        ],
+        "priority": "P1",
+        "consumers": [
+          "muse-kinodel",
+          "storyboard-kinodel",
+          "filmmaker-kinodel",
+          "montage-kinodel"
+        ]
+      },
+      {
+        "handle": "@doc1",
+        "path": "refs/lyrics.txt",
+        "modality": "text",
+        "role": "lyrics/transcript reference",
+        "take": [
+          "theme",
+          "phrase density",
+          "section structure"
+        ],
+        "ignore": [
+          "copying exact lines unless user owns/permits"
+        ],
+        "use_cases": [
+          "muse lyrics style constraints"
+        ],
+        "priority": "P2",
+        "consumers": [
+          "muse-kinodel"
+        ]
+      }
+    ]
+  },
+  "action": {
+    "consumer_tasks": [
+      "inspire new music prompt",
+      "derive vibe DNA",
+      "align visual rhythm"
+    ],
+    "instructions": [
+      "Use ALM summary and energy curve; keep audio as reference path, not inline prompt content."
+    ],
+    "forbidden_uses": [
+      "do not clone melody",
+      "do not copy copyrighted lyrics",
+      "do not impersonate artist identity"
+    ]
+  },
+  "focus": {
+    "primary": "music_energy",
+    "must_preserve": [
+      "energy arc",
+      "instrumentation feel",
+      "vocal delivery texture"
+    ],
+    "must_not_drift": [
+      "direct melody clone",
+      "lyric copying",
+      "generic genre tags without vibe"
+    ],
+    "conflict_resolution": "user brief beats retrieved music inspiration"
+  },
+  "timing": {
+    "mode": "music_sections",
+    "summary": "Source-derived ALM section map, not invented video timing.",
+    "items": [
+      {
+        "section": "intro",
+        "description": "<alm summary>"
+      },
+      {
+        "section": "chorus",
+        "description": "<alm summary>"
+      }
+    ]
+  },
+  "analysis": {
+    "alm_summary": "",
+    "genre_tags": [],
+    "energy_curve": [],
+    "vocal_style": "",
+    "instrumentation": []
+  },
+  "generation_hints": {
+    "music_prompt": "",
+    "avoid": [
+      "direct melody clone",
+      "recognizable copyrighted lyrics"
+    ]
+  },
+  "retrieval_text": "music_chunk inspiration for <title>; energy arc, instrumentation, vocal delivery texture, section contrast; use for muse prompt and montage rhythm; ignore exact melody, copyrighted lyrics, artist identity cloning.",
+  "embedding_profiles": [
+    "default_rag",
+    "deep_retrieval",
+    "full_fidelity"
+  ],
+  "content_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "craft": {
+    "crafted_by": "craft-kinodel",
+    "craft_version": "kinodel.craft.v1",
+    "quality_checks": [
+      "template:replace_placeholders",
+      "template:run_validate_chunk_schema",
+      "template:run_estimate_chunk_tokens"
+    ]
+  }
+}

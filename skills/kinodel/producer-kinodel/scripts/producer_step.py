@@ -44,6 +44,8 @@ Static contract:
 - Load/follow exactly handoff.stage.owner_skill.
 - Execute exactly handoff.stage.goal.
 - Read only files listed in handoff.artifacts.read under handoff.project.dir.
+- If handoff.selected_chunks or handoff.context_pack exist, treat them as compact support only: direct selected chunks are primary known context; semantic/indexed RAG is optional inspiration/continuity support and never overrides active project artifacts.
+- Render stages must never query broad RAG; render receives only explicit request artifacts and selected media refs.
 - Write exactly handoff.artifacts.write.
 - Preserve handoff.project.id.
 - Set status=complete in the written artifact.

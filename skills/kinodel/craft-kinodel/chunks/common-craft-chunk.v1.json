@@ -1,0 +1,68 @@
+{
+  "schema": "kinodel.<type>_chunk.v1",
+  "chunk_id": "<chunk_type>:<stable_id>:v1",
+  "chunk_type": "<avatar_chunk|music_chunk|season_chunk|episode_chunk|cinema_chunk|section_chunk>",
+  "title": "<human readable title>",
+  "status": "draft",
+  "context": {
+    "summary": "Compact meaning of the chunk.",
+    "chunk_role": "canon|continuity_memory|identity_library|music_inspiration|style_inspiration|archive_memory",
+    "scope": {
+      "project_id": null,
+      "season_id": null,
+      "episode_id": null,
+      "global": false
+    },
+    "source_artifacts": [],
+    "canon_policy": "canon"
+  },
+  "references": {
+    "items": []
+  },
+  "action": {
+    "consumer_tasks": [
+      "<task>"
+    ],
+    "instructions": [
+      "<instruction>"
+    ],
+    "forbidden_uses": [
+      "<forbidden>"
+    ]
+  },
+  "focus": {
+    "primary": "<identity_lock|continuity|style_dna|music_energy|emotional_state|visual_anchor>",
+    "must_preserve": [
+      "<preserve>"
+    ],
+    "must_not_drift": [
+      "<avoid>"
+    ],
+    "conflict_resolution": "approved canon beats inspiration refs"
+  },
+  "timing": {
+    "mode": "not_applicable",
+    "summary": "",
+    "items": []
+  },
+  "retrieval_text": "compact search text only; no agent instructions, raw logs, or media blobs",
+  "embedding_profiles": [
+    "default_rag"
+  ],
+  "content_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "craft": {
+    "crafted_by": "craft-kinodel",
+    "craft_version": "kinodel.craft.v1",
+    "quality_checks": [
+      "template:replace_placeholders",
+      "template:run_validate_chunk_schema",
+      "template:run_estimate_chunk_tokens"
+    ]
+  },
+  "projections": {
+    "durable_full": "canonical JSON on disk",
+    "retrieval": "retrieval_text + metadata, target 150-600 tokens",
+    "handoff": "direct chunk paths plus compact summaries/selected media refs",
+    "media_refs": "handles with role/take/ignore/use_cases/priority"
+  }
+}

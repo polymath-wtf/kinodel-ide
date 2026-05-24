@@ -1,0 +1,76 @@
+{
+  "schema": "kinodel.season_chunk.v1",
+  "chunk_id": "season:<project_id>:<season_id>:v1",
+  "chunk_type": "season_chunk",
+  "title": "<season title>",
+  "status": "approved",
+  "context": {
+    "summary": "Approved compact season bible for episode production.",
+    "chunk_role": "canon",
+    "scope": {
+      "project_id": "<project_id>",
+      "season_id": "<season_id>",
+      "global": false
+    },
+    "source_artifacts": [
+      "brief.json",
+      "season_plan.json"
+    ],
+    "canon_policy": "canon"
+  },
+  "references": {
+    "items": []
+  },
+  "action": {
+    "consumer_tasks": [
+      "preserve season canon",
+      "supply episode constraints",
+      "guide continuity"
+    ],
+    "instructions": [
+      "Episode agents treat this as approved canon."
+    ],
+    "forbidden_uses": [
+      "do not include draft revision history",
+      "do not use unapproved critic notes as canon"
+    ]
+  },
+  "focus": {
+    "primary": "continuity",
+    "must_preserve": [
+      "season arc",
+      "character roles",
+      "continuity bible",
+      "episode payoff strategy"
+    ],
+    "must_not_drift": [
+      "unapproved season changes",
+      "contradicting episode blueprints"
+    ],
+    "conflict_resolution": "approved season_chunk beats inspiration chunks"
+  },
+  "timing": {
+    "mode": "episode_sequence",
+    "summary": "Approved episode order and payoff sequence.",
+    "items": []
+  },
+  "season_summary": "",
+  "characters": [],
+  "episodes": [],
+  "continuity_bible": [],
+  "retrieval_text": "season_chunk approved canon for <season>; season arc, character roles, continuity bible, episode order, payoff strategy; use as source of truth for episode agents; reject unapproved revisions.",
+  "embedding_profiles": [
+    "default_rag",
+    "deep_retrieval"
+  ],
+  "content_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "craft": {
+    "crafted_by": "craft-kinodel",
+    "craft_version": "kinodel.craft.v1",
+    "quality_checks": [
+      "template:replace_placeholders",
+      "template:run_validate_chunk_schema",
+      "template:run_estimate_chunk_tokens"
+    ]
+  }
+}

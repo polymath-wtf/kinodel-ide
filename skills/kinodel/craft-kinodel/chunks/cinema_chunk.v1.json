@@ -1,0 +1,74 @@
+{
+  "schema": "kinodel.cinema_chunk.v1",
+  "chunk_id": "cinema:<project_id>:v1",
+  "chunk_type": "cinema_chunk",
+  "title": "<cinematic title>",
+  "status": "completed",
+  "context": {
+    "summary": "Completed cinematic memory for archive/few-shot inspiration.",
+    "chunk_role": "archive_memory",
+    "scope": {
+      "project_id": "<project_id>",
+      "global": false
+    },
+    "source_artifacts": [
+      "story.json",
+      "render_results/*.json",
+      "outputs/final.mp4"
+    ],
+    "canon_policy": "inspiration"
+  },
+  "references": {
+    "items": []
+  },
+  "action": {
+    "consumer_tasks": [
+      "reuse as style/story inspiration",
+      "support few-shot memory",
+      "extract what worked"
+    ],
+    "instructions": [
+      "Treat as inspiration unless same project continuation declares it canon."
+    ],
+    "forbidden_uses": [
+      "do not copy full production trace",
+      "do not override active avatar identity"
+    ]
+  },
+  "focus": {
+    "primary": "style_dna",
+    "must_preserve": [
+      "what worked visually",
+      "mood",
+      "successful prompt/visual relationship"
+    ],
+    "must_not_drift": [
+      "copying old project as canon",
+      "provider artifacts"
+    ],
+    "conflict_resolution": "active project canon beats cinema inspiration"
+  },
+  "timing": {
+    "mode": "video_beats",
+    "summary": "Final video sequence/beat summary if useful.",
+    "items": []
+  },
+  "story": "",
+  "hook": "",
+  "conclusion": "",
+  "retrieval_text": "cinema_chunk completed film memory for <project>; hook, story shape, mood, style DNA, visual choices that worked; inspiration only unless explicitly continuing same project; no provider trace.",
+  "embedding_profiles": [
+    "fast_recall",
+    "default_rag"
+  ],
+  "content_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "craft": {
+    "crafted_by": "craft-kinodel",
+    "craft_version": "kinodel.craft.v1",
+    "quality_checks": [
+      "template:replace_placeholders",
+      "template:run_validate_chunk_schema",
+      "template:run_estimate_chunk_tokens"
+    ]
+  }
+}

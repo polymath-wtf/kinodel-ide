@@ -1,0 +1,13 @@
+{
+  "schema": "kinodel.craft_pack.wardrobe.v1",
+  "consumer_agent": "wardrobe-kinodel",
+  "craft_subjects": {
+    "context": "Story/brief context relevant to main frame or act anchors.",
+    "references": "Avatar/style/environment refs with @image handles and take/ignore rules.",
+    "action": "Plan image request(s) that preserve identity and visual canon.",
+    "focus": "Identity lock, wardrobe continuity, environment/mood priority.",
+    "timing": "Act/episode order only if planning multiple anchors; no invented seconds."
+  },
+  "preferred_refs": ["avatar_chunk", "season_chunk", "episode_chunk", "cinema_chunk"],
+  "forbidden": ["provider payloads", "raw RAG dumps", "unbound image refs"]
+}
