@@ -57,16 +57,16 @@ After BriefGate approval (`A`/`go`) and project initialization, Producer should 
    - `references/delegated-design-stages.md` for using subagents without polluting Producer context.
    - `references/gate-ui.md` for exact BriefGate/ReviewGate text.
    - `references/brief-start.md` when normalizing a new user idea into the first BriefGate and `brief.json`.
-   - `references/brief-stage-regression.md` when auditing weak brief questions, premature project init, or drift between brief-start/gate/default docs.
-   - `references/brief-approval-autopilot.md` when auditing or fixing final BriefGate approval behavior: persist the full 9-field brief, then continue automatically to the first hard stop instead of adding a soft “if you want” stop.
+   - `bugs/brief-stage-regression.md` when auditing weak brief questions, premature project init, or drift between brief-start/gate/default docs.
+   - `references/brief-approval-autopilot.md` when auditing or fixing final BriefGate approval behavior: persist the minimal brief, then continue automatically to the first hard stop instead of adding a soft “if you want” stop.
    - `references/pipeline-spec-runtime.md` when auditing or extending the Phase B spec-aware `state_guard.py` route compiler.
    - `references/mid-pipeline-video-flow-changes.md` when the user changes video flow/provider/duration after p7 or after `video_requests.json` exists.
-   - `references/upstream-stream-drop-incident.md` only when debugging stream stalls.
-   - `references/upstream-edit-fix-invalidation.md` — notes on invalidating stale render results after p4/p7 edit-fix loops and rerendering before trusting old manifests.
+   - `bugs/upstream-stream-drop-incident.md` only when debugging stream stalls.
+   - `bugs/upstream-edit-fix-invalidation.md` — notes on invalidating stale render results after p4/p7 edit-fix loops and rerendering before trusting old manifests.
 - `features/telegram-gate-ux.md` — concise gate-UX and long-render progress notes from Telegram production.
 - `references/kinodel-on-entrypoints.md` — exact `/kinodel` quick-command alias and native pre-agent `kinodel on` router pattern for low-context startup.
 - `references/brief-gate-rules.md` — mid-session brief revisions: shot-count changes, lofi-room corrections, and `main_frame` vs shot 1 role separation.
-   - `references/render-retry-note.md` — ComfyUI batch retries and how to wait for the worker to finish before promoting results.
+   - `bugs/render-retry-note.md` — ComfyUI batch retries and how to wait for the worker to finish before promoting results.
    - `references/render-wakeup-boundary.md` — simplification-cascade boundary for render completion: one `render_wakeup.py` bridge, no `producer_autorun.py`, and no per-stage wake-up logic; autonomous continuation belongs to a future Producer runtime/event consumer.
    - `features/render-selection-reconciliation.md` — how to preserve a user-chosen earlier render batch as canonical and keep request/result hashes in sync.
 - `references/final-chunk-completion.md` — the p10→p11 completion recipe for writing and validating `final_chunk.json` after montage.
@@ -94,7 +94,13 @@ After BriefGate approval (`A`/`go`) and project initialization, Producer should 
 
 ## First contact / Kinodel on
 
-When the user says `kinodel on` or otherwise opens Kinodel without a specific project instruction, do not auto-deliver final videos or media from past completed projects. Start with a short greeting, then list unfinished projects by `project_id` using validated state (for example `state_guard.py list-projects --root ~/projects --unfinished --limit 5 --compact`) and offer two actions: continue one listed project, or start a new project. Mention completed projects only as optional history if useful; do not send their media unless the user asks.
+When the user says `kinodel on` or otherwise opens Kinodel without a specific project instruction, do not auto-deliver final videos or media from past completed projects. Start with a short greeting, then list unfinished projects by `project_id` using validated state (for example `state_guard.py list-projects --root ~/projects --unfinished --limit 5 --compact`) as a clean Markdown table with columns like `#`, `project_id`, and `следующий шаг` / `next goal`; this compact table format is the preferred first-contact UX when the chat supports Markdown. Prefer the table over bullets when there are 2+ projects. A minimal good shape is:
+
+| # | project_id | следующий шаг |
+|---|---|---|
+| 1 | `example-project` | `p1_story` |
+
+Then offer two actions: continue one listed project, or start a new project. Mention completed projects only as optional history if useful; do not send their media unless the user asks.
 
 If the user replies with a terse project-start cue like `New`, `new`, `start new`, or similar after the first-contact panel, treat it as an instruction to begin a fresh project rather than continuing a listed one. Ask only for the project idea/brief if that is missing; do not re-prompt for the existence of a new project.
 
@@ -102,19 +108,19 @@ For low-latency startup, prefer a deterministic entrypoint over natural-language
 
 ## Brief / project start
 
-Before creating a project directory, select or infer the pipeline with a lightweight PipelineChoiceGate, then run the canonical 9-field Brief Intake from `references/brief-start.md`. PipelineChoiceGate happens before BriefGate/init_project because `init_project.py` needs `pipeline_id`, layout profile, and a frozen project-local `pipeline_spec.json` / `producer_state.json`.
+Before creating a project directory, select or infer the pipeline with a lightweight PipelineChoiceGate, then run the minimal BriefGate from `references/brief-start.md`. PipelineChoiceGate happens before BriefGate/init_project because `init_project.py` needs `pipeline_id`, layout profile, and a frozen project-local `pipeline_spec.json` / `producer_state.json`.
 
-**Simplification cascade:** all brief entry paths are the same flow:
+**Simplification cascade:** BriefGate captures constraints; Storytell creates story.
 
 ```text
 user idea / fragments
-→ 9-field Intake Card draft (`references/brief-start.md`)
-→ fill missing fields as visible assumptions/defaults
-→ show final BriefGate preview for approval
-→ only after approval: write brief.json + init_project.py
+→ minimal 4-field BriefGate (`user_vibe`, `characters`, `feature`, `workflow`)
+→ show final minimal approval card
+→ approval writes brief.json + init_project.py
+→ p1_story delegates narrative creation to storytell-kinodel
 ```
 
-This single flow replaces ad-hoc weak provider questions, direct init after terse answers, and separate “format confirmation” prompts. Even if the user says only `мем про кота` or answers just one field, Producer must synthesize the missing fields and show the final brief card before initialization.
+This replaces the old 9-field creative intake. Producer must not invent `story_seed`, `hook`, `intrigue`, `world`, `ending`, or detailed `style`; those fields belong to `storytell-kinodel` and `story.json`.
 
 Rules:
 
@@ -122,24 +128,22 @@ Rules:
 - If the user clearly asks for a normal short cinematic/reels video, default to `cinematic.v1`.
 - If intent is ambiguous or clearly non-cinematic, ask which active pipeline to use.
 - During migration, non-cinematic pipelines are shown only after their activation phase passes; otherwise mark them planned/locked and do not initialize production projects from them.
-- Do not ask a weak one-line workflow/provider question when a new project brief is missing. Ask or infer the full 9 fields from `brief-start.md`: `user_vibe`, `story_seed`, `hook`, `intrigue`, `characters`, `world`, `ending`, `format`, `workflow`.
-- For fields 8 and 9, show defaults inline with alternatives in parentheses:
-  - `format`: square 1:1, 3 frames, 1K images, 480p video, 4s per shot (other options: reels/9:16, widescreen/16:9, custom shot count, 720p/1080p when supported)
-  - `workflow`: `provider=comfyui`, `image flow=img2img`, `video flow=i2v`, audio off (other video flows: `t2v`, `flf2v`; other providers: `fal.ai`, `openrouter` when the selected pipeline/provider profile supports it)
-- When the user supplies fragments across multiple short messages, keep a compact running draft in context and apply canonical defaults for missing non-critical fields. Ask again only for fields that would materially change the tool path and cannot be safely inferred.
-- Always show the final BriefGate preview before creating the project, including explicit assumptions for any fields the user did not answer. The user can approve, auto-tighten, edit, or stop.
+- Ask or infer only: `user_vibe`, `characters`, `feature`, and `workflow`.
+- `workflow` includes technical format defaults inline: square 1:1, 3 frames, 1K images, 480p video, 4s/shot, provider=comfyui, image flow=i2i/img2img, video flow=i2v, audio off; alternatives include reels/9:16, widescreen/16:9, custom shot count, 720p/1080p when supported, fal.ai, flf2v, audio on.
+- When the user gives only a vibe line, do not expand it into a full plot. Preserve it as `user_vibe`, infer only technical defaults and a compact `feature` if obvious, and show the minimal BriefGate preview.
+- Always show the final minimal BriefGate preview before creating the project, including explicit assumptions for missing minimal fields and technical defaults. The user can approve, edit, or stop.
 - If the user says `go`, `на твоё усмотрение`, `без разницы`, `остальное хз`, or adds a small style tweak plus continuation after seeing the final BriefGate preview, treat it as approval with defaults/tweak applied. Before the preview, those phrases only authorize default filling; they do not skip the preview.
-- If the user corrects shot count, location, character-emotion mapping, provider, or workflow during the brief stage, the correction is authoritative and must be reflected in the next final BriefGate preview.
+- If the user corrects shot count, character/subject anchors, feature, provider, or workflow during the brief stage, the correction is authoritative and must be reflected in the next minimal BriefGate preview.
 
-Only after the user approves the final BriefGate preview:
+Only after the user approves the final minimal BriefGate preview:
 
 1. derive `project_id`;
-2. write complete `brief_json`, including the approved 9-field creative intake (`user_vibe`, `story_seed`, `hook`, `intrigue`, `characters`, `world`, `ending`, optional `brief_assumptions`) plus video workflow (`video.workflow` and `video.flow`) and provider defaults (`provider`, `provider_image`, `provider_edit`, `provider_video`, and `provider_flf2v` when needed);
+2. write complete `brief_json`, including minimal creative constraints (`user_vibe`, `characters`, `feature`, optional `brief_assumptions`) plus video workflow (`video.workflow` and `video.flow`) and provider defaults (`provider`, `provider_image`, `provider_edit`, `provider_video`, and `provider_flf2v` when needed);
 3. run `kinodel-project-layout/scripts/init_project.py`;
 4. validate that pending stubs exist;
 5. immediately enter the Producer hot path with `producer_step.py` and continue deterministic pipeline work. Do **not** stop with “if you want, I can continue.” After p0 approval, the next stop is only a hard ReviewGate (p4/p7/p12 final), a long background render handoff with notify-on-complete, completion, or a real failure requiring user input.
 
-**Mid-brief revisions:** if the user later corrects the shot count, location, or character-emotion mapping before initialization, treat the revision as authoritative and regenerate the final BriefGate preview rather than preserving an earlier draft. In particular, the `main_frame` should represent the renderable hero/default state for downstream planning and may intentionally differ from shot 1 when the brief says the first shot is a separate low point (e.g., `main_frame` = calm smile, shot 1 = sad/apathy).
+**Mid-brief revisions:** if the user later corrects the shot count, subjects, feature, or workflow before initialization, treat the revision as authoritative and regenerate the final minimal BriefGate preview rather than preserving an earlier draft.
 
 Never scaffold empty project directories before the brief is approved.
 
@@ -318,7 +322,7 @@ Rules:
 - `B` runs `critic-kinodel` and routes notes to the owner.
 - `C` or free-text edits routes user notes to the owner; bare `C` asks for concrete notes.
 - `D` pauses.
-- If the user replies immediately after a gate with a bare continuation phrase like `go`, `go дальше`, `го дальше`, `дальше`, `иди дальше`, or equivalent and does not attach edit notes, treat it as approval-equivalent `A` and continue. Do not re-open the gate or ask for a letter again in this case.
+- If the user replies immediately after a gate with a bare continuation phrase like `go`, `next`, `go дальше`, `го дальше`, `дальше`, `иди дальше`, or equivalent and does not attach edit notes, treat it as approval-equivalent `A` and continue. Do not re-open the gate or ask for a letter again in this case.
 - Timeout/reminder may remind only; it must not approve.
 
 ## Completion and final memory
@@ -326,6 +330,8 @@ Rules:
 A project is complete only when `state_guard.py next-goal` returns `next_goal: null`. For the cinematic pipeline this requires `outputs/final.mp4` to exist, `final_chunk.json` to validate, p12 final gate to be approved, and `chunks/cinema_chunk.json` to validate. `final_chunk.json.final_video.path` is the sealed completion pointer and must resolve to an existing non-empty video file; do not treat a bare `status: "complete"` field as project completion.
 
 After `p10_montage`, if `resume` still reports `p11_final_chunk`, write the completion artifact immediately from the validated `render_results/shot_videos_result.json` refs, then present p12 Final Project ReviewGate before declaring the project done. Use the `final_chunk.json` template shape and keep it concise.
+
+Pitfall: do not wait for any extra “completion” confirmation after montage if `final.mp4` already exists and validates. The only remaining producer-owned step is `p11_final_chunk` followed by the explicit `p12_final_gate` preview.
 
 After `p11_final_chunk`, Producer must present `p12_final_gate` with the final video and final_chunk summary and stop for approval. Only after p12 approval may Producer delegate `p13_cinema_chunk` to `craft-kinodel` instead of hand-authoring the crafted RAG chunk. The delegated Craft stage runs the packaged entrypoint:
 

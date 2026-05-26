@@ -68,4 +68,4 @@ Worker success checks:
 ## Load next
 - `providers/fal_veo31_lite_i2v.md` — single-image animation details
 - `providers/fal_veo31_lite_flf2v.md` — transition clip details
-- `references/fal-api-troubleshooting.md` — queue/public-URL fixes
+- `bugs/fal-api-troubleshooting.md` — queue/public-URL fixes

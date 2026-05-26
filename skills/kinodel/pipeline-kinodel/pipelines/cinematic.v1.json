@@ -180,6 +180,9 @@
       "validator": "kinodel.render_requests.v1",
       "selected_from": [
         "render_results/story_frames_result.json"
+      ],
+      "support_skills": [
+        "prompt-videos"
       ]
     },
     {

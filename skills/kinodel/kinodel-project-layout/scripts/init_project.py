@@ -27,12 +27,8 @@ DEFAULT_PIPELINE_ID = "cinematic.v1"
 DEFAULT_LAYOUT_PROFILE = "cinematic"
 REQUIRED_BRIEF_FIELDS = (
     "user_vibe",
-    "story_seed",
-    "hook",
-    "intrigue",
     "characters",
-    "world",
-    "ending",
+    "feature",
 )
 
 LAYOUT_PROFILES: dict[str, dict[str, Any]] = {
@@ -43,9 +39,10 @@ LAYOUT_PROFILES: dict[str, dict[str, Any]] = {
             "story.json": {
                 "schema": "kinodel.story.v1",
                 "status": "pending",
+                "hook": "",
                 "story": "",
-                "hook_candidates": [],
                 "scene_count": 0,
+                "shots": [],
             },
             "wardrobe_request.json": {
                 "schema": "kinodel.render_requests.v1",
@@ -147,13 +144,13 @@ def has_brief_content(value: Any) -> bool:
 
 
 def validate_brief_intake(brief: dict[str, Any]) -> None:
-    """Fail closed if the approved 9-field BriefGate was not persisted."""
+    """Fail closed if the approved minimal BriefGate was not persisted."""
     missing = [field for field in REQUIRED_BRIEF_FIELDS if not has_brief_content(brief.get(field))]
     if missing:
         fail(
-            "brief_json missing approved 9-field intake fields: "
+            "brief_json missing approved minimal intake fields: "
             + ", ".join(missing)
-            + ". Show the final BriefGate card, infer blanks visibly, and pass the approved fields into brief.json."
+            + ". Show the minimal BriefGate card and pass only user_vibe, characters, feature, and workflow defaults into brief.json."
         )
 
 

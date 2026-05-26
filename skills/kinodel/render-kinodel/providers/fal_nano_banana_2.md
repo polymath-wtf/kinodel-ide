@@ -73,4 +73,4 @@ Worker success checks:
 ## Load next
 - `providers/fal_nano_banana_2_t2i.md` — t2i request knobs, submit/poll/result examples
 - `providers/fal_nano_banana_2_i2i.md` — i2i/edit request knobs and 422 pitfalls
-- `references/fal-api-troubleshooting.md` — queue/public-URL/validation fixes
+- `bugs/fal-api-troubleshooting.md` — queue/public-URL/validation fixes

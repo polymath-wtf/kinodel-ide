@@ -10,7 +10,7 @@ Do not call Telegram directly with `curl`, do not depend on callback-only state,
 
 ## BriefGate
 
-Ask before project initialization when a new project starts or when vibe/format/workflow fields are inferred or incomplete. The BriefGate must follow `references/brief-start.md`: a 9-field final approval card, not a standalone format picker.
+Ask before project initialization when a new project starts or when vibe/format/workflow fields are inferred or incomplete. The BriefGate must follow `references/brief-start.md`: a minimal final approval card (`user_vibe`, `characters`, `feature`, `workflow`), not a standalone format picker and not a Producer-authored story.
 
 Required fields in the visible card:
 
@@ -26,7 +26,7 @@ Required fields in the visible card:
 
 ```text
 Brief start — final approval
-<9-field card + explicit assumptions>
+<minimal brief card + explicit technical/default assumptions>
 
 Reply:
 A — approve, create project, and continue to the first hard ReviewGate

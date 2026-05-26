@@ -1,58 +1,32 @@
-# Brief approval autopilot regression guard
+# Brief approval autopilot
 
-Use this note when auditing or repairing Kinodel new-project flow after a final BriefGate approval.
+After the user approves the minimal BriefGate card, Producer should initialize and continue automatically to the first hard stop.
 
-## Durable lesson
-
-A final BriefGate approval is not merely permission to scaffold a directory. It is permission to create the project and continue deterministic production until the next hard stop.
-
-Correct route:
+## Flow
 
 ```text
-final BriefGate shown
-→ user replies A / approve / go / equivalent
-→ persist full 9-field brief.json
+minimal BriefGate approved
+→ persist minimal brief.json
 → init_project.py
-→ producer_step.py loop
-→ p1_story via storytell-kinodel
-→ p2_main_frame_plan via wardrobe-kinodel
-→ p3_main_frame_render
-→ stop only at p4 ReviewGate, background render handoff, completion, or real failure
+→ producer_step.py
+→ delegate p1_story to storytell-kinodel
+→ p2_main_frame_plan
+→ p3 render or background render boundary
+→ p4 hard ReviewGate
 ```
 
-## Required `brief.json` contents
+## Persisted brief fields
 
-The approved 9-field brief must be persisted as first-class fields, not collapsed into `user_vibe`:
+The approved minimal brief must be persisted as first-class fields:
 
 - `user_vibe`
-- `story_seed`
-- `hook`
-- `intrigue`
 - `characters`
-- `world`
-- `ending`
-- optional `brief_assumptions`
-- format/workflow/provider technical fields
+- `feature`
+- optional `brief_assumptions` for technical/default assumptions only
+- format/workflow/provider defaults
 
-`kinodel-project-layout/scripts/init_project.py` should fail closed if the required creative fields are missing. A project with only `user_vibe` loses context before Storytell.
+Do not persist Producer-authored `story_seed`, `hook`, `intrigue`, `world`, or `ending` in new briefs. Legacy briefs may contain them; specialists may treat them as optional hints.
 
-## Forbidden soft stop
+## No soft stop
 
-Do not say variants of:
-
-```text
-Project created. If you want, I can continue and make story.json...
-```
-
-That is a regression. The user already approved p0. Continue automatically to the next architectural hard stop.
-
-## Quick audit grep
-
-Search Producer/Layout docs for stale language:
-
-- `approve and create project` without `continue`
-- `if you want, I can continue`
-- `only user_vibe`
-- `Raw user story/vibe without extracted technical parameters`
-
-If found, patch the owning skill rather than adding runtime exceptions.
+After `A` / `go` on the minimal BriefGate, do not say “project created, tell me if you want to continue.” Continue deterministically until p4/p7/p12, background render handoff, completion, or real failure.

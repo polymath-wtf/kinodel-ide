@@ -180,9 +180,9 @@ Downstream agents consume `selected_outputs`; they must not scan `outputs/`.
 
 Full shape: `references/result-manifest.md`.
 
-Still-relevant failure signatures are mapped in `references/bugs-mapping.md`; load individual `bug/*.md` files only when a trigger matches.
+Still-relevant failure signatures are mapped in `bugs/bugs-mapping.md`; load individual `bugs/*.md` files only when a trigger matches.
 
-See `references/upstream-edit-fix-invalidation.md` for the safe recovery pattern when a p4/p7 edit-fix changes the request but the old durable result still exists.
+See `bugs/upstream-edit-fix-invalidation.md` for the safe recovery pattern when a p4/p7 edit-fix changes the request but the old durable result still exists.
 
 ## Public URL rule
 
@@ -216,7 +216,7 @@ Load only when needed:
 - `providers/fal_veo31_lite.md` — compact Veo overview.
 - `providers/fal_veo31_lite_i2v.md` — detailed Veo image-to-video contract.
 - `providers/fal_veo31_lite_flf2v.md` — detailed Veo first-last-frame contract.
-- `references/fal-api-troubleshooting.md` — canonical fal queue/debug/public-URL notes.
+- `bugs/fal-api-troubleshooting.md` — canonical fal queue/debug/public-URL notes.
 - `comfyui` skill — local backup/provider debugging.
 - historical incident notes only when a current failure signature matches.
 

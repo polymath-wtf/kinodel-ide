@@ -2,23 +2,16 @@
   "schema": "kinodel.brief.v1",
   "project_id": "project_id",
   "status": "complete",
-  "user_vibe": "Raw user creative idea in one compact paragraph.",
-  "story_seed": "Protagonist, situation, desire, obstacle, and emotional turn approved in BriefGate.",
-  "hook": "First-second attention grabber or visual question.",
-  "intrigue": "What stays unresolved until the last shot.",
+  "user_vibe": "Raw user creative idea/vibe, minimally normalized.",
   "characters": [
     {
-      "name": "Character name or role",
-      "role": "story role",
-      "traits": "key traits",
-      "visual_anchor": "visual identity anchor",
-      "relationship": "relationship to other characters if relevant"
+      "name": "User-provided character/subject or role",
+      "description": "Only user-provided traits/anchors; do not invent full backstory."
     }
   ],
-  "world": "Location, era, mood, genre, and style references.",
-  "ending": "Final beat, punchline, reveal, or open loop.",
+  "feature": "The must-keep core gimmick/object/action/style constraint.",
   "brief_assumptions": [
-    "Visible assumptions Producer inferred for missing user answers before approval."
+    "Technical/default assumptions Producer inferred before approval; no plot inventions."
   ],
   "platform": "square",
   "aspect_ratio": "1:1",

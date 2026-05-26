@@ -108,6 +108,17 @@ For full checkpoint conditions, load `references/goal-pipeline.md`.
 
 Load only the current owner skill. In normal production, Producer should not load designer skills into the main chat; it should spawn them with `delegate_task` using a compact handoff envelope and then validate the written artifact. Load specialist skills in the main context only for debugging/refactoring that specific skill.
 
+## Prompt-quality architecture
+
+Kinodel specialists must write expressive creative artifacts, not merely mechanically valid JSON. Keep this as class-level taste guidance without bloating Producer context:
+
+- `storytell-kinodel` owns narrative taste: compact micro-film arc, emotional stakes, and renderable shot beats in `story.json`.
+- `wardrobe-kinodel` owns main-frame image prompt craft and may use `flux2-prompt-engine` only as support.
+- `storyboard-kinodel` owns story-frame i2i prompt craft and should use `flux2-prompt-engine` as support for FLUX-style image prompting.
+- `filmmaker-kinodel` owns motion/video prompt craft and should use `prompt-videos` as support for camera, timing, physics, and continuity language.
+- Support skills are loaded inside delegated specialist agents only. They improve prompt taste but never override owner contracts, artifact paths, schemas, job counts, ReviewGates, or provider/runtime ownership.
+- Put durable “how to prompt beautifully” techniques in specialist `references/` files; keep each specialist `SKILL.md` to the always-needed rules so runtime does not drown in context water.
+
 ## Project layout
 
 Canonical project root:
@@ -194,7 +205,7 @@ Ownership pointers: Layout/scaffold details live in `kinodel-project-layout`; Re
 - `render-kinodel/references/resolution-guide.md` — canonical image/video quality and aspect-ratio dimension tables (`1K`/`1.5K`/`2K` images; `480p`/`720p`/`1080p` videos).
 - `references/changing-format-defaults.md` — cross-skill checklist for changing Kinodel canonical defaults such as aspect ratio, platform, image quality, video quality, pixel dimensions, provider examples, workflow templates, and regression tests.
 - `references/gemini-omni-provider-neutral-prompt.md` — Gemini Omni / multimodal video prompt convention for future `omni_video` planning: `craft.context/reference/action/focus/timing`, ingredients inside `craft.reference`, top-level `style`/`camera`/`audio`, and no provider/runtime metadata in final prompts. Load before adding or auditing Gemini Omni, filmmaker chunk refs, or multimodal video request support.
-- `references/universal-runtime-compatibility-audit.md` — pre-upgrade audit checklist and compatibility pitfalls for universal runtime patches: CompiledRoute, explicit gate decisions, serial/music naming, render promotion, chunk statuses, and `render_worker.py` result promotion. Load before auditing or applying pipeline runtime patches.
+- `bugs/universal-runtime-compatibility-audit.md` — pre-upgrade audit checklist and compatibility pitfalls for universal runtime patches: CompiledRoute, explicit gate decisions, serial/music naming, render promotion, chunk statuses, and `render_worker.py` result promotion. Load before auditing or applying pipeline runtime patches.
 - `references/craft-chunk-architecture.md` — planned `craft-kinodel` chunk-crafting architecture: inspect refs, assign `@image`/`@video`/`@audio` handles, bind role/take/ignore/use_cases, and prepare compact `retrieval_text` before indexing/resolver use. Load before implementing chunk schemas, chunk resolver integration, or a packaged Craft skill.
 - `references/artifact.md` — canonical handoff/request/result map plus L0-L6 context/cache sandwich.
 - `references/artifact.md` — canonical handoff/request/result map plus L0-L6 context/cache sandwich.

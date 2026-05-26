@@ -20,15 +20,11 @@ BRIEF = {
     "project_id": PROJECT_ID,
     "status": "complete",
     "user_vibe": "Phase C smoke test",
-    "story_seed": "A tiny test hero wants a clean cinematic pipeline, hits a pending-artifact obstacle, and resolves into a validated project.",
-    "hook": "A freshly approved brief snaps into a project tree.",
-    "intrigue": "Will the initialized artifacts preserve the approved creative plan?",
     "characters": [
-        {"name": "Test Hero", "role": "pipeline protagonist", "visual_anchor": "compact smoke-test icon"}
+        {"name": "Test Hero", "description": "user-provided pipeline protagonist / compact smoke-test icon"}
     ],
-    "world": "Minimal Kinodel test world, square cinematic format, neutral style.",
-    "ending": "The project initializes and continues toward p1_story without losing the brief.",
-    "brief_assumptions": ["Regression-test defaults are intentionally compact."],
+    "feature": "validated minimal brief initializes and delegates story creation to storytell",
+    "brief_assumptions": ["Regression-test defaults are intentionally compact; narrative fields are storytell-owned."],
     "platform": "square",
     "aspect_ratio": "1:1",
     "shot_count": 3,
@@ -92,7 +88,7 @@ class InitProjectPhaseCTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             init_project.init_project(PROJECT_ID, dict(BRIEF), base_dir=base)
 
-    def test_rejects_user_vibe_only_brief_without_approved_intake_fields(self) -> None:
+    def test_rejects_user_vibe_only_brief_without_minimal_intake_fields(self) -> None:
         base = self.make_base()
         weak_brief = {
             "schema": "kinodel.brief.v1",

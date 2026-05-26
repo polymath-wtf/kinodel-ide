@@ -109,6 +109,7 @@ GOALS = {
     },
     "p8_video_plan": {
         "skill": "filmmaker-kinodel",
+        "support_skills": ["prompt-videos"],
         "read": ["brief.json", "story.json", "render_results/story_frames_result.json"],
         "write": "video_requests.json",
         "selected_from": ["render_results/story_frames_result.json"],
@@ -499,11 +500,12 @@ def compact_context_cache(project_dir: Path, read_refs: list[str]) -> list[dict[
             }
         elif r == "story.json":
             story = str(data.get("story") or data.get("summary") or "")
-            hooks = data.get("hook_candidates")
+            hooks = data.get("hook_candidates")  # migration-only legacy field
+            hook = data.get("hook") or (hooks[0] if isinstance(hooks, list) and hooks else None)
             item["summary"] = {
                 "scene_count": data.get("scene_count") or len(data.get("shots", []) or []),
                 "story_excerpt": story[:280],
-                "hook": hooks[0] if isinstance(hooks, list) and hooks else data.get("hook"),
+                "hook": hook,
             }
         cache.append(item)
     return cache
