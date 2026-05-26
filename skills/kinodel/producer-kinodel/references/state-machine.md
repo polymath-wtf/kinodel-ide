@@ -19,8 +19,9 @@ current_goal
 - BriefGate: ask/confirm brief before creating the project directory.
 - p4 ReviewGate: story + main_frame preview; stop until user replies A/B/C/D.
 - p7 ReviewGate: story images preview; stop until user replies A/B/C/D.
+- p12 Final Project ReviewGate: final.mp4 + final_chunk preview; stop until user replies A/B/C/D before any RAG/cinema_chunk craft.
 
-Render completion never approves a gate.
+Render or montage completion never approves a gate.
 
 ## Goal ownership
 
@@ -35,10 +36,11 @@ Render completion never approves a gate.
 | p6_story_images_render | render | storyboard_requests.json | render_results/story_frames_result.json | selected_outputs |
 | p7_story_images_gate | producer | story image refs | optional qc | user A/B/C/D, then stop |
 | p8_video_plan | filmmaker | brief, story, story frame selected_outputs | video_requests.json | complete + jobs |
-| p9_video_render | render | video_requests.json | render_results/shot_videos_result.json | selected_outputs |
+| p9_video_render | render | video_requests.json | render_results/shot_videos_result.json | selected_outputs; Producer shows all clip MEDIA refs before continuing |
 | p10_montage | montage | selected video refs | outputs/final.mp4 | file exists, size > 0 |
 | p11_final_chunk | producer | final selected refs | final_chunk.json | minimal final memory |
-
+| p12_final_gate | producer | outputs/final.mp4, final_chunk.json | optional qc | user A/B/C/D, then stop |
+| p13_cinema_chunk | craft | approved final_chunk + selected refs | chunks/cinema_chunk.json | crafted RAG chunk indexed |
 ## Resume rule
 
 Resume only from project_id + validated artifacts. Never resume by vibe or by scanning newest files in `outputs/`.

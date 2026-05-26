@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import sys
 import time
@@ -51,6 +52,7 @@ EXPECTED_SCHEMAS = {
     "render_results/story_frames_result.json": "kinodel.render_result.v1",
     "render_results/shot_videos_result.json": "kinodel.render_result.v1",
     "final_chunk.json": "kinodel.final_chunk.v1",
+    "chunks/cinema_chunk.json": "kinodel.cinema_chunk.v1",
 }
 
 GOAL_ORDER = [
@@ -66,6 +68,8 @@ GOAL_ORDER = [
     "p9_video_render",
     "p10_montage",
     "p11_final_chunk",
+    "p12_final_gate",
+    "p13_cinema_chunk",
 ]
 
 GOAL_EXIT_ARTIFACT = {
@@ -79,6 +83,7 @@ GOAL_EXIT_ARTIFACT = {
     "p9_video_render": "render_results/shot_videos_result.json",
     "p10_montage": "outputs/final.mp4",
     "p11_final_chunk": "final_chunk.json",
+    "p13_cinema_chunk": "chunks/cinema_chunk.json",
 }
 
 GOALS = {
@@ -90,12 +95,14 @@ GOALS = {
     },
     "p2_main_frame_plan": {
         "skill": "wardrobe-kinodel",
+        "support_skills": ["flux2-prompt-engine"],
         "read": ["brief.json", "story.json"],
         "write": "wardrobe_request.json",
         "selected_from": [],
     },
     "p5_storyboard_plan": {
         "skill": "storyboard-kinodel",
+        "support_skills": ["flux2-prompt-engine"],
         "read": ["brief.json", "story.json", "render_results/main_frame_result.json"],
         "write": "storyboard_requests.json",
         "selected_from": ["render_results/main_frame_result.json"],
@@ -112,13 +119,20 @@ GOALS = {
         "write": "outputs/final.mp4",
         "selected_from": ["render_results/shot_videos_result.json"],
     },
+    "p13_cinema_chunk": {
+        "skill": "craft-kinodel",
+        "read": ["final_chunk.json", "render_results/main_frame_result.json", "render_results/story_frames_result.json", "render_results/shot_videos_result.json"],
+        "write": "chunks/cinema_chunk.json",
+        "selected_from": ["render_results/main_frame_result.json", "render_results/story_frames_result.json"],
+    },
 }
 
-REVIEW_GATES = {"p4_story_main_gate", "p7_story_images_gate"}
+REVIEW_GATES = {"p4_story_main_gate", "p7_story_images_gate", "p12_final_gate"}
 
 PIPELINE_SPEC_SCHEMA = "kinodel.pipeline_spec.v1"
 PRODUCER_STATE_SCHEMA = "kinodel.producer_state.v1"
 SPEC_REGISTRY_DIR = Path.home() / ".hermes" / "skills" / "kinodel" / "pipeline-kinodel" / "pipelines"
+CHUNK_VALIDATOR_PATH = Path.home() / ".hermes" / "skills" / "kinodel" / "pipeline-kinodel" / "scripts" / "validate_chunk_schema.py"
 APPROVE_DECISIONS = {"A", "approve", "approved", "yes", "true"}
 DELEGATABLE_STAGE_TYPES = {"agent_stage", "montage_stage"}
 
@@ -315,7 +329,16 @@ def validate_result(project_dir: Path, relpath: str, data: dict[str, Any], error
         if expected_request and source_sha:
             current_sha = file_sha256(rel(project_dir, expected_request))
             if current_sha and current_sha != source_sha:
-                errors.append(f"stale render result: {relpath} was rendered from {expected_request} sha256={source_sha[:12]}, current sha256={current_sha[:12]}")
+                snapshot_path = source_request.get("snapshot_path")
+                if snapshot_path:
+                    snapshot_file = resolve_project_media_path(project_dir, str(snapshot_path))
+                    snapshot_sha = file_sha256(snapshot_file)
+                    if not snapshot_file.exists():
+                        errors.append(f"source_request.snapshot_path does not exist: {snapshot_path}")
+                    elif snapshot_sha != source_sha:
+                        errors.append(f"source_request.snapshot_path sha mismatch: {snapshot_sha} != {source_sha}")
+                else:
+                    errors.append(f"stale render result: {relpath} was rendered from {expected_request} sha256={source_sha[:12]}, current sha256={current_sha[:12]}")
     outs = data.get("selected_outputs")
     if not isinstance(outs, list) or not outs:
         errors.append("selected_outputs is empty or not a list")
@@ -324,8 +347,31 @@ def validate_result(project_dir: Path, relpath: str, data: dict[str, Any], error
         if not isinstance(out, dict):
             errors.append(f"selected_outputs[{i}] is not object")
             continue
-        if not out.get("path"):
+        path_value = out.get("path")
+        if not path_value:
             errors.append(f"selected_outputs[{i}].path missing")
+        else:
+            media_path = resolve_project_media_path(project_dir, str(path_value))
+            if not media_path.exists():
+                errors.append(f"selected_outputs[{i}].path does not exist: {path_value}")
+            elif not media_path.is_file():
+                errors.append(f"selected_outputs[{i}].path is not a file: {path_value}")
+            else:
+                expected_sha = out.get("sha256")
+                actual_sha = file_sha256(media_path)
+                if expected_sha and actual_sha != expected_sha:
+                    errors.append(f"selected_outputs[{i}].sha256 mismatch for {path_value}: {actual_sha} != {expected_sha}")
+                source_value = out.get("source_path")
+                if source_value:
+                    source_path = resolve_project_media_path(project_dir, str(source_value))
+                    if not source_path.exists():
+                        errors.append(f"selected_outputs[{i}].source_path does not exist: {source_value}")
+                    elif source_path.is_file():
+                        source_sha = file_sha256(source_path)
+                        if actual_sha and source_sha and actual_sha != source_sha:
+                            errors.append(f"selected_outputs[{i}] canonical/source hash mismatch: {path_value} != {source_value}")
+                    else:
+                        errors.append(f"selected_outputs[{i}].source_path is not a file: {source_value}")
         if not out.get("url"):
             errors.append(f"selected_outputs[{i}].url missing")
 
@@ -359,6 +405,18 @@ def validate_final_chunk(project_dir: Path, data: dict[str, Any], errors: list[s
         errors.append(f"final_video.path is empty: {video_path_value}")
 
 
+def validate_crafted_chunk(path: Path) -> list[str]:
+    try:
+        spec = importlib.util.spec_from_file_location("validate_chunk_schema", CHUNK_VALIDATOR_PATH)
+        module = importlib.util.module_from_spec(spec)
+        assert spec and spec.loader
+        spec.loader.exec_module(module)
+        data = load_json(path)
+        return list(module.validate_document(data, path))
+    except Exception as exc:
+        return [f"chunk schema validation failed: {exc}"]
+
+
 def validate_artifact(project_dir: Path, relpath: str) -> dict[str, Any]:
     pid = project_id(project_dir)
     path = rel(project_dir, relpath)
@@ -387,6 +445,8 @@ def validate_artifact(project_dir: Path, relpath: str) -> dict[str, Any]:
         validate_result(project_dir, relpath, data, errors)
     elif relpath == "final_chunk.json":
         validate_final_chunk(project_dir, data, errors)
+    elif relpath == "chunks/cinema_chunk.json":
+        errors.extend(validate_crafted_chunk(path))
     elif data.get("status") and data.get("status") != "complete":
         errors.append("status is not complete")
     return {"path": relpath, "ok": not errors, "errors": errors}
@@ -533,6 +593,13 @@ def compile_legacy_route() -> dict[str, Any]:
             "writes": as_list(spec.get("write")),
         }
     review_gates = {g: {"goal": g, "gate_alias": g.split("_", 1)[0], "gate_kind": "review_gate", "stop": True, "choices": ["A", "B", "C", "D"]} for g in REVIEW_GATES}
+    if "p12_final_gate" in review_gates:
+        review_gates["p12_final_gate"].update({
+            "gate_alias": "p12",
+            "label": "Final Project ReviewGate",
+            "reads": ["outputs/final.mp4", "final_chunk.json"],
+            "previews": ["outputs/final.mp4", "final_chunk.json"],
+        })
     stage_descriptors.update({goal: dict(meta, type="review_gate") for goal, meta in review_gates.items()})
     return {
         "spec_based": False,
@@ -545,7 +612,7 @@ def compile_legacy_route() -> dict[str, Any]:
         "render_stages": {},
         "review_gates": review_gates,
         "final_chunk": {"path": "final_chunk.json", "schema": EXPECTED_SCHEMAS["final_chunk.json"]},
-        "compatibility": {"legacy_goal_aliases": True, "hard_gate_aliases": ["p4", "p7"]},
+        "compatibility": {"legacy_goal_aliases": True, "hard_gate_aliases": ["p4", "p7", "p12"]},
     }
 
 
@@ -612,6 +679,7 @@ def compile_spec_route(spec: dict[str, Any]) -> dict[str, Any]:
                 raise SystemExit(f"ERROR: delegated stage {goal} missing owner_skill")
             delegated[goal] = {
                 "skill": owner,
+                "support_skills": as_list(stage.get("support_skills")),
                 "read": reads,
                 "write": first_or_none(writes),
                 "selected_from": selected_from_for_stage(stage, reads),
@@ -872,6 +940,42 @@ def build_gate_preview(project_dir: Path, gate_name: str = "next", explicit_spec
     }
 
 
+def sync_producer_state_with_resume(project_dir: Path, route: dict[str, Any], next_goal: str | None, complete: bool) -> dict[str, Any]:
+    state = load_producer_state(project_dir)
+    if not state:
+        return {}
+    changed = False
+    desired_goal = str(next_goal) if next_goal else None
+    desired_cursor = goal_cursor(route, desired_goal)
+    if state.get("current_goal") != desired_goal:
+        state["current_goal"] = desired_goal
+        changed = True
+    if state.get("stage_cursor") != desired_cursor:
+        state["stage_cursor"] = desired_cursor
+        changed = True
+    if state.get("complete") != complete:
+        state["complete"] = complete
+        changed = True
+    if complete:
+        final_video = rel(project_dir, "outputs/final.mp4")
+        completion = state.get("completion") if isinstance(state.get("completion"), dict) else {}
+        completion.setdefault("completed_at", utc_now())
+        completion["complete"] = True
+        if final_video.exists():
+            completion["final_video"] = "outputs/final.mp4"
+        if state.get("completion") != completion:
+            state["completion"] = completion
+            changed = True
+    if changed:
+        state.setdefault("schema", PRODUCER_STATE_SCHEMA)
+        state.setdefault("project_id", project_id(project_dir))
+        if route.get("pipeline_id"):
+            state.setdefault("pipeline_id", route.get("pipeline_id"))
+        state["updated_at"] = utc_now()
+        save_producer_state(project_dir, state)
+    return state
+
+
 def build_resume_report(project_dir: Path, explicit_spec: str | None = None) -> dict[str, Any]:
     project_dir = project_dir.expanduser().resolve()
     route = load_route(project_dir, explicit_spec=explicit_spec)
@@ -886,8 +990,8 @@ def build_resume_report(project_dir: Path, explicit_spec: str | None = None) -> 
     elif next_goal and next_goal in route["delegated"]:
         preview_artifacts = [p for p in as_list(route["delegated"][next_goal].get("selected_from")) if rel(project_dir, p).exists()]
 
-    state = load_producer_state(project_dir)
     complete = next_goal is None
+    state = sync_producer_state_with_resume(project_dir, route, str(next_goal) if next_goal else None, complete) or load_producer_state(project_dir)
     if pending_gate:
         next_action = "show_review_gate"
     elif complete:
@@ -1003,6 +1107,7 @@ def build_handoff(project_dir: Path, goal: str, edit_notes: str | None = None, e
         "stage": {
             "goal": goal,
             "owner_skill": spec.get("skill"),
+            "support_skills": as_list(spec.get("support_skills")),
         },
         "selected_media": collect_selected(project_dir, spec["selected_from"]),
         "context_cache": compact_context_cache(project_dir, spec["read"]),
@@ -1069,10 +1174,14 @@ def infer_next_goal(project_dir: Path, include_gates: bool = True, explicit_spec
     for goal in GOAL_ORDER[1:]:
         if goal in REVIEW_GATES:
             if include_gates:
-                if goal == "p4_story_main_gate" and is_complete(project_dir, "render_results/main_frame_result.json") and not is_complete(project_dir, "storyboard_requests.json"):
-                    return {"next_goal": goal, "reason": "main frame rendered; awaiting p4 approval", "stop": True}
-                if goal == "p7_story_images_gate" and is_complete(project_dir, "render_results/story_frames_result.json") and not is_complete(project_dir, "video_requests.json"):
-                    return {"next_goal": goal, "reason": "story images rendered; awaiting p7 approval", "stop": True}
+                gate = compile_legacy_route()["review_gates"].get(goal, {"goal": goal, "gate_alias": goal.split("_", 1)[0]})
+                if not gate_is_approved(project_dir, gate):
+                    if goal == "p4_story_main_gate" and is_complete(project_dir, "render_results/main_frame_result.json") and not is_complete(project_dir, "storyboard_requests.json"):
+                        return {"next_goal": goal, "reason": "main frame rendered; awaiting p4 approval", "stop": True, "gate_alias": "p4"}
+                    if goal == "p7_story_images_gate" and is_complete(project_dir, "render_results/story_frames_result.json") and not is_complete(project_dir, "video_requests.json"):
+                        return {"next_goal": goal, "reason": "story images rendered; awaiting p7 approval", "stop": True, "gate_alias": "p7"}
+                    if goal == "p12_final_gate" and is_complete(project_dir, "final_chunk.json"):
+                        return {"next_goal": goal, "reason": "final video and final_chunk ready; awaiting final approval before RAG craft", "stop": True, "gate_alias": "p12"}
             continue
         artifact = GOAL_EXIT_ARTIFACT.get(goal)
         if artifact and not is_complete(project_dir, artifact):
@@ -1085,15 +1194,45 @@ def cmd_summary(args: argparse.Namespace) -> int:
     artifacts = [
         "brief.json", "story.json", "wardrobe_request.json", "storyboard_requests.json", "video_requests.json",
         "render_results/main_frame_result.json", "render_results/story_frames_result.json", "render_results/shot_videos_result.json",
-        "final_chunk.json",
+        "final_chunk.json", "chunks/cinema_chunk.json",
     ]
     print(json.dumps({"project_id": project_id(project_dir), "artifacts": [validate_artifact(project_dir, a) for a in artifacts if rel(project_dir, a).exists()]}, ensure_ascii=False, indent=2))
     return 0
 
 
+def inspect_artifact(project_dir: Path, artifact: str, compact: bool = False) -> dict[str, Any]:
+    validation = validate_artifact(project_dir, artifact)
+    if not compact or not artifact.endswith(".json") or not rel(project_dir, artifact).exists():
+        return validation
+    data = load_json(rel(project_dir, artifact))
+    summary: dict[str, Any] = {"path": artifact, "ok": validation.get("ok", False), "schema": data.get("schema"), "stage": data.get("stage"), "status": data.get("status")}
+    if artifact in REQUEST_ARTIFACTS:
+        jobs = data.get("jobs")
+        summary["jobs"] = len(jobs) if isinstance(jobs, list) else 0
+        kinds = sorted({str(j.get("kind")) for j in jobs if isinstance(j, dict) and j.get("kind")}) if isinstance(jobs, list) else []
+        if kinds:
+            summary["kinds"] = kinds
+    elif artifact in RESULT_ARTIFACTS:
+        outs = data.get("selected_outputs")
+        summary["selected_outputs"] = len(outs) if isinstance(outs, list) else 0
+        summary["paths"] = [o.get("path") for o in outs if isinstance(o, dict) and o.get("path")] if isinstance(outs, list) else []
+        if isinstance(data.get("source_request"), dict):
+            summary["source_request"] = {k: data["source_request"].get(k) for k in ("artifact", "sha256", "snapshot_path") if data["source_request"].get(k)}
+    if not validation.get("ok"):
+        summary["errors"] = validation.get("errors") or validation.get("error")
+    return summary
+
+
 def cmd_validate(args: argparse.Namespace) -> int:
     project_dir = Path(args.project_dir).expanduser().resolve()
     result = validate_artifact(project_dir, args.artifact)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0 if result.get("ok") else 2
+
+
+def cmd_inspect(args: argparse.Namespace) -> int:
+    project_dir = Path(args.project_dir).expanduser().resolve()
+    result = inspect_artifact(project_dir, args.artifact, compact=args.compact)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result.get("ok") else 2
 
@@ -1159,6 +1298,11 @@ def main() -> int:
     v.add_argument("--project-dir", required=True)
     v.add_argument("--artifact", required=True)
     v.set_defaults(func=cmd_validate)
+    ins = sub.add_parser("inspect")
+    ins.add_argument("--project-dir", required=True)
+    ins.add_argument("--artifact", required=True)
+    ins.add_argument("--compact", action="store_true")
+    ins.set_defaults(func=cmd_inspect)
     n = sub.add_parser("next-goal")
     n.add_argument("--project-dir", required=True)
     n.add_argument("--skip-gates", action="store_true", help="DEBUG ONLY: infer next non-gate work item; never use for normal production because p4/p7 are hard stops")

@@ -37,6 +37,7 @@ User brief
 → p9. render-kinodel      → video clips (ОТПРАВИТЬ ПОЛЬЗОВАТЕЛЮ)
 → p10. montage-kinodel    → final.mp4 (ОТПРАВИТЬ ПОЛЬЗОВАТЕЛЮ)
 → p11. final_chunk         → final_chunk.json
+p12. нужно добавить, мы крафтим chunk
 ```
 
 ### Правило визуального фидбека:

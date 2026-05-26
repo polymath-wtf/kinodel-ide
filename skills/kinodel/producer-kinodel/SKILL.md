@@ -4,7 +4,7 @@ description: 'Ecosystem Orchestrator for Kinodel. Executes pipeline-kinodel as a
   /goal state machine: talks to the user, validates artifact handoffs, launches packaged
   render workers, enforces BriefGate/p4/p7 hard stops, and writes final_chunk.json.
   Load for any Kinodel production run or workflow optimization.'
-license: MIT
+license: Apache 2
 metadata:
   hermes:
     trigger: start movie production, organize kinodel, produce film, create kinodel
@@ -36,13 +36,15 @@ Core loop:
 ```text
 producer_step.py --project-dir <project>/v1
 → action JSON
-→ if delegate_stage: delegate_task(owner subagent) + validate_after
+→ if delegate_stage: delegate_task(owner subagent) + validate_after, then call producer_step.py again
 → if render_stage: launch packaged worker in background + wakeup/copy/validate
 → if show_gate: present gate-preview refs + A/B/C/D, stop
 → if complete: report done
 ```
 
-`producer_step.py` is the preferred hot-path router. It packages `resume`, `handoff`, render command construction, and gate preview into one machine-readable action so the main Producer does not decide routing by prose or author specialist artifacts itself.
+After BriefGate approval (`A`/`go`) and project initialization, Producer should run this loop immediately until it hits `show_gate`, a background render boundary, `complete`, or an error. Do not ask the user whether to continue from `p1_story`; approval of p0 already authorizes deterministic p1→p2→p3 work.
+
+`producer_step.py` is the preferred hot-path router. It packages `resume`, `handoff`, render command construction, and gate preview into one machine-readable action so the main Producer does not decide routing by prose or author specialist artifacts itself. Render-stage `command` is self-contained at the render boundary: it runs `render.py` and then the universal render-side wake-up bridge `render-kinodel/scripts/render_wakeup.py`. That bridge promotes the worker result, validates the durable manifest, asks Producer for the next action via `producer_step.py`, formats the wake-up message via `producer_notify.py`, and emits a `producer_agent_prompt` wake payload. Producer owns the next-action decision; render-kinodel only reports completion and hands control back. `render_wakeup.py` is not a Producer runtime runner and must not grow per-stage continuation logic. Autonomous continuation requires a Hermes wake consumer to enqueue `producer_agent_prompt` as a new Producer agent turn in the target session/runtime; terminal `notify_on_complete=True` alone only delivers stdout.
 
 ## Load order
 
@@ -54,14 +56,21 @@ producer_step.py --project-dir <project>/v1
    - `references/token-aerodynamics.md` for compact handoffs/cache discipline.
    - `references/delegated-design-stages.md` for using subagents without polluting Producer context.
    - `references/gate-ui.md` for exact BriefGate/ReviewGate text.
+   - `references/brief-start.md` when normalizing a new user idea into the first BriefGate and `brief.json`.
+   - `references/brief-stage-regression.md` when auditing weak brief questions, premature project init, or drift between brief-start/gate/default docs.
+   - `references/brief-approval-autopilot.md` when auditing or fixing final BriefGate approval behavior: persist the full 9-field brief, then continue automatically to the first hard stop instead of adding a soft “if you want” stop.
    - `references/pipeline-spec-runtime.md` when auditing or extending the Phase B spec-aware `state_guard.py` route compiler.
    - `references/mid-pipeline-video-flow-changes.md` when the user changes video flow/provider/duration after p7 or after `video_requests.json` exists.
    - `references/upstream-stream-drop-incident.md` only when debugging stream stalls.
    - `references/upstream-edit-fix-invalidation.md` — notes on invalidating stale render results after p4/p7 edit-fix loops and rerendering before trusting old manifests.
-- `references/telegram-gate-ux.md` — concise gate-UX and long-render progress notes from Telegram production.
+- `features/telegram-gate-ux.md` — concise gate-UX and long-render progress notes from Telegram production.
 - `references/kinodel-on-entrypoints.md` — exact `/kinodel` quick-command alias and native pre-agent `kinodel on` router pattern for low-context startup.
-- `references/render-retry-note.md` — ComfyUI batch retries and how to wait for the worker to finish before promoting results.
+- `references/brief-gate-rules.md` — mid-session brief revisions: shot-count changes, lofi-room corrections, and `main_frame` vs shot 1 role separation.
+   - `references/render-retry-note.md` — ComfyUI batch retries and how to wait for the worker to finish before promoting results.
+   - `references/render-wakeup-boundary.md` — simplification-cascade boundary for render completion: one `render_wakeup.py` bridge, no `producer_autorun.py`, and no per-stage wake-up logic; autonomous continuation belongs to a future Producer runtime/event consumer.
+   - `features/render-selection-reconciliation.md` — how to preserve a user-chosen earlier render batch as canonical and keep request/result hashes in sync.
 - `references/final-chunk-completion.md` — the p10→p11 completion recipe for writing and validating `final_chunk.json` after montage.
+- `references/approved-render-set-sync.md` — how to restore a user-approved earlier render attempt as the canonical selected_outputs and keep project outputs in sync.
 
 ## Invariants
 
@@ -93,9 +102,19 @@ For low-latency startup, prefer a deterministic entrypoint over natural-language
 
 ## Brief / project start
 
-Before creating a project directory, select or infer the pipeline with a lightweight PipelineChoiceGate, then ask/confirm the brief. PipelineChoiceGate happens before BriefGate/init_project because `init_project.py` needs `pipeline_id`, layout profile, and eventually a frozen project-local `pipeline_spec.json` / `producer_state.json`.
+Before creating a project directory, select or infer the pipeline with a lightweight PipelineChoiceGate, then run the canonical 9-field Brief Intake from `references/brief-start.md`. PipelineChoiceGate happens before BriefGate/init_project because `init_project.py` needs `pipeline_id`, layout profile, and a frozen project-local `pipeline_spec.json` / `producer_state.json`.
 
-When the user supplies a brief in fragments across multiple short messages, keep a compact running draft in context, apply the canonical defaults for any missing non-critical fields, and only ask again for truly mandatory missing fields. If the user then says a terse confirmation like `go`, treat it as approval of the accumulated brief and proceed to initialization instead of re-asking for the same details. If the user gives a small final style tweak plus continuation, e.g. `add VHS and go`, `добавь стиля vhs и го дальше`, treat this as an approved BriefGate with that tweak folded into `brief.user_vibe` / `style_notes`; do not re-open another BriefGate unless the tweak changes mandatory production fields such as video workflow, provider, pipeline, aspect ratio, or shot count.
+**Simplification cascade:** all brief entry paths are the same flow:
+
+```text
+user idea / fragments
+→ 9-field Intake Card draft (`references/brief-start.md`)
+→ fill missing fields as visible assumptions/defaults
+→ show final BriefGate preview for approval
+→ only after approval: write brief.json + init_project.py
+```
+
+This single flow replaces ad-hoc weak provider questions, direct init after terse answers, and separate “format confirmation” prompts. Even if the user says only `мем про кота` or answers just one field, Producer must synthesize the missing fields and show the final brief card before initialization.
 
 Rules:
 
@@ -103,28 +122,24 @@ Rules:
 - If the user clearly asks for a normal short cinematic/reels video, default to `cinematic.v1`.
 - If intent is ambiguous or clearly non-cinematic, ask which active pipeline to use.
 - During migration, non-cinematic pipelines are shown only after their activation phase passes; otherwise mark them planned/locked and do not initialize production projects from them.
+- Do not ask a weak one-line workflow/provider question when a new project brief is missing. Ask or infer the full 9 fields from `brief-start.md`: `user_vibe`, `story_seed`, `hook`, `intrigue`, `characters`, `world`, `ending`, `format`, `workflow`.
+- For fields 8 and 9, show defaults inline with alternatives in parentheses:
+  - `format`: square 1:1, 3 frames, 1K images, 480p video, 4s per shot (other options: reels/9:16, widescreen/16:9, custom shot count, 720p/1080p when supported)
+  - `workflow`: `provider=comfyui`, `image flow=img2img`, `video flow=i2v`, audio off (other video flows: `t2v`, `flf2v`; other providers: `fal.ai`, `openrouter` when the selected pipeline/provider profile supports it)
+- When the user supplies fragments across multiple short messages, keep a compact running draft in context and apply canonical defaults for missing non-critical fields. Ask again only for fields that would materially change the tool path and cannot be safely inferred.
+- Always show the final BriefGate preview before creating the project, including explicit assumptions for any fields the user did not answer. The user can approve, auto-tighten, edit, or stop.
+- If the user says `go`, `на твоё усмотрение`, `без разницы`, `остальное хз`, or adds a small style tweak plus continuation after seeing the final BriefGate preview, treat it as approval with defaults/tweak applied. Before the preview, those phrases only authorize default filling; they do not skip the preview.
+- If the user corrects shot count, location, character-emotion mapping, provider, or workflow during the brief stage, the correction is authoritative and must be reflected in the next final BriefGate preview.
 
-- Before creating a project directory, ask a compact BriefGate when format fields are inferred or missing. The BriefGate must include both: video workflow choice (`t2v`, `i2v`, or `flf2v`) and provider choice (`comfyui` or `fal`). Mark `comfyui + i2v + 480p + 4s` as the default. These choices are real brief fields, not explanatory prose: persist workflow into `brief.video.workflow` and `brief.video.flow`, and persist provider into top-level/default provider fields so `render_worker.py` and specialist agents do not invent them. See `references/brief-gate-defaults.md` for terse-brief handling and provider/workflow default rules.
-
-Defaults to offer:
-
-- square cinematic/social format
-- 1:1
-- 3 story frames
-- video workflow choice: `i2v` default (one 4s clip per approved story frame), or explicit `flf2v` transitions; `t2v` may be recorded only when the selected provider/workflow supports text-to-video
-- provider choice: `comfyui` (default) or `fal`; ask the user which they prefer during BriefGate
-- default `comfyui + i2v`: `local-comfyui:img2img_klein` images at explicit `image.width=1024`, `image.height=1024` (`1:1` image `1K`) and `local-comfyui:img2vid_wan_lora` i2v videos at explicit `video.width=480`, `video.height=480` (`1:1` video `480p`), `video.seconds_per_shot="4s"`, audio off; use `render-kinodel/references/resolution-guide.md` for other aspect ratios/qualities
-- `fal + i2v` option: `fal:hidream_o1` / `fal:hidream_o1_edit` images at guide-derived size and `fal:veo31_lite_i2v` videos, 4s, 480p, audio off
-- explicit `flf2v` transitions use `brief.video.flow="flf2v"`; `fal:veo31_lite_flf2v` remains the concrete flf2v provider until a production ComfyUI flf2v workflow is registered
-
-If the user explicitly says the choice is “on your discretion”, “на твоё усмотрение”, or equivalent, treat that as approval to use the default comfyui family and proceed without another provider question.
-
-Only after the user approves or gives custom values:
+Only after the user approves the final BriefGate preview:
 
 1. derive `project_id`;
-2. write complete `brief_json`, including video workflow (`video.workflow` and `video.flow`) plus provider defaults (`provider`, `provider_image`, `provider_edit`, `provider_video`, and `provider_flf2v` when needed);
+2. write complete `brief_json`, including the approved 9-field creative intake (`user_vibe`, `story_seed`, `hook`, `intrigue`, `characters`, `world`, `ending`, optional `brief_assumptions`) plus video workflow (`video.workflow` and `video.flow`) and provider defaults (`provider`, `provider_image`, `provider_edit`, `provider_video`, and `provider_flf2v` when needed);
 3. run `kinodel-project-layout/scripts/init_project.py`;
-4. validate that pending stubs exist.
+4. validate that pending stubs exist;
+5. immediately enter the Producer hot path with `producer_step.py` and continue deterministic pipeline work. Do **not** stop with “if you want, I can continue.” After p0 approval, the next stop is only a hard ReviewGate (p4/p7/p12 final), a long background render handoff with notify-on-complete, completion, or a real failure requiring user input.
+
+**Mid-brief revisions:** if the user later corrects the shot count, location, or character-emotion mapping before initialization, treat the revision as authoritative and regenerate the final BriefGate preview rather than preserving an earlier draft. In particular, the `main_frame` should represent the renderable hero/default state for downstream planning and may intentionally differ from shot 1 when the brief says the first shot is a separate low point (e.g., `main_frame` = calm smile, shot 1 = sad/apathy).
 
 Never scaffold empty project directories before the brief is approved.
 
@@ -167,7 +182,7 @@ python3 ~/.hermes/skills/kinodel/producer-kinodel/scripts/producer_step.py \
 It returns one action:
 
 - `delegate_stage`: call `delegate_task` with the returned `delegate_task.goal`, `delegate_task.context`, and `delegate_task.toolsets`, then validate `validate_after`.
-- `render_stage`: launch the returned `command` in a background terminal with `notify_on_complete=true`; on wakeup run the returned `wakeup.copy_command`, validate `wakeup.validate_after`, then resume.
+- `render_stage`: launch the returned self-contained `command` in a background terminal with `notify_on_complete=true`; it runs `render.py` → `render_wakeup.py`. The wake-up bridge is universal for all render stages: it promotes worker results with `copy_worker_result.py`, validates the durable result artifact, calls `producer_step.py` to compute the next Producer action, and calls `producer_notify.py` to format the completion/gate/next-action message. The `wakeup` field exposes this single `wakeup_command` for recovery if the shell chain is interrupted.
 - `show_gate`: present `gate_preview.preview_refs` and the exact prompt; stop.
 - `complete`: no more production work.
 
@@ -215,6 +230,8 @@ python3 ~/.hermes/skills/kinodel/producer-kinodel/scripts/state_guard.py validat
   --artifact storyboard_requests.json
 ```
 
+If a delegated stage reports completion but also emits any write warning, verifier note, or mismatch hint, treat the summary as advisory only: re-read the artifact from disk, validate it with `state_guard.py validate`, and only then advance to the next Producer step. Subagents can be right about intent and still be wrong about whether the file actually landed.
+
 Use for compact resume diagnostics:
 
 ```bash
@@ -224,11 +241,18 @@ python3 ~/.hermes/skills/kinodel/producer-kinodel/scripts/state_guard.py summary
 python3 ~/.hermes/skills/kinodel/producer-kinodel/scripts/state_guard.py resume \
   --project-dir ~/projects/<project_id>/v1
 
+python3 ~/.hermes/skills/kinodel/producer-kinodel/scripts/state_guard.py inspect \
+  --project-dir ~/projects/<project_id>/v1 \
+  --artifact render_results/story_frames_result.json \
+  --compact
+
 python3 ~/.hermes/skills/kinodel/producer-kinodel/scripts/state_guard.py list-projects \
   --root ~/projects \
   --unfinished \
   --limit 5
 ```
+
+`state_guard.py validate` checks that render-result `selected_outputs[].path` exists, that optional `sha256` matches the canonical file, and that optional `source_path` hashes match the canonical file. `source_request.snapshot_path` allows a selected historical attempt to validate against its original request snapshot without forcing the live planner request to be rolled back.
 
 When the user approves a ReviewGate, persist the gate decision immediately so future chats can resume safely:
 
@@ -270,7 +294,9 @@ python3 ~/.hermes/skills/kinodel/render-kinodel/scripts/render.py \
   --output-dir ~/projects/<project_id>/v1/outputs
 ```
 
-Use background terminal with `notify_on_complete=true` for long renders. Prefer the render action returned by `producer_step.py`; it includes the `render.py` command, `/tmp/kinodel/<project>/<run>/` paths, and the wakeup `copy_worker_result.py` command. On wake-up, run the wakeup copier, validate the correct `v1/render_results/*.json`, show preview refs via `state_guard.py gate-preview` if the next step is p4 or p7, and stop.
+Use background terminal with `notify_on_complete=true` for long renders. Prefer the render action returned by `producer_step.py`; its `command` is the render-boundary wake-up chain `render.py` → `render_wakeup.py`. The wake-up bridge lives in `render-kinodel` because render owns worker completion and result packaging; it promotes the scratch result, validates the durable manifest through Producer's guard, then asks Producer for the next action and formats the message. Do not add per-stage wake-up scripts for `p3`/`p6`/`p9`; extend the universal bridge or Producer action model instead. Autonomous continuation requires a Hermes wake consumer to enqueue `producer_agent_prompt` as a new Producer agent turn in the target session/runtime; terminal `notify_on_complete=True` alone only delivers stdout.
+
+Practical render-polling pitfall: a durable result file can appear before it is ready. If `render_results/*.json` exists but still shows `status: "pending"` or empty `selected_outputs`, treat it as in-flight and keep waiting for the wake-up bridge / final promotion instead of chaining downstream from that file.
 
 ## ReviewGates
 
@@ -292,14 +318,24 @@ Rules:
 - `B` runs `critic-kinodel` and routes notes to the owner.
 - `C` or free-text edits routes user notes to the owner; bare `C` asks for concrete notes.
 - `D` pauses.
-- If the user replies immediately after a gate with a bare continuation phrase like `go`, `дальше`, or `иди дальше` and does not attach edit notes, treat it as approval-equivalent `A` and continue.
+- If the user replies immediately after a gate with a bare continuation phrase like `go`, `go дальше`, `го дальше`, `дальше`, `иди дальше`, or equivalent and does not attach edit notes, treat it as approval-equivalent `A` and continue. Do not re-open the gate or ask for a letter again in this case.
 - Timeout/reminder may remind only; it must not approve.
 
 ## Completion and final memory
 
-A project is complete only when `state_guard.py next-goal` returns `next_goal: null`. For the cinematic pipeline this requires `outputs/final.mp4` to exist and `final_chunk.json` to validate. `final_chunk.json.final_video.path` is the sealed completion pointer and must resolve to an existing non-empty video file; do not treat a bare `status: "complete"` field as project completion.
+A project is complete only when `state_guard.py next-goal` returns `next_goal: null`. For the cinematic pipeline this requires `outputs/final.mp4` to exist, `final_chunk.json` to validate, p12 final gate to be approved, and `chunks/cinema_chunk.json` to validate. `final_chunk.json.final_video.path` is the sealed completion pointer and must resolve to an existing non-empty video file; do not treat a bare `status: "complete"` field as project completion.
 
-After `p10_montage`, if `resume` still reports `p11_final_chunk`, write the completion artifact immediately from the validated `render_results/shot_videos_result.json` refs before declaring the project done. Use the `final_chunk.json` template shape and keep it concise.
+After `p10_montage`, if `resume` still reports `p11_final_chunk`, write the completion artifact immediately from the validated `render_results/shot_videos_result.json` refs, then present p12 Final Project ReviewGate before declaring the project done. Use the `final_chunk.json` template shape and keep it concise.
+
+After `p11_final_chunk`, Producer must present `p12_final_gate` with the final video and final_chunk summary and stop for approval. Only after p12 approval may Producer delegate `p13_cinema_chunk` to `craft-kinodel` instead of hand-authoring the crafted RAG chunk. The delegated Craft stage runs the packaged entrypoint:
+
+```bash
+python3 ~/.hermes/skills/kinodel/craft-kinodel/scripts/craft_cinema_chunk.py \
+  --project-dir ~/projects/<project_id>/v1 \
+  --index --mock
+```
+
+This creates/updates `chunks/cinema_chunk.json`, attaches up to six image refs (main frame first, then story frames) with local path/url/sha/mime metadata, and indexes text plus image attachment embeddings. Manual edited chunks are protected unless Craft is explicitly run with `--force`.
 
 Write `final_chunk.json` only after final media exists. Allowed fields: `schema`, `project_id`, `story`, `hook`, `main_frame`, `story_images`, `video_clips`, `final_video`, `conclusion`.
 

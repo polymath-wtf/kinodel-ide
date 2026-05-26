@@ -4,12 +4,13 @@
   "display_name": "Cinematic Pipeline",
   "version": 1,
   "status": "active",
-  "description": "Machine-readable Kinodel p0-p11 cinematic route. Render-stage adapter_profile values are capability-contract hints for validation/binding; project provider defaults are selected at BriefGate and persisted in brief.json.",
+  "description": "Machine-readable Kinodel p0-p13 cinematic route. p12 is a final hard ReviewGate; only after approval does p13 delegate Craft to create/index v1/chunks/cinema_chunk.json with up to six image attachments.",
   "compatibility": {
     "legacy_goal_aliases": true,
     "hard_gate_aliases": [
       "p4",
-      "p7"
+      "p7",
+      "p12"
     ]
   },
   "project_layout_profile": "cinematic",
@@ -49,6 +50,9 @@
       "goal": "p2_main_frame_plan",
       "type": "agent_stage",
       "owner_skill": "wardrobe-kinodel",
+      "support_skills": [
+        "flux2-prompt-engine"
+      ],
       "requires_capabilities": [
         "visual_anchor_planning.single.v1"
       ],
@@ -102,6 +106,9 @@
       "goal": "p5_storyboard_plan",
       "type": "agent_stage",
       "owner_skill": "storyboard-kinodel",
+      "support_skills": [
+        "flux2-prompt-engine"
+      ],
       "requires_capabilities": [
         "story_frame_planning.cinematic.v1"
       ],
@@ -222,6 +229,54 @@
       ],
       "chunk_type": "cinema_chunk",
       "validator": "kinodel.final_chunk.v1"
+    },
+    {
+      "goal": "p12_final_gate",
+      "type": "review_gate",
+      "gate_alias": "p12",
+      "gate_kind": "final_approval",
+      "label": "Final Project ReviewGate",
+      "stop": true,
+      "choices": [
+        "A",
+        "B",
+        "C",
+        "D"
+      ],
+      "reads": [
+        "outputs/final.mp4",
+        "final_chunk.json"
+      ],
+      "writes": [],
+      "previews": [
+        "outputs/final.mp4",
+        "final_chunk.json"
+      ],
+      "resume_scope": "cinematic_final"
+    },
+    {
+      "goal": "p13_cinema_chunk",
+      "type": "agent_stage",
+      "owner_skill": "craft-kinodel",
+      "requires_capabilities": [
+        "cinema_chunk_crafting.v1",
+        "image_attachment_indexing.max6.v1"
+      ],
+      "reads": [
+        "final_chunk.json",
+        "render_results/main_frame_result.json",
+        "render_results/story_frames_result.json",
+        "render_results/shot_videos_result.json"
+      ],
+      "writes": [
+        "chunks/cinema_chunk.json"
+      ],
+      "validator": "kinodel.cinema_chunk.v1",
+      "selected_from": [
+        "render_results/main_frame_result.json",
+        "render_results/story_frames_result.json"
+      ],
+      "requires_final_gate": "p12_final_gate"
     }
   ]
 }

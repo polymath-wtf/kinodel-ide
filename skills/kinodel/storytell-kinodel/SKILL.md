@@ -35,11 +35,14 @@ See `references/p1_story-handoff.md` for the compact `p1_story` handoff pattern.
 
 ## Rules
 1. Write the canonical `story.json`, not legacy `scenario.json`.
-2. Divide the narrative into strict, atomic shots matching `brief.shot_count` unless the brief explicitly says otherwise.
-3. Do NOT write dialogue unless explicitly requested by the format. Focus on `visual_vibe`, cinematic action, and renderability.
-4. If instructed to fix a specific shot/scene, write the intact merged `story.json` unless Producer explicitly asks for notes only.
-5. Preserve `project_id` from `brief.json` and set `status="complete"`.
-6. **SILENT RETURN:** Save JSON directly to `story.json` using `write_file`. Do NOT print the generated JSON in your final summary to the orchestrator. Say only `done, wrote v1/story.json, N shots`.
+2. The final file must validate structurally before you return: `scene_count` must equal `len(shots)`, and both must match `brief.shot_count` unless the brief explicitly overrides that count.
+3. Divide the narrative into strict, atomic shots matching `brief.shot_count` unless the brief explicitly says otherwise. If the user revises the shot count mid-conversation, rewrite the whole `story.json` to the new count instead of preserving an earlier draft.
+4. Do NOT write dialogue unless explicitly requested by the format. Focus on `visual_vibe`, cinematic action, and renderability.
+5. Keep `main_frame` aligned with the downstream hero/default render state when the brief or Producer requests it; it may intentionally differ from shot 1 if the first shot is a separate emotional low point.
+6. If instructed to fix a specific shot/scene, write the intact merged `story.json` unless Producer explicitly asks for notes only.
+7. Preserve `project_id` from `brief.json` and set `status="complete"`.
+8. **SILENT RETURN:** Save JSON directly to `story.json` using `write_file`. Do NOT print the generated JSON in your final summary to the orchestrator. Say only `done, wrote v1/story.json, N shots`.
+9. If a first pass produces a mismatch or schema issue, correct the file on disk and re-read/verify it before reporting completion; do not assume the first write was valid.
 
 ## Output Contract (`story.json`)
 

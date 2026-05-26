@@ -39,12 +39,13 @@ request artifact
 → poll economically
 → download outputs
 → write temporary result JSON/events
-→ Producer copies compact refs into v1/render_results/*.json
+→ render_wakeup.py promotes compact refs into v1/render_results/*.json
+→ render_wakeup.py validates the durable manifest and emits the producer wake-up handoff/notification
 ```
 
 ## Run command
 
-Producer launches the worker in a background terminal with `notify_on_complete=true`:
+Producer launches the worker in a background terminal with `notify_on_complete=true`; the render command should be chained to the universal wake-up bridge:
 
 ```bash
 python3 ~/.hermes/skills/kinodel/render-kinodel/scripts/render.py \
@@ -52,7 +53,12 @@ python3 ~/.hermes/skills/kinodel/render-kinodel/scripts/render.py \
   --result-file /tmp/kinodel/<project_id>/<run_id>/results.json \
   --events-file /tmp/kinodel/<project_id>/<run_id>/render_events.jsonl \
   --stage images \
-  --output-dir ~/projects/<project_id>/v1/outputs
+  --output-dir ~/projects/<project_id>/v1/outputs && \
+python3 ~/.hermes/skills/kinodel/render-kinodel/scripts/render_wakeup.py \
+  --project-dir ~/projects/<project_id>/v1 \
+  --worker-result /tmp/kinodel/<project_id>/<run_id>/results.json \
+  --events-file /tmp/kinodel/<project_id>/<run_id>/render_events.jsonl \
+  --stage main_frame
 ```
 
 Use `--stage images` for `main_frame` and `story_frames`; use `--stage videos` for `shot_videos`. The worker has bounded parallelism: image concurrency defaults to 6, video/flf2v concurrency defaults to 4, so typical 3-shot flf2v batches submit together instead of serially.
@@ -151,7 +157,9 @@ Clamp local ComfyUI image/video concurrency to 1 unless a specific tested profil
 
 ## Result contract
 
-The worker writes temporary result files. Producer promotes compact refs into durable manifests with the packaged copier, not by hand:
+The worker writes temporary result files. `render_wakeup.py` is the normal render-boundary handoff back to Producer. It calls `copy_worker_result.py` to promote only compact selected refs into durable manifests, validates through `producer-kinodel/scripts/state_guard.py`, asks Producer for the next action, formats the wake-up message, and emits a `producer_agent_prompt` for a future Hermes wake consumer. It does not execute the Producer action loop itself; autonomous continuation beyond notification requires that wake consumer to enqueue the prompt as a new Producer agent turn in the target session/runtime. The detailed ownership boundary is documented in `producer-kinodel/references/render-wakeup-boundary.md`.
+
+Manual promotion remains available for diagnostics/recovery:
 
 ```bash
 python3 ~/.hermes/skills/kinodel/render-kinodel/scripts/copy_worker_result.py \
@@ -160,11 +168,13 @@ python3 ~/.hermes/skills/kinodel/render-kinodel/scripts/copy_worker_result.py \
   --stage story_frames
 ```
 
-Producer updates durable manifests:
+Producer updates durable manifests and synchronizes canonical project-local media paths:
 
 ```json
-{"schema":"kinodel.render_result.v1","project_id":"id","status":"complete","stage":"story_frames","selected_outputs":[{"shot_id":"shot_01","kind":"image","path":"outputs/shot_01.png","url":"https://..."}],"attempts":[],"selection_policy":"selected_outputs are current truth"}
+{"schema":"kinodel.render_result.v1","project_id":"id","status":"complete","stage":"story_frames","selected_outputs":[{"shot_id":"shot_01","kind":"image","path":"outputs/shot_01.png","source_path":"outputs/api_00039_.png","url":"https://...","sha256":"..."}],"attempts":[],"selection_policy":"selected_outputs are current truth"}
 ```
+
+`copy_worker_result.py` must copy the selected worker/raw output into stable canonical filenames (`outputs/main_frame.*`, `outputs/shot_XX.png`, `outputs/shot_XX.mp4`) and verify hash equality. This prevents a promoted older attempt from leaving `render_results/*.json.selected_outputs` and physical `outputs/shot_XX.*` out of sync.
 
 Downstream agents consume `selected_outputs`; they must not scan `outputs/`.
 

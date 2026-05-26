@@ -25,6 +25,15 @@ PIPELINE_SPEC_SCHEMA = "kinodel.pipeline_spec.v1"
 PRODUCER_STATE_SCHEMA = "kinodel.producer_state.v1"
 DEFAULT_PIPELINE_ID = "cinematic.v1"
 DEFAULT_LAYOUT_PROFILE = "cinematic"
+REQUIRED_BRIEF_FIELDS = (
+    "user_vibe",
+    "story_seed",
+    "hook",
+    "intrigue",
+    "characters",
+    "world",
+    "ending",
+)
 
 LAYOUT_PROFILES: dict[str, dict[str, Any]] = {
     "cinematic": {
@@ -129,6 +138,25 @@ def pending_with_project(project_id: str, payload: dict[str, Any]) -> dict[str, 
     return out
 
 
+def has_brief_content(value: Any) -> bool:
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, tuple, dict)):
+        return bool(value)
+    return value is not None
+
+
+def validate_brief_intake(brief: dict[str, Any]) -> None:
+    """Fail closed if the approved 9-field BriefGate was not persisted."""
+    missing = [field for field in REQUIRED_BRIEF_FIELDS if not has_brief_content(brief.get(field))]
+    if missing:
+        fail(
+            "brief_json missing approved 9-field intake fields: "
+            + ", ".join(missing)
+            + ". Show the final BriefGate card, infer blanks visibly, and pass the approved fields into brief.json."
+        )
+
+
 def normalize_brief_defaults(brief: dict[str, Any]) -> dict[str, Any]:
     """Ensure brief.json freezes video workflow/provider defaults at init time."""
     out = dict(brief)
@@ -198,6 +226,7 @@ def init_project(
     brief.setdefault("schema", "kinodel.brief.v1")
     brief.setdefault("project_id", project_id)
     brief.setdefault("status", "complete")
+    validate_brief_intake(brief)
     if brief.get("project_id") != project_id:
         fail(f"brief project_id mismatch: {brief.get('project_id')!r} != {project_id!r}")
 

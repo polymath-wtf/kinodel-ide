@@ -14,7 +14,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import shutil
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +53,85 @@ def file_sha256(path: Path) -> str | None:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def resolve_path(project_dir: Path, value: str | None) -> Path | None:
+    if not value:
+        return None
+    path = Path(str(value)).expanduser()
+    if path.is_absolute():
+        return path
+    return (project_dir / path).resolve()
+
+
+def rel_to_project(project_dir: Path, path: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(project_dir.resolve()))
+    except ValueError:
+        return str(path.resolve())
+
+
+def canonical_output_path(project_dir: Path, stage: str, output: dict[str, Any], index: int, source_path: Path) -> Path:
+    suffix = source_path.suffix or (".mp4" if stage == "shot_videos" else ".png")
+    shot_id = str(output.get("shot_id") or "").strip()
+    if stage == "main_frame":
+        name = f"main_frame{suffix}"
+    elif stage == "story_frames":
+        name = f"{shot_id or f'shot_{index + 1:02d}'}{suffix}"
+    elif stage == "shot_videos":
+        name = f"{shot_id or f'shot_{index + 1:02d}'}{suffix}"
+    else:
+        name = source_path.name
+    return (project_dir / "outputs" / Path(name).name).resolve()
+
+
+def sync_canonical_outputs(project_dir: Path, stage: str, selected_outputs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Copy selected worker outputs into canonical project-local filenames.
+
+    The durable manifest should point at stable canonical paths (for example
+    outputs/shot_01.png), while raw provider/attempt files may keep their original
+    names. This prevents selected_outputs and physical files from drifting apart
+    when an older attempt is promoted.
+    """
+    synced: list[dict[str, Any]] = []
+    for i, out in enumerate(selected_outputs):
+        source = resolve_path(project_dir, out.get("path"))
+        if source is None or not source.exists() or not source.is_file():
+            raise SystemExit(f"ERROR: selected_outputs[{i}].path does not exist or is not a file: {out.get('path')}")
+        canonical = canonical_output_path(project_dir, stage, out, i, source)
+        canonical.parent.mkdir(parents=True, exist_ok=True)
+        source_sha = file_sha256(source)
+        if source.resolve() != canonical.resolve():
+            shutil.copy2(source, canonical)
+        canonical_sha = file_sha256(canonical)
+        if source_sha != canonical_sha:
+            raise SystemExit(f"ERROR: canonical sync hash mismatch for {canonical}: source {source_sha} != canonical {canonical_sha}")
+        compact = dict(out)
+        compact["source_path"] = rel_to_project(project_dir, source)
+        compact["path"] = rel_to_project(project_dir, canonical)
+        compact["sha256"] = canonical_sha
+        synced.append(compact)
+    return synced
+
+
+def snapshot_request(project_dir: Path, request_artifact: str | None, source_sha: str | None) -> str | None:
+    if not request_artifact:
+        return None
+    request_path = project_dir / request_artifact
+    if not request_path.exists():
+        return None
+    current_sha = file_sha256(request_path)
+    if source_sha and current_sha and source_sha != current_sha:
+        # The worker result belongs to a historical request. Do not snapshot the
+        # current live planner artifact under the old hash; validation should use
+        # an explicit historical snapshot if/when attempt promotion supplies one.
+        return None
+    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    sha_part = (current_sha or source_sha or "unknown")[:12]
+    target = project_dir / "request_snapshots" / f"{Path(request_artifact).stem}_{stamp}_{sha_part}.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(request_path, target)
+    return rel_to_project(project_dir, target)
 
 
 def request_artifact_for_stage(stage: str) -> str | None:
@@ -127,11 +208,12 @@ def main() -> int:
     dest = Path(args.result_file).expanduser().resolve() if args.result_file else project_dir / STAGE_TO_DEST[args.stage]
     dest.parent.mkdir(parents=True, exist_ok=True)
 
-    selected_outputs = normalize_selected_outputs(worker_result)
+    selected_outputs = sync_canonical_outputs(project_dir, args.stage, normalize_selected_outputs(worker_result))
     summary = worker_result.get("summary") if isinstance(worker_result.get("summary"), dict) else {}
     request_artifact = request_artifact_for_stage(args.stage)
     current_request_sha = file_sha256(project_dir / request_artifact) if request_artifact else None
     source_request_sha = summary.get("request_sha256") or current_request_sha
+    request_snapshot = snapshot_request(project_dir, request_artifact, source_request_sha)
     manifest = {
         "schema": "kinodel.render_result.v1",
         "project_id": pid,
@@ -146,6 +228,8 @@ def main() -> int:
             "artifact": request_artifact,
             "sha256": source_request_sha,
         }
+        if request_snapshot:
+            manifest["source_request"]["snapshot_path"] = request_snapshot
     dest.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({"ok": True, "result_file": str(dest), "selected_outputs": len(selected_outputs)}, ensure_ascii=False, indent=2))
     return 0

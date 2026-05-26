@@ -98,7 +98,8 @@ Load only what you need:
 - `references/projection-status-handoff-rules.md` — distilled rules for durable/retrieval/handoff/media projections, episode status policy, embedding profiles, hash invalidation, and water checks.
 - `references/rag-smoke-test-cinematic-chunks.md` — real-project smoke recipe for crafting completed `cinema_chunk.json` artifacts from `final_chunk.json`, validating token/schema budget, indexing with mock vectors, and resolving context packs.
 - `scripts/estimate_chunk_tokens.py` — local token estimator/guard before indexing/handoff.
-- `scripts/backfill_cinema_chunks.py` — packaged backfill from completed `final_chunk.json` to `v1/chunks/cinema_chunk.json`; validates final chunks, protects manual edits unless `--force`, runs schema/token guards, and reports changed/unchanged/errors.
+- `scripts/craft_cinema_chunk.py` — Producer-delegated post-`final_chunk.json` entrypoint for one project: writes `v1/chunks/cinema_chunk.json`, attaches up to 6 image refs (main frame first, then story frames) as local path/url/sha/mime metadata, validates schema/token guards, and can call the indexer with `--index --mock` for text + image attachment embeddings.
+- `scripts/backfill_cinema_chunks.py` — packaged bulk/backfill from completed `final_chunk.json` to `v1/chunks/cinema_chunk.json`; validates final chunks, protects manual edits unless `--force`, materializes URL-only image refs into `v1/chunks/media/` when possible, runs schema/token guards, and reports changed/unchanged/errors.
 - `chunks/common-craft-chunk.v1.json` — common skeleton.
 - `chunks/avatar_chunk.v1.json`, `music_chunk.v1.json`, `season_chunk.v1.json`, `episode_chunk.v1.json`, `cinema_chunk.v1.json` — artifact templates.
 - `chunks/wardrobe-craft-pack.v1.json`, `storyboard-craft-pack.v1.json`, `filmmaker-craft-pack.v1.json` — task-specific context packs for prompt agents.

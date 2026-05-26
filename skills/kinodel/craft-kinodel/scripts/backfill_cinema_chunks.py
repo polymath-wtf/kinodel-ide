@@ -15,11 +15,14 @@ import json
 import re
 import sys
 import tempfile
+import mimetypes
+import urllib.request
 from pathlib import Path
 from typing import Any
 
 SCRIPT_NAME = "backfill_cinema_chunks.py"
-CRAFT_VERSION = "kinodel.cinema_backfill.v1"
+CRAFT_VERSION = "kinodel.cinema_chunk_craft.v2"
+MAX_IMAGE_EMBED_REFS = 6
 VALIDATOR_PATH = Path.home() / ".hermes/skills/kinodel/pipeline-kinodel/scripts/validate_chunk_schema.py"
 TOKEN_GUARD_PATH = Path.home() / ".hermes/skills/kinodel/craft-kinodel/scripts/estimate_chunk_tokens.py"
 
@@ -60,6 +63,57 @@ def file_sha256(path: Path) -> str | None:
         return h.hexdigest()
     except OSError:
         return None
+
+
+def project_media_path(project_dir: Path, value: str) -> Path:
+    media_path = Path(value).expanduser()
+    if media_path.is_absolute():
+        return media_path
+    return (project_dir / value).resolve()
+
+
+def materialize_image_url(project_dir: Path, url: str, handle: str) -> Path | None:
+    media_dir = project_dir / "chunks" / "media"
+    media_dir.mkdir(parents=True, exist_ok=True)
+    suffix = Path(url.split("?", 1)[0]).suffix.lower()
+    if suffix not in {".png", ".jpg", ".jpeg", ".webp"}:
+        suffix = ".png"
+    out = media_dir / f"{handle.lstrip('@')}{suffix}"
+    if out.exists() and out.stat().st_size > 0:
+        return out
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "kinodel-craft/1.0"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = resp.read(20 * 1024 * 1024)
+        if not data:
+            return None
+        out.write_bytes(data)
+        return out
+    except Exception:
+        return None
+
+
+def image_attachment(project_dir: Path, source_path: str | None, handle: str, url: str | None = None) -> dict[str, Any] | None:
+    path: Path | None = None
+    if source_path:
+        path = project_media_path(project_dir, source_path)
+    if (path is None or not path.exists()) and url:
+        path = materialize_image_url(project_dir, url, handle)
+    if path is None:
+        return None
+    digest = file_sha256(path)
+    if not digest:
+        return None
+    mime, _ = mimetypes.guess_type(str(path))
+    return {
+        "kind": "image_file",
+        "handle": handle,
+        "path": str(path),
+        "sha256": digest,
+        "mime_type": mime or "image/png",
+        "embed": True,
+        "embedding_role": "visual reference bytes for multimodal/image embedding; never inline base64 in chunk",
+    }
 
 
 def stable_chunk_hash(chunk: dict[str, Any]) -> str:
@@ -123,7 +177,7 @@ def coerce_media_source(source: Any, *, default_kind: str | None = None) -> dict
     return {}
 
 
-def media_ref(source: Any, handle: str, modality: str, role: str, take: list[str], ignore: list[str], use_cases: list[str], priority: str) -> dict[str, Any] | None:
+def media_ref(source: Any, handle: str, modality: str, role: str, take: list[str], ignore: list[str], use_cases: list[str], priority: str, *, project_dir: Path | None = None, attach_for_embedding: bool = False) -> dict[str, Any] | None:
     source = coerce_media_source(source, default_kind=modality)
     if not isinstance(source, dict):
         return None
@@ -146,10 +200,16 @@ def media_ref(source: Any, handle: str, modality: str, role: str, take: list[str
     meta = {k: source[k] for k in ("shot_id", "kind", "format") if k in source}
     if meta:
         ref["metadata"] = meta
+    if attach_for_embedding and modality == "image" and project_dir is not None:
+        attachment = image_attachment(project_dir, ref.get("path"), handle, ref.get("url"))
+        if attachment:
+            ref["path"] = attachment["path"]
+            ref.setdefault("metadata", {})["embedding_attachment"] = attachment
     return ref
 
 
 def discover_refs(final_chunk: dict[str, Any], final_path: Path) -> list[dict[str, Any]]:
+    project_dir = final_path.parent
     refs: list[dict[str, Any]] = [{
         "handle": "@doc1",
         "path": str(final_path),
@@ -163,24 +223,31 @@ def discover_refs(final_chunk: dict[str, Any], final_path: Path) -> list[dict[st
     }]
     image_n = 1
     video_n = 1
+    image_embed_count = 0
     mf = media_ref(
         final_chunk.get("main_frame") or {}, f"@image{image_n}", "image", "approved main frame style/identity anchor",
         ["composition", "subject silhouette", "lighting palette", "style direction"],
         ["temporary host URL volatility", "provider UI artifacts"],
         ["style inspiration", "few-shot visual continuity", "storyboard inspiration"], "P1",
+        project_dir=project_dir, attach_for_embedding=True,
     )
     if mf:
         refs.append(mf)
+        image_embed_count += 1 if mf.get("metadata", {}).get("embedding_attachment") else 0
         image_n += 1
     for idx, img in enumerate(final_chunk.get("story_images") or [], start=1):
+        if image_n > MAX_IMAGE_EMBED_REFS:
+            break
         ref = media_ref(
             img, f"@image{image_n}", "image", f"approved story frame {idx}",
             ["shot composition", "palette continuity", "scene beat", "successful visual motif"],
             ["exact reuse as active canon unless continuing same project", "temporary host URL volatility"],
             ["storyboard inspiration", "style memory", "filmmaker shot planning support"], "P2",
+            project_dir=project_dir, attach_for_embedding=True,
         )
         if ref:
             refs.append(ref)
+            image_embed_count += 1 if ref.get("metadata", {}).get("embedding_attachment") else 0
             image_n += 1
     final_video = final_chunk.get("final_video") or {}
     ref = media_ref(
@@ -287,7 +354,14 @@ def build_chunk(final_path: Path) -> tuple[dict[str, Any], list[str]]:
             "source_artifacts": source_artifacts,
             "canon_policy": "inspiration",
         },
-        "references": {"items": refs},
+        "references": {
+            "items": refs,
+            "media_embedding_policy": {
+                "max_embedded_images": MAX_IMAGE_EMBED_REFS,
+                "selection": "main frame first, then approved story frames in order",
+                "storage": "paths plus sha256/mime metadata only; never inline image/base64 blobs",
+            },
+        },
         "action": {
             "consumer_tasks": ["reuse as style/story inspiration", "support few-shot memory", "extract what worked"],
             "instructions": ["Treat as inspiration unless same project continuation declares it canon.", "Producer must pass this as selected chunk/context support; Render must not query broad RAG."],
@@ -313,11 +387,12 @@ def build_chunk(final_path: Path) -> tuple[dict[str, Any], list[str]]:
         "conclusion": conclusion,
         "retrieval_text": retrieval_text,
         "embedding_profiles": ["fast_recall", "default_rag"],
+        "media_embedding_profiles": ["fast_recall", "default_rag"],
         "content_hash": "sha256:" + "0" * 64,
         "craft": {
             "crafted_by": "craft-kinodel",
             "craft_version": "kinodel.craft.v1",
-            "quality_checks": ["validate_final_chunk", "validate_chunk_schema", "estimate_chunk_tokens"],
+            "quality_checks": ["validate_final_chunk", "validate_chunk_schema", "estimate_chunk_tokens", "image_refs_max_6", "image_embedding_attachments"],
             "backfill": {
                 "managed_by": SCRIPT_NAME,
                 "backfill_version": CRAFT_VERSION,
@@ -399,6 +474,8 @@ def self_test() -> int:
         project = root / "demo/v1"
         project.mkdir(parents=True)
         (project / "outputs").mkdir()
+        for name in ["main_frame.png", "shot_01.png"]:
+            (project / "outputs" / name).write_bytes(b"fakepng" + name.encode())
         final = {
             "schema": "kinodel.final_chunk.v1",
             "project_id": "demo",
@@ -417,6 +494,9 @@ def self_test() -> int:
         assert r2["status"] == "unchanged", r2
         chunk_path = project / "chunks/cinema_chunk.json"
         chunk = load_json(chunk_path)
+        image_refs = [r for r in chunk["references"]["items"] if r.get("modality") == "image"]
+        assert 1 <= len(image_refs) <= MAX_IMAGE_EMBED_REFS, image_refs
+        assert all(r.get("metadata", {}).get("embedding_attachment", {}).get("sha256") for r in image_refs), image_refs
         chunk["retrieval_text"] += " manual edit"
         chunk_path.write_text(json.dumps(chunk, ensure_ascii=False), encoding="utf-8")
         r3 = process_one(final_path, force=False, dry_run=False)

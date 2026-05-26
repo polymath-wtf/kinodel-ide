@@ -102,7 +102,9 @@ Policy:
 - `retrieval_text` target: 150–600 tokens.
 - warn above 600.
 - reject above 1200 unless a deliberate override exists.
-- media files are referenced by path; media token estimates are for intentional embedding/indexing, not prompt inlining.
+- media files are referenced by path/url plus optional `metadata.embedding_attachment` containing local path, sha256, mime type, and `embed: true`; never inline base64.
+- cinema chunks attach at most 6 images for embedding: main frame first, then approved story frames in order.
+- media token estimates are for intentional embedding/indexing, not prompt inlining.
 
 ## Resolver retrieval modes
 

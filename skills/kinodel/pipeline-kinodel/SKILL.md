@@ -49,6 +49,8 @@ BriefGate
 → video render
 → montage
 → final_chunk.json
+→ Final ReviewGate
+→ craft-kinodel cinema_chunk.json + chunk/image indexing
 ```
 
 ## Non-negotiable laws
@@ -56,7 +58,7 @@ BriefGate
 1. Producer is a state machine, not a content warehouse.
 2. Specialists write owned artifacts to disk and return status only.
 3. Pass paths and selected media refs, not full JSON bodies or logs.
-4. BriefGate, p4, and p7 are hard turn stops. Render completion is not approval.
+4. BriefGate, p4, p7, and p12 final gate are hard turn stops. Render or montage completion is not approval.
 5. Never render before a complete request artifact with non-empty `jobs` exists.
 6. Never resume by vibe or by newest file in `outputs/`; resume by `project_id` + validated artifacts.
 7. Provider/runtime garbage stays in `/tmp/kinodel/<project_id>/<run_id>/` or worker debug output, not durable project knowledge.
@@ -82,6 +84,8 @@ Use the goal names from `references/goal-pipeline.md` for production control:
 | p9_video_render | render | `render_results/shot_videos_result.json` | no |
 | p10_montage | montage | `outputs/final.mp4` | no |
 | p11_final_chunk | producer | `final_chunk.json` | no |
+| p12_final_gate | producer | optional `qc/*` | yes |
+| p13_cinema_chunk | craft | `chunks/cinema_chunk.json` + index records | no |
 
 ### flf2v (First-Last Frame to Video) Workflow
 When using `flf2v`, the p5/p6 stage produces story frames that serve as both visual references and potentially 'first/last' frame pairs for the video generator. The `filmmaker-kinodel` must account for these pairs when writing `video_requests.json`. 8s is the standard duration for `flf2v` transitions.

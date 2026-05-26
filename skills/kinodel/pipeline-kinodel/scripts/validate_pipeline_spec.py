@@ -35,6 +35,8 @@ CINEMATIC_GOAL_ORDER = [
     "p9_video_render",
     "p10_montage",
     "p11_final_chunk",
+    "p12_final_gate",
+    "p13_cinema_chunk",
 ]
 CINEMATIC_ARTIFACTS = {
     "brief.json",
@@ -47,6 +49,7 @@ CINEMATIC_ARTIFACTS = {
     "render_results/shot_videos_result.json",
     "outputs/final.mp4",
     "final_chunk.json",
+    "chunks/cinema_chunk.json",
 }
 
 
@@ -74,6 +77,11 @@ def require_string_list(stage: dict[str, Any], key: str, errors: list[str], pref
             errors.append(f"{prefix}.{key}[{index}] must be a string")
 
 
+def optional_string_list(stage: dict[str, Any], key: str, errors: list[str], prefix: str) -> None:
+    if key in stage:
+        require_string_list(stage, key, errors, prefix)
+
+
 def validate_stage(stage: Any, index: int, errors: list[str]) -> str | None:
     prefix = f"stages[{index}]"
     if not isinstance(stage, dict):
@@ -91,6 +99,7 @@ def validate_stage(stage: Any, index: int, errors: list[str]) -> str | None:
 
     require_string_list(stage, "reads", errors, prefix)
     require_string_list(stage, "writes", errors, prefix)
+    optional_string_list(stage, "support_skills", errors, prefix)
 
     if stage_type == "agent_stage":
         if not stage.get("owner_skill"):

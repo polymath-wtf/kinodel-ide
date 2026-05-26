@@ -2,7 +2,7 @@
 
 Use this when running Kinodel with Hermes `/goal`. A goal is a checkpoint, not a vague intention. Producer may work inside one goal until its exit condition is true, then must either move to the next deterministic goal or stop at a user gate.
 
-This file follows the canonical p0–p11 numbering used by `pipeline-kinodel`, `producer-kinodel/references/state-machine.md`, and `producer-kinodel/scripts/state_guard.py`.
+This file follows the canonical p0–p13 numbering used by `pipeline-kinodel`, `producer-kinodel/references/state-machine.md`, and `producer-kinodel/scripts/state_guard.py`.
 
 ## Canonical goals
 
@@ -15,7 +15,7 @@ This file follows the canonical p0–p11 numbering used by `pipeline-kinodel`, `
 
 /goal p1_story
   Input: brief.json.
-  Do: write story.json directly or via storytell-kinodel.
+  Do: delegate to storytell-kinodel to write story.json from the full approved brief.json.
   Exit: story.json status=complete, project_id match, scene_count == brief.shot_count.
 
 /goal p2_main_frame_plan
@@ -52,23 +52,34 @@ This file follows the canonical p0–p11 numbering used by `pipeline-kinodel`, `
 
 /goal p8_video_plan
   Input: approved p7 + story image selected output URLs.
-  Do: write video_requests.json. Default is flf2v transition clips between neighboring approved story frames; use i2v only when explicitly requested.
+  Do: write video_requests.json. Default is i2v: one clip per approved story frame; use flf2v only when explicitly chosen in brief.video.flow.
   Exit: status=complete, jobs non-empty, all input_media are public URLs.
 
 /goal p9_video_render
   Input: video_requests.json.
   Do: render --stage videos; update render_results/shot_videos_result.json.
-  Exit: selected_outputs contains current video clips.
+  Exit: selected_outputs contains current video clips. On wake, Producer must show all clip MEDIA refs before continuing to montage.
 
 /goal p10_montage
   Input: selected video clips.
-  Do: assemble outputs/final.mp4.
-  Exit: final.mp4 exists and ffprobe sees a video stream.
+  Do: delegate to montage-kinodel to assemble outputs/final.mp4; Producer must not hand-run ffmpeg as the normal path.
+  Exit: final.mp4 exists and ffprobe/PyAV sees a video stream.
 
 /goal p11_final_chunk
   Input: final media refs + story.
-  Do: write final_chunk.json only with final story/hook/media/conclusion.
+  Do: write final_chunk.json only with final story/hook/media/conclusion and show final.mp4 + final_chunk summary.
   Exit: valid final_chunk.json, no provider logs or prompt garbage.
+
+/goal p12_final_gate
+  Input: outputs/final.mp4 + final_chunk.json.
+  Do: show final video and concise final_chunk summary; ask A/B/C/D.
+  Exit: user reply in a later turn.
+  Stop: hard stop. No RAG/cinema_chunk before explicit approval.
+
+/goal p13_cinema_chunk
+  Input: approved p12 + final_chunk.json + selected media refs.
+  Do: delegate to craft-kinodel packaged cinema chunk entrypoint and index text/image attachments.
+  Exit: chunks/cinema_chunk.json validates.
 ```
 
 ## Rules
@@ -76,5 +87,5 @@ This file follows the canonical p0–p11 numbering used by `pipeline-kinodel`, `
 - Producer tracks exactly one current goal.
 - A goal cannot consume a `pending` artifact as if it were complete.
 - Render completion is an exit condition for render goals only; it is not approval for review goals.
-- p4 and p7 are turn-boundary gates. The next goal starts only after the user's later message approves A.
+- p4, p7, and p12 are turn-boundary gates. The next goal starts only after the user's later message approves A.
 - Free text while a review goal is pending means edit-fix notes unless it is a clear A/B/C/D.

@@ -11,6 +11,7 @@ from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "state_guard.py"
 PRODUCER_STEP_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "producer_step.py"
+PRODUCER_NOTIFY_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "producer_notify.py"
 PIPELINE_ROOT = Path.home() / ".hermes" / "skills" / "kinodel" / "pipeline-kinodel"
 CANONICAL_SPEC = PIPELINE_ROOT / "pipelines" / "cinematic.v1.json"
 
@@ -23,6 +24,11 @@ producer_step_spec = importlib.util.spec_from_file_location("producer_step", PRO
 producer_step = importlib.util.module_from_spec(producer_step_spec)
 assert producer_step_spec.loader is not None
 producer_step_spec.loader.exec_module(producer_step)
+
+producer_notify_spec = importlib.util.spec_from_file_location("producer_notify", PRODUCER_NOTIFY_SCRIPT)
+producer_notify = importlib.util.module_from_spec(producer_notify_spec)
+assert producer_notify_spec.loader is not None
+producer_notify_spec.loader.exec_module(producer_notify)
 
 PROJECT_ID = "state-guard-spec-test"
 
@@ -40,6 +46,7 @@ class StateGuardSpecRuntimeTests(unittest.TestCase):
         complete_through: str = "p3",
         approve_p4: bool = False,
         approve_p7: bool = False,
+        approve_final: bool = False,
     ) -> Path:
         """Create a deterministic temp project.
 
@@ -51,7 +58,7 @@ class StateGuardSpecRuntimeTests(unittest.TestCase):
         root = Path(tempfile.mkdtemp(prefix="kinodel-state-guard-")) / "v1"
         (root / "render_results").mkdir(parents=True)
         (root / "outputs").mkdir(parents=True)
-        order = ["brief", "story", "wardrobe", "p3", "storyboard", "p6", "video", "p9", "montage", "final"]
+        order = ["brief", "story", "wardrobe", "p3", "storyboard", "p6", "video", "p9", "montage", "final", "cinema"]
         upto = order.index(complete_through) if complete_through in order else -1
 
         if upto >= 0:
@@ -81,6 +88,7 @@ class StateGuardSpecRuntimeTests(unittest.TestCase):
                 "jobs": [{"kind": "t2i", "render_prompt": "test frame"}],
             })
         if upto >= 3:
+            (root / "outputs" / "main.png").write_bytes(b"main-frame")
             write_json(root / "render_results/main_frame_result.json", {
                 "schema": "kinodel.render_result.v1",
                 "project_id": PROJECT_ID,
@@ -97,6 +105,7 @@ class StateGuardSpecRuntimeTests(unittest.TestCase):
                 "jobs": [{"kind": "i2i", "render_prompt": "story frame", "input_media": ["https://example.com/main.png"]}],
             })
         if upto >= 5:
+            (root / "outputs" / "shot_01.png").write_bytes(b"story-frame")
             write_json(root / "render_results/story_frames_result.json", {
                 "schema": "kinodel.render_result.v1",
                 "project_id": PROJECT_ID,
@@ -113,6 +122,7 @@ class StateGuardSpecRuntimeTests(unittest.TestCase):
                 "jobs": [{"kind": "i2v", "render_prompt": "video", "input_media": ["https://example.com/shot_01.png"]}],
             })
         if upto >= 7:
+            (root / "outputs" / "shot_01.mp4").write_bytes(b"shot-video")
             write_json(root / "render_results/shot_videos_result.json", {
                 "schema": "kinodel.render_result.v1",
                 "project_id": PROJECT_ID,
@@ -127,8 +137,27 @@ class StateGuardSpecRuntimeTests(unittest.TestCase):
                 "schema": "kinodel.final_chunk.v1",
                 "project_id": PROJECT_ID,
                 "status": "complete",
-                "summary": "done",
+                "story": "done",
+                "hook": "regression hook",
+                "conclusion": "regression conclusion",
                 "final_video": {"path": "outputs/final.mp4"},
+            })
+        if upto >= 10:
+            write_json(root / "chunks" / "cinema_chunk.json", {
+                "schema": "kinodel.cinema_chunk.v1",
+                "chunk_id": f"{PROJECT_ID}-cinema",
+                "chunk_type": "cinema_chunk",
+                "title": "Regression cinema chunk",
+                "status": "completed",
+                "context": {"summary": "done"},
+                "references": {"items": []},
+                "action": {"consumer_tasks": [], "instructions": [], "forbidden_uses": []},
+                "focus": {"primary": "regression", "must_preserve": ["story"], "must_not_drift": ["project_id"]},
+                "timing": {"mode": "render_sequence"},
+                "retrieval_text": "regression cinema chunk",
+                "embedding_profiles": ["fast_recall"],
+                "content_hash": "sha256:" + "0" * 64,
+                "craft": {"crafted_by": "craft-kinodel", "craft_version": "test", "quality_checks": []},
             })
 
         decisions = []
@@ -136,6 +165,8 @@ class StateGuardSpecRuntimeTests(unittest.TestCase):
             decisions.append({"goal": "p4_story_main_gate", "gate_alias": "p4", "decision": "A", "approved_at": "2026-05-18T00:00:00Z"})
         if approve_p7:
             decisions.append({"goal": "p7_story_images_gate", "gate_alias": "p7", "decision": "A", "approved_at": "2026-05-18T00:00:00Z"})
+        if approve_final:
+            decisions.append({"goal": "p12_final_gate", "gate_alias": "p12", "decision": "A", "approved_at": "2026-05-18T00:00:00Z"})
 
         if mode == "spec_local":
             shutil.copyfile(CANONICAL_SPEC, root / "pipeline_spec.json")
@@ -157,7 +188,9 @@ class StateGuardSpecRuntimeTests(unittest.TestCase):
         self.assertTrue(route["spec_based"])
         self.assertEqual(route["pipeline_id"], "cinematic.v1")
         self.assertEqual(route["ordered_goals"][0], "p0_briefgate")
-        self.assertEqual(route["ordered_goals"][-1], "p11_final_chunk")
+        self.assertEqual(route["ordered_goals"][-1], "p13_cinema_chunk")
+        self.assertIn("p12_final_gate", route["review_gates"])
+        self.assertEqual(route["review_gates"]["p12_final_gate"]["gate_alias"], "p12")
         self.assertIn("p4_story_main_gate", route["review_gates"])
         self.assertTrue(route["review_gates"]["p4_story_main_gate"]["stop"])
         self.assertNotIn("p4_story_main_gate", route["delegated"])
@@ -338,7 +371,7 @@ class StateGuardSpecRuntimeTests(unittest.TestCase):
     def test_list_projects_reports_unfinished_latest_project(self) -> None:
         root = Path(tempfile.mkdtemp(prefix="kinodel-project-list-"))
         unfinished = self.make_project(mode="spec_local", complete_through="p6", approve_p4=True, approve_p7=False)
-        finished = self.make_project(mode="spec_local", complete_through="final", approve_p4=True, approve_p7=True)
+        finished = self.make_project(mode="spec_local", complete_through="cinema", approve_p4=True, approve_p7=True, approve_final=True)
         shutil.move(str(unfinished.parent), root / "unfinished-project")
         shutil.move(str(finished.parent), root / "finished-project")
 
@@ -364,7 +397,7 @@ class StateGuardSpecRuntimeTests(unittest.TestCase):
         }])
 
     def test_final_chunk_requires_existing_final_video_path(self) -> None:
-        project = self.make_project(mode="spec_local", complete_through="final", approve_p4=True, approve_p7=True)
+        project = self.make_project(mode="spec_local", complete_through="cinema", approve_p4=True, approve_p7=True, approve_final=True)
         final_chunk = json.loads((project / "final_chunk.json").read_text(encoding="utf-8"))
         final_chunk["final_video"] = {"path": "outputs/missing-final.mp4"}
         write_json(project / "final_chunk.json", final_chunk)
@@ -376,7 +409,7 @@ class StateGuardSpecRuntimeTests(unittest.TestCase):
 
     def test_project_with_broken_final_chunk_stays_unfinished(self) -> None:
         root = Path(tempfile.mkdtemp(prefix="kinodel-project-list-"))
-        broken_finished = self.make_project(mode="spec_local", complete_through="final", approve_p4=True, approve_p7=True)
+        broken_finished = self.make_project(mode="spec_local", complete_through="cinema", approve_p4=True, approve_p7=True, approve_final=True)
         final_chunk = json.loads((broken_finished / "final_chunk.json").read_text(encoding="utf-8"))
         final_chunk["final_video"] = {"path": "outputs/missing-final.mp4"}
         write_json(broken_finished / "final_chunk.json", final_chunk)
@@ -433,10 +466,138 @@ class StateGuardSpecRuntimeTests(unittest.TestCase):
         self.assertEqual(step["goal"], "p3_main_frame_render")
         self.assertEqual(step["request_artifact"], "wardrobe_request.json")
         self.assertEqual(step["result_artifact"], "render_results/main_frame_result.json")
-        self.assertEqual(step["launch_mode"], "background_notify_on_complete")
+        self.assertEqual(step["launch_mode"], "background_notify_on_complete_autowakeup")
         self.assertIn("render.py", step["command"])
-        self.assertIn("copy_worker_result.py", step["wakeup"]["copy_command"])
+        self.assertIn("render_wakeup.py", step["command"])
+        self.assertNotIn("producer_autorun.py", step["command"])
+        self.assertNotIn("copy_worker_result.py", step["command"].split("render_wakeup.py", 1)[0])
+        self.assertIn("render_wakeup.py", step["wakeup"]["wakeup_command"])
+        self.assertIn("--worker-result", step["wakeup"]["wakeup_command"])
+        self.assertIn("--result-artifact", step["wakeup"]["wakeup_command"])
         self.assertEqual(step["wakeup"]["validate_after"], "render_results/main_frame_result.json")
+
+    def test_producer_notify_story_images_gate_includes_media_refs(self) -> None:
+        project = self.make_project(mode="spec_local", complete_through="p6", approve_p4=True, approve_p7=False)
+
+        msg = producer_notify.build_notification(project)
+
+        self.assertIn("Story Images ReviewGate", msg)
+        self.assertIn("MEDIA:", msg)
+        self.assertIn("shot_01.png", msg)
+        self.assertIn("**A**", msg)
+
+    def test_producer_notify_after_video_render_includes_all_shot_videos(self) -> None:
+        project = self.make_project(mode="spec_local", complete_through="p9", approve_p4=True, approve_p7=True)
+
+        msg = producer_notify.build_notification(project)
+
+        self.assertIn("Shot videos ready", msg)
+        self.assertIn("MEDIA:", msg)
+        self.assertIn("shot_01.mp4", msg)
+        self.assertIn("p10_montage", msg)
+
+    def test_producer_notify_final_gate_includes_final_media_and_chunk_summary(self) -> None:
+        project = self.make_project(mode="spec_local", complete_through="final", approve_p4=True, approve_p7=True, approve_final=False)
+
+        msg = producer_notify.build_notification(project)
+
+        self.assertIn("Final Project ReviewGate", msg)
+        self.assertIn("MEDIA:", msg)
+        self.assertIn("final.mp4", msg)
+        self.assertIn("Final chunk summary", msg)
+        self.assertIn("**A**", msg)
+
+    def test_final_chunk_routes_to_final_gate_before_craft(self) -> None:
+        project = self.make_project(mode="spec_local", complete_through="final", approve_p4=True, approve_p7=True, approve_final=False)
+
+        result = state_guard.infer_next_goal(project)
+        step = producer_step.build_step(project)
+
+        self.assertEqual(result["next_goal"], "p12_final_gate")
+        self.assertTrue(result["stop"])
+        self.assertEqual(result["gate_alias"], "p12")
+        self.assertEqual(step["action"], "show_gate")
+        self.assertEqual(step["gate_preview"]["gate"], "p12")
+
+    def test_final_gate_approval_unlocks_craft_handoff(self) -> None:
+        project = self.make_project(mode="spec_local", complete_through="final", approve_p4=True, approve_p7=True, approve_final=False)
+
+        approval = state_guard.approve_gate(project, "p12", decision="A", source="test")
+        step = producer_step.build_step(project)
+
+        self.assertEqual(approval["next_goal"], "p13_cinema_chunk")
+        self.assertEqual(step["action"], "delegate_stage")
+        self.assertEqual(step["goal"], "p13_cinema_chunk")
+        self.assertEqual(step["owner_skill"], "craft-kinodel")
+        self.assertIn("craft_cinema_chunk.py", step["craft_command"])
+
+
+    def test_render_result_with_historical_request_snapshot_survives_live_request_rewrite(self) -> None:
+        project = self.make_project(mode="spec_local", complete_through="p3", approve_p4=False)
+        request_sha = state_guard.file_sha256(project / "wardrobe_request.json")
+        snapshot = project / "request_snapshots" / "wardrobe_request_attempt_001.json"
+        snapshot.parent.mkdir(parents=True)
+        shutil.copyfile(project / "wardrobe_request.json", snapshot)
+        result = json.loads((project / "render_results/main_frame_result.json").read_text(encoding="utf-8"))
+        result["source_request"] = {
+            "artifact": "wardrobe_request.json",
+            "sha256": request_sha,
+            "snapshot_path": "request_snapshots/wardrobe_request_attempt_001.json",
+        }
+        write_json(project / "render_results/main_frame_result.json", result)
+
+        wardrobe = json.loads((project / "wardrobe_request.json").read_text(encoding="utf-8"))
+        wardrobe["jobs"][0]["render_prompt"] = "new live planner prompt"
+        write_json(project / "wardrobe_request.json", wardrobe)
+
+        validation = state_guard.validate_artifact(project, "render_results/main_frame_result.json")
+
+        self.assertTrue(validation["ok"], validation.get("errors"))
+
+    def test_render_result_validation_catches_canonical_source_hash_drift(self) -> None:
+        project = self.make_project(mode="spec_local", complete_through="p6", approve_p4=True, approve_p7=False)
+        raw = project / "outputs" / "api_00039_.png"
+        raw.write_bytes(b"raw-selected")
+        canonical = project / "outputs" / "shot_01.png"
+        canonical.write_bytes(b"different-canonical")
+        result = json.loads((project / "render_results/story_frames_result.json").read_text(encoding="utf-8"))
+        result["selected_outputs"][0]["source_path"] = "outputs/api_00039_.png"
+        result["selected_outputs"][0]["sha256"] = state_guard.file_sha256(raw)
+        write_json(project / "render_results/story_frames_result.json", result)
+
+        validation = state_guard.validate_artifact(project, "render_results/story_frames_result.json")
+
+        self.assertFalse(validation["ok"])
+        joined = "\n".join(validation["errors"])
+        self.assertIn("sha256 mismatch", joined)
+        self.assertIn("canonical/source hash mismatch", joined)
+
+    def test_resume_syncs_stale_producer_state_when_project_is_complete(self) -> None:
+        project = self.make_project(mode="spec_local", complete_through="cinema", approve_p4=True, approve_p7=True, approve_final=True)
+        state = json.loads((project / "producer_state.json").read_text(encoding="utf-8"))
+        state["current_goal"] = "p8_video_plan"
+        state["stage_cursor"] = 8
+        state.pop("complete", None)
+        write_json(project / "producer_state.json", state)
+
+        report = state_guard.build_resume_report(project)
+        synced = json.loads((project / "producer_state.json").read_text(encoding="utf-8"))
+
+        self.assertTrue(report["complete"])
+        self.assertIsNone(synced["current_goal"])
+        self.assertTrue(synced["complete"])
+        self.assertEqual(synced["completion"]["final_video"], "outputs/final.mp4")
+
+    def test_compact_inspect_summarizes_render_result_without_full_json(self) -> None:
+        project = self.make_project(mode="spec_local", complete_through="p6", approve_p4=True, approve_p7=False)
+
+        result = state_guard.inspect_artifact(project, "render_results/story_frames_result.json", compact=True)
+
+        self.assertEqual(result["path"], "render_results/story_frames_result.json")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["stage"], "story_frames")
+        self.assertEqual(result["selected_outputs"], 1)
+        self.assertEqual(result["paths"], ["outputs/shot_01.png"])
 
 
 if __name__ == "__main__":

@@ -10,19 +10,32 @@ Do not call Telegram directly with `curl`, do not depend on callback-only state,
 
 ## BriefGate
 
-Ask before project initialization when vibe/format fields are inferred or incomplete:
+Ask before project initialization when a new project starts or when vibe/format/workflow fields are inferred or incomplete. The BriefGate must follow `references/brief-start.md`: a 9-field final approval card, not a standalone format picker.
+
+Required fields in the visible card:
+
+1. Vibe
+2. Story seed
+3. Hook
+4. Intrigue
+5. Characters
+6. World/style
+7. Ending
+8. Format — default square 1:1, 3 frames, 1K images, 480p video, 4s/shot (show alternatives inline: reels 9:16, widescreen 16:9, custom shots, 720p/1080p when supported)
+9. Workflow — default provider=comfyui, image=img2img, video=i2v, audio off (show alternatives inline: t2v/flf2v; providers fal.ai/openrouter when supported)
 
 ```text
-Pre-production BriefGate
-Confirm the production format:
-A — square cinematic/social, 1:1, 3 story frames, 1K images (1024x1024), 4s i2v clips, 480p video (480x480), audio off
-B — cinematic short, custom aspect/shot count; tell me details
-C — still images only; tell me count/style
-D — stop/refine the vibe first
-Also add any vibe/style notes to preserve in brief.user_vibe.
+Brief start — final approval
+<9-field card + explicit assumptions>
+
+Reply:
+A — approve, create project, and continue to the first hard ReviewGate
+B — auto-tighten the brief
+C — edit with your notes
+D — stop
 ```
 
-After the user's approval, write `brief.json` and initialize the project. Do not scaffold before approval.
+After the user's approval, write `brief.json`, initialize the project, then continue the deterministic pipeline immediately until the first hard ReviewGate/background render/completion/error. Do not scaffold before approval. If the user only answered part of the brief, Producer fills missing slots as visible assumptions and still asks for approval; it must not silently initialize.
 
 ## Mandatory ReviewGates
 

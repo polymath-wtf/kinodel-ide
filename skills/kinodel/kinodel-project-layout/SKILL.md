@@ -31,7 +31,7 @@ New projects start with `brief.json` as the durable production-intent artifact p
 ```
 ~/projects/<project_name>/
   v1/
-    brief.json            # User vibe and generation parameters
+    brief.json            # Approved 9-field brief + generation parameters
     story.json            # Pending stub at init; completed by storytell-kinodel
     wardrobe_request.json # Pending stub at init; completed by wardrobe-kinodel
     storyboard_requests.json # Pending stub at init; completed by storyboard-kinodel
@@ -44,6 +44,8 @@ New projects start with `brief.json` as the durable production-intent artifact p
 
 Initialization creates `brief.json`, base directories, project-bound `pending` stubs for the named working artifacts, and `render_results/*.json` pending stubs. Gates must reject pending stubs; a stage is ready only when the owner preserves `project_id` and sets `status` to `complete`.
 
+`brief.json` must preserve the approved 9-field BriefGate intake. `init_project.py` fails closed when `story_seed`, `hook`, `intrigue`, `characters`, `world`, or `ending` are missing/empty, because a project initialized with only `user_vibe` loses the user's approved brief before Storytell sees it.
+
 ### brief.json Contract
 
 ```json
@@ -52,6 +54,16 @@ Initialization creates `brief.json`, base directories, project-bound `pending` s
   "project_id": "pigeon_meme",
   "status": "complete",
   "user_vibe": "Meme about a goose stealing bread from a cyberpunk monk.",
+  "story_seed": "A mischievous goose wants the monk's bread, faces cyberpunk temple security, and turns from petty thief into accidental folk hero.",
+  "hook": "A neon temple door opens on a goose already holding stolen bread.",
+  "intrigue": "Will the monk catch the goose, or is the theft part of a stranger ritual?",
+  "characters": [
+    {"name": "Goose", "role": "protagonist", "traits": "bold, chaotic", "visual_anchor": "white goose with stolen bread"},
+    {"name": "Cyberpunk Monk", "role": "obstacle", "traits": "calm, precise", "visual_anchor": "neon robe and temple visor"}
+  ],
+  "world": "Rainy cyberpunk temple courtyard, meme-comedy pacing, neon reflections.",
+  "ending": "The goose becomes the temple's new bread guardian in the final punchline.",
+  "brief_assumptions": ["Default square cinematic meme format approved."],
   "platform": "square",
   "aspect_ratio": "1:1",
   "shot_count": 3,
@@ -95,7 +107,7 @@ This skill is the owner of filesystem/scaffold/brief-file shape. `pipeline-kinod
 4. **Named artifacts only.** Canonical story is `story.json`; `scenario.json` is legacy/migration-only and must not duplicate `story.json` in new canonical projects. New durable artifacts must be named in `pipeline-kinodel` or explicitly introduced by a skill update.
 5. **No ad-hoc scripts inside project dirs.** Reusable runtime code lives in skill packages such as `~/.hermes/skills/kinodel/render-kinodel/scripts/` or `~/.hermes/skills/kinodel/kinodel-project-layout/scripts/`. Project dirs contain data only; `~/projects/kinodel/tools/` is legacy scratch space, not a canonical tool registry.
 6. **Economical artifacts only.** Keep `story.json`, planner request JSON, compact `render_results/`, optional `qc/`, `outputs/`, and `final_chunk.json`. Do not archive raw provider responses, worker logs, temporary queues, retries, or debug payloads as project knowledge.
-7. **Identity first.** Every durable JSON artifact must include `project_id`; working stubs use `status: "pending"` until the owning stage completes.
+7. **Identity and brief completeness first.** Every durable JSON artifact must include `project_id`; working stubs use `status: "pending"` until the owning stage completes. New `brief.json` artifacts must preserve the approved 9-field BriefGate intake (`user_vibe`, `story_seed`, `hook`, `intrigue`, `characters`, `world`, `ending`; optional `brief_assumptions`) as first-class fields. Do not accept a `user_vibe`-only brief for new canonical projects.
 8. **Archive, don't delete.** If a project is superseded, `mv` it to `~/.archive_<name>` rather than mixing it with active work.
 
 ## Project Initialization Script

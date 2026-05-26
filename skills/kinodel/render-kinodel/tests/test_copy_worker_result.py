@@ -1,4 +1,6 @@
 import importlib.util
+import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -49,6 +51,40 @@ class CopyWorkerResultTests(unittest.TestCase):
                 }
             ],
         )
+
+
+    def test_sync_canonical_outputs_copies_selected_story_attempt_to_shot_name(self):
+        root = Path(tempfile.mkdtemp(prefix="copy-worker-canonical-")) / "v1"
+        (root / "outputs").mkdir(parents=True)
+        raw = root / "outputs" / "api_00039_.png"
+        raw.write_bytes(b"attempt-one-shot-one")
+
+        selected = [{
+            "shot_id": "shot_01",
+            "kind": "image",
+            "path": str(raw),
+            "url": "https://example.com/api_00039_.png",
+        }]
+
+        synced = copy_worker_result.sync_canonical_outputs(root, "story_frames", selected)
+
+        canonical = root / "outputs" / "shot_01.png"
+        self.assertTrue(canonical.exists())
+        self.assertEqual(canonical.read_bytes(), raw.read_bytes())
+        self.assertEqual(synced[0]["path"], "outputs/shot_01.png")
+        self.assertEqual(synced[0]["source_path"], "outputs/api_00039_.png")
+        self.assertEqual(synced[0]["sha256"], copy_worker_result.file_sha256(canonical))
+
+    def test_snapshot_request_skips_current_request_when_worker_sha_is_historical(self):
+        root = Path(tempfile.mkdtemp(prefix="copy-worker-snapshot-")) / "v1"
+        root.mkdir(parents=True)
+        request = root / "storyboard_requests.json"
+        request.write_text(json.dumps({"schema": "kinodel.render_requests.v1", "jobs": []}), encoding="utf-8")
+
+        snapshot = copy_worker_result.snapshot_request(root, "storyboard_requests.json", "0" * 64)
+
+        self.assertIsNone(snapshot)
+        self.assertFalse((root / "request_snapshots").exists())
 
 
 if __name__ == "__main__":

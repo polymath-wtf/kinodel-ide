@@ -131,12 +131,90 @@ def init_db(conn: sqlite3.Connection) -> None:
       is_mock INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (chunk_id, profile)
     );
+    CREATE TABLE IF NOT EXISTS media_embedding_records (
+      media_id TEXT NOT NULL,
+      chunk_id TEXT NOT NULL,
+      handle TEXT NOT NULL,
+      modality TEXT NOT NULL,
+      path TEXT NOT NULL,
+      sha256 TEXT NOT NULL,
+      profile TEXT NOT NULL,
+      dim INTEGER NOT NULL,
+      model TEXT NOT NULL,
+      format_version TEXT NOT NULL,
+      embedded_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      vector_sha256 TEXT NOT NULL,
+      is_mock INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (media_id, profile)
+    );
     """)
     cols = {row[1] for row in conn.execute("PRAGMA table_info(embedding_records)")}
     if "is_mock" not in cols:
         conn.execute("ALTER TABLE embedding_records ADD COLUMN is_mock INTEGER NOT NULL DEFAULT 1")
     for dim in (256, 768, 1536, 3072):
         conn.execute(f"CREATE TABLE IF NOT EXISTS chunk_vec_{dim} (chunk_id TEXT PRIMARY KEY, embedding_json TEXT NOT NULL)")
+        conn.execute(f"CREATE TABLE IF NOT EXISTS media_vec_{dim} (media_id TEXT PRIMARY KEY, embedding_json TEXT NOT NULL)")
+
+def resolve_media_path(chunk_path: Path, ref_path: str) -> Path:
+    p = Path(ref_path).expanduser()
+    if p.is_absolute():
+        return p
+    # Chunk paths are under <project>/v1/chunks; relative media refs are project-dir relative.
+    project_dir = chunk_path.parent.parent if chunk_path.parent.name == "chunks" else chunk_path.parent
+    return (project_dir / ref_path).resolve()
+
+
+def image_refs_for_embedding(chunk: dict[str, Any], chunk_path: Path, max_images: int = 6) -> list[dict[str, Any]]:
+    refs = ((chunk.get("references") or {}).get("items") or []) if isinstance(chunk.get("references"), dict) else []
+    selected = []
+    for ref in refs:
+        if not isinstance(ref, dict) or ref.get("modality") != "image":
+            continue
+        attach = ((ref.get("metadata") or {}).get("embedding_attachment") or {}) if isinstance(ref.get("metadata"), dict) else {}
+        raw_path = attach.get("path") or ref.get("path")
+        if not raw_path:
+            continue
+        media_path = resolve_media_path(chunk_path, str(raw_path))
+        if not media_path.exists() or not media_path.is_file():
+            continue
+        selected.append({"ref": ref, "path": media_path, "attachment": attach})
+        if len(selected) >= max_images:
+            break
+    return selected
+
+
+def index_media_embeddings(conn: sqlite3.Connection, chunk: dict[str, Any], path: Path, *, mock: bool = True) -> list[dict[str, Any]]:
+    profiles = chunk.get("media_embedding_profiles") or ["fast_recall", "default_rag"]
+    records = []
+    for item in image_refs_for_embedding(chunk, path, max_images=6):
+        ref = item["ref"]
+        media_path = item["path"]
+        handle = str(ref.get("handle"))
+        media_sha = hashlib.sha256(media_path.read_bytes()).hexdigest()
+        media_id = f"{chunk['chunk_id']}:{handle}:{media_sha[:16]}"
+        for profile in profiles:
+            if profile not in PROFILE_DIMS:
+                raise ValueError(f"unknown media profile {profile!r} in {path}")
+            dim = PROFILE_DIMS[profile]
+            embedded = embed_gemini.embed_image(
+                media_path,
+                title=str(chunk.get("title") or chunk.get("chunk_id")),
+                handle=handle,
+                role=str(ref.get("role") or "image reference"),
+                take=[str(x) for x in (ref.get("take") or [])],
+                ignore=[str(x) for x in (ref.get("ignore") or [])],
+                profile=profile,
+                mock=mock,
+                mime_type=((ref.get("metadata") or {}).get("embedding_attachment") or {}).get("mime_type") if isinstance(ref.get("metadata"), dict) else None,
+            )
+            vector = embedded["embedding"]
+            if int(embedded.get("dim", -1)) != dim or len(vector) != dim:
+                raise ValueError(f"media embedding dimension mismatch for {media_id} profile {profile}: expected {dim}, got result_dim={embedded.get('dim')} len={len(vector)}")
+            vector_sha = hashlib.sha256(json.dumps(vector, separators=(",", ":")).encode("utf-8")).hexdigest()
+            conn.execute(f"INSERT OR REPLACE INTO media_vec_{dim}(media_id, embedding_json) VALUES(?,?)", (media_id, json.dumps(vector)))
+            conn.execute("INSERT OR REPLACE INTO media_embedding_records(media_id,chunk_id,handle,modality,path,sha256,profile,dim,model,format_version,vector_sha256,is_mock) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", (media_id, chunk["chunk_id"], handle, "image", str(media_path), media_sha, profile, dim, embed_gemini.MODEL, embedded.get("format_version") or getattr(embed_gemini, "MEDIA_FORMAT_VERSION", embed_gemini.FORMAT_VERSION), vector_sha, 1 if embedded.get("mock") else 0))
+            records.append({"media_id": media_id, "chunk_id": chunk["chunk_id"], "handle": handle, "profile": profile, "dim": dim, "vector_sha256": vector_sha[:16], "is_mock": bool(embedded.get("mock"))})
+    return records
 
 
 def index_chunk(conn: sqlite3.Connection, chunk: dict[str, Any], path: Path, *, mock: bool = True) -> list[dict[str, Any]]:
@@ -163,11 +241,16 @@ def index_chunk(conn: sqlite3.Connection, chunk: dict[str, Any], path: Path, *, 
         vector_sha = hashlib.sha256(json.dumps(vector, separators=(",", ":")).encode("utf-8")).hexdigest()
         conn.execute(f"INSERT OR REPLACE INTO chunk_vec_{dim}(chunk_id, embedding_json) VALUES(?,?)", (chunk["chunk_id"], json.dumps(vector)))
         conn.execute("INSERT OR REPLACE INTO embedding_records(chunk_id,profile,dim,model,format_version,content_hash,vector_sha256,is_mock) VALUES(?,?,?,?,?,?,?,?)", (chunk["chunk_id"], profile, dim, embed_gemini.MODEL, embed_gemini.FORMAT_VERSION, chunk["content_hash"], vector_sha, 1 if embedded.get("mock") else 0))
-        records.append({"chunk_id": chunk["chunk_id"], "profile": profile, "dim": dim, "vector_sha256": vector_sha[:16], "is_mock": bool(embedded.get("mock"))})
+        records.append({"kind": "text", "chunk_id": chunk["chunk_id"], "profile": profile, "dim": dim, "vector_sha256": vector_sha[:16], "is_mock": bool(embedded.get("mock"))})
+    media_records = index_media_embeddings(conn, chunk, path, mock=mock)
+    records.extend({"kind": "image", **r} for r in media_records)
     return records
 
 
 def fixture_chunk(tmp: Path) -> Path:
+    img = tmp / "hero.png"
+    img.write_bytes(b"fake-image")
+    img_sha = hashlib.sha256(img.read_bytes()).hexdigest()
     data = {
         "schema": "kinodel.avatar_chunk.v1",
         "chunk_id": "avatar:fixture:hero:v1",
@@ -175,12 +258,13 @@ def fixture_chunk(tmp: Path) -> Path:
         "title": "Fixture Hero Identity",
         "status": "approved",
         "context": {"summary": "Approved fixture identity anchor.", "scope": {"project_id": "fixture_project"}, "canon_policy": "canon", "source_artifacts": []},
-        "references": {"items": [{"handle": "@image1", "path": "refs/hero.png", "modality": "image", "role": "front identity reference", "take": ["face shape"], "ignore": ["background"], "use_cases": ["wardrobe"], "priority": "P1", "consumers": ["wardrobe-kinodel"]}]},
+        "references": {"items": [{"handle": "@image1", "path": str(img), "modality": "image", "role": "front identity reference", "take": ["face shape"], "ignore": ["background"], "use_cases": ["wardrobe"], "priority": "P1", "consumers": ["wardrobe-kinodel"], "metadata": {"embedding_attachment": {"kind": "image_file", "handle": "@image1", "path": str(img), "sha256": img_sha, "mime_type": "image/png", "embed": True}}}]},
         "action": {"consumer_tasks": ["preserve identity"], "instructions": ["use selected refs only"], "forbidden_uses": ["do not copy background"]},
         "focus": {"primary": "identity_lock", "must_preserve": ["face shape"], "must_not_drift": ["species"]},
         "timing": {"mode": "not_applicable", "reason": "static identity", "items": []},
         "retrieval_text": "Fixture hero identity anchor, face shape, wardrobe planning, approved canon.",
         "embedding_profiles": ["default_rag"],
+        "media_embedding_profiles": ["default_rag"],
         "content_hash": "sha256:" + hashlib.sha256(b"fixture").hexdigest(),
         "craft": {"crafted_by": "craft-kinodel", "craft_version": "kinodel.craft.v1", "quality_checks": ["fixture"]},
     }
@@ -204,9 +288,14 @@ def self_test() -> int:
         provider_errors = validate_chunk(bad_provider, bad_provider_path)
         assert provider_errors and "provider_payload" in "\n".join(provider_errors)
 
-        # dimension/profile mismatch rejected even if the profile name is valid
+        # normal mock indexing writes both text and image/media records
         conn = sqlite3.connect(tmp / "idx.sqlite")
         init_db(conn)
+        records = index_chunk(conn, good, good_path, mock=True)
+        assert any(r.get("kind") == "text" for r in records), records
+        assert any(r.get("kind") == "image" for r in records), records
+
+        # dimension/profile mismatch rejected even if the profile name is valid
         original_embed = embed_gemini.embed_text
 
         def wrong_dim_embed(text: str, *, profile: str = "default_rag", mock: bool = False, **kwargs: Any) -> dict[str, Any]:
