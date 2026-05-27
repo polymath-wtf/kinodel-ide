@@ -1,15 +1,15 @@
 ---
 name: pipeline-kinodel
 description: Primary architecture framework for the Kinodel AI filmmaking factory.
-  Defines the canonical artifact-centric route, /goal checkpoints, hard ReviewGates,
-  artifact layering, and skill ownership. Load first for any Kinodel production, audit,
-  refactor, or troubleshooting task.
+  Defines the canonical artifact-centric route, LangGraph state-machine stages,
+  hard ReviewGates, artifact layering, and skill ownership. Load first for any
+  Kinodel production, audit, refactor, or troubleshooting task.
 license: MIT
 metadata:
   hermes:
     trigger: kinodel, kinodel pipeline, kinodel architecture, create kinodel project,
       new kinodel project, init kinodel, explain kinodel workflow, produce cinematic,
-      storyboard, main frame, reviewgate, user gate, /goal kinodel
+      storyboard, main frame, reviewgate, user gate, langgraph kinodel, /goal
     category: kinodel
     schema_version: 4
     tags:
@@ -33,6 +33,18 @@ metadata:
 
 Kinodel is an artifact-centric AI film factory. This skill defines law and route only; it does not render, write stage content, or hold provider payload examples.
 
+## Runtime direction
+
+Kinodel IDE is now **LangGraph-first**. The canonical production runtime is a compiled `StateGraph` built from `kinodel.pipeline_spec.v1`; old Hermes `/goal` terminology and helper scripts are compatibility/diagnostic adapters, not the foundation for the next standalone app.
+
+Simplification cascade:
+
+```text
+Every old goal/checkpoint/helper is a graph stage with typed state, validators, and edges.
+```
+
+This removes the need to manually persuade agents to follow a route. The graph owns routing; agents own artifacts.
+
 Hot path:
 
 ```text
@@ -55,7 +67,7 @@ BriefGate
 
 ## Non-negotiable laws
 
-1. Producer is a state machine, not a content warehouse.
+1. Producer is a graph orchestrator, not a content warehouse.
 2. Specialists write owned artifacts to disk and return status only.
 3. Pass paths and selected media refs, not full JSON bodies or logs.
 4. BriefGate, p4, p7, and p12 final gate are hard turn stops. Render or montage completion is not approval.
@@ -66,9 +78,9 @@ BriefGate
 9. `final_chunk.json` stores the finished cinematic memory only, not the production trace.
 11. RAG/chunk resolver outputs are derived handoff/cache, not canon. Durable project memory is owned by crafted chunks and approved artifacts. Prefer direct chunk paths; materialize context packs only per run when a subagent needs a frozen token-budgeted projection.
 
-## /goal route
+## LangGraph route
 
-Use the goal names from `references/goal-pipeline.md` for production control:
+Use `pipeline_spec.stages[]` to compile graph nodes and edges. Legacy `p0`-`p13` names remain stable node IDs and compatibility aliases for existing artifacts, tests, and projects:
 
 | Goal | Owner | Writes | Stop? |
 | --- | --- | --- | --- |
@@ -90,7 +102,39 @@ Use the goal names from `references/goal-pipeline.md` for production control:
 ### flf2v (First-Last Frame to Video) Workflow
 When using `flf2v`, the p5/p6 stage produces story frames that serve as both visual references and potentially 'first/last' frame pairs for the video generator. The `filmmaker-kinodel` must account for these pairs when writing `video_requests.json`. 8s is the standard duration for `flf2v` transitions.
 
-For full checkpoint conditions, load `references/goal-pipeline.md`.
+For full checkpoint conditions, load `references/goal-pipeline.md`. In the standalone backend, the equivalent authority is the compiled graph plus validators, not a prose `/goal` command loop.
+
+## LangGraph state contract
+
+Graph state should be compact and serializable:
+
+```text
+project_id
+project_dir
+pipeline_id
+current_stage
+pending_gate
+artifact_refs
+selected_media_refs
+gate_decisions
+chunk_refs/context_pack_refs
+last_error
+```
+
+Do not store full artifacts, render logs, provider payloads, raw vector hits, chat history, or media blobs in graph state. Store those in `ProjectStore`, provider scratch, or chunk/index storage and pass stable paths/refs through state.
+
+## Node class map
+
+| Stage type | LangGraph node pattern | Old helper replaced |
+| --- | --- | --- |
+| `briefgate` / `context_gate` | `interrupt()` for missing user decisions, then validated state update | ad-hoc BriefGate turn rules |
+| `agent_stage` | specialist node/subgraph reads declared artifacts and writes one artifact | `delegate_task` prose orchestration |
+| `render_stage` | async/job node submits render request and resumes by event/result manifest | terminal wake-up glue as runtime foundation |
+| `review_gate` | `interrupt(gate_card)` and `Command(resume=decision)` | manual p4/p7/p12 stop bookkeeping |
+| `montage_stage` | deterministic service node | producer hand-running montage |
+| `chunk_write_stage` | craft/chunk service node | hand-authored final memory/chunk glue |
+
+Production graphs must compile with a durable checkpointer. Development can use memory/sqlite; production should use Postgres or another durable saver.
 
 ## Skill ownership
 
@@ -106,7 +150,7 @@ For full checkpoint conditions, load `references/goal-pipeline.md`.
 - `montage-kinodel`: assembles approved video refs into final MP4.
 - `comfyui`: low-level backup provider knowledge, not primary route.
 
-Load only the current owner skill. In normal production, Producer should not load designer skills into the main chat; it should spawn them with `delegate_task` using a compact handoff envelope and then validate the written artifact. Load specialist skills in the main context only for debugging/refactoring that specific skill.
+Load only the current owner skill. In the standalone runtime, Producer should call the node/subgraph for the current specialist through a compact artifact handoff and then validate the written artifact. In Hermes compatibility mode, that may still be implemented with `delegate_task`; in Kinodel IDE backend, it should be a typed graph node/subgraph.
 
 ## Prompt-quality architecture
 
@@ -139,7 +183,7 @@ Canonical project root:
   final_chunk.json
 ```
 
-Initialize only after BriefGate approval:
+Initialize only after BriefGate approval. In legacy skill runtime this can still be done with:
 
 ```bash
 python3 ~/.hermes/skills/kinodel/kinodel-project-layout/scripts/init_project.py <project_id> '<brief_json>'
@@ -209,7 +253,8 @@ Ownership pointers: Layout/scaffold details live in `kinodel-project-layout`; Re
 - `references/craft-chunk-architecture.md` — planned `craft-kinodel` chunk-crafting architecture: inspect refs, assign `@image`/`@video`/`@audio` handles, bind role/take/ignore/use_cases, and prepare compact `retrieval_text` before indexing/resolver use. Load before implementing chunk schemas, chunk resolver integration, or a packaged Craft skill.
 - `references/artifact.md` — canonical handoff/request/result map plus L0-L6 context/cache sandwich.
 - `references/artifact.md` — canonical handoff/request/result map plus L0-L6 context/cache sandwich.
-- `references/goal-pipeline.md` — exact `/goal` checkpoints and exit conditions.
+- `references/langgraph-runtime.md` — nextgen standalone backend mapping: `StateGraph`, interrupts, checkpointer, services, and migration away from Hermes helpers.
+- `references/goal-pipeline.md` — legacy-compatible checkpoint names and exit conditions.
 - `references/producer-playbook.md` — longer orchestrator playbook; kept intentionally for now.
 - `references/worker-contract-index.md` — architecture-only index to worker-owned contracts; no copied contracts.
 - `references/reference-optimization.md` — class-level rules for slimming pipeline references and assigning ownership.

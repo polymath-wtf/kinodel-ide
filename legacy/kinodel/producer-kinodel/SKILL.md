@@ -1,15 +1,16 @@
 ---
 name: producer-kinodel
-description: 'Ecosystem Orchestrator for Kinodel. Executes pipeline-kinodel as a lean
-  /goal state machine: talks to the user, validates artifact handoffs, launches packaged
-  render workers, enforces BriefGate/p4/p7 hard stops, and writes final_chunk.json.
-  Load for any Kinodel production run or workflow optimization.'
+description: 'Ecosystem Orchestrator for Kinodel. Executes pipeline-kinodel as a
+  LangGraph-first human-in-the-loop state machine: talks to the user, validates
+  artifact handoffs, launches render jobs, enforces BriefGate/p4/p7/p12 hard
+  stops, and writes final_chunk.json. Load for any Kinodel production run or
+  workflow optimization.'
 license: Apache 2
 metadata:
   hermes:
     trigger: start movie production, organize kinodel, produce film, create kinodel
       project, init kinodel project, continue kinodel, resume kinodel, kinodel producer,
-      run kinodel /goal
+      run kinodel /goal graph
     category: kinodel
     schema_version: 3
     tags:
@@ -29,28 +30,44 @@ metadata:
 
 # Producer-Kinodel
 
-Producer executes `pipeline-kinodel`; it does not replace it. Keep live context to: `project_id`, `current_goal`, artifact paths, pending gate, and compact selected media refs.
+Producer executes `pipeline-kinodel`; it does not replace it. Keep live context to: `project_id`, `current_stage`, artifact paths, pending gate, and compact selected media refs.
 
-Core loop:
+## Runtime direction
 
 ```text
-producer_step.py --project-dir <project>/v1
-→ action JSON
-→ if delegate_stage: delegate_task(owner subagent) + validate_after, then call producer_step.py again
-→ if render_stage: launch packaged worker in background + wakeup/copy/validate
-→ if show_gate: present gate-preview refs + A/B/C/D, stop
-→ if complete: report done
+pipeline_spec.json
+→ compile LangGraph StateGraph
+→ run current node with durable checkpointer/thread_id
+→ agent/render/montage/chunk services write artifacts
+→ validators update compact graph state
+→ ReviewGate nodes interrupt and resume only from user decisions
 ```
 
-After BriefGate approval (`A`/`go`) and project initialization, Producer should run this loop immediately until it hits `show_gate`, a background render boundary, `complete`, or an error. Do not ask the user whether to continue from `p1_story`; approval of p0 already authorizes deterministic p1→p2→p3 work.
+Existing scripted production helpers remain as compatibility adapters:
 
-`producer_step.py` is the preferred hot-path router. It packages `resume`, `handoff`, render command construction, and gate preview into one machine-readable action so the main Producer does not decide routing by prose or author specialist artifacts itself. Render-stage `command` is self-contained at the render boundary: it runs `render.py` and then the universal render-side wake-up bridge `render-kinodel/scripts/render_wakeup.py`. That bridge promotes the worker result, validates the durable manifest, asks Producer for the next action via `producer_step.py`, formats the wake-up message via `producer_notify.py`, and emits a `producer_agent_prompt` wake payload. Producer owns the next-action decision; render-kinodel only reports completion and hands control back. `render_wakeup.py` is not a Producer runtime runner and must not grow per-stage continuation logic. Autonomous continuation requires a Hermes wake consumer to enqueue `producer_agent_prompt` as a new Producer agent turn in the target session/runtime; terminal `notify_on_complete=True` alone only delivers stdout.
+```text
+producer_step.py / state_guard.py / render_wakeup.py
+```
+
+Use them only for compatibility, diagnostics, and migration tests. Do not add new per-stage routers, shell wake-up scripts, or prose-based state machines. New Kinodel IDE backend work should implement graph nodes/services instead.
+
+## De-hardcoding strategy
+
+Cut by responsibility, not by file age:
+
+- **Keep:** artifact contracts, validators, ReviewGate semantics, provider-neutral render requests, selected media refs, specialist ownership.
+- **Move:** stage order, routing, gate pause/resume, retries, and render wake-up behavior into LangGraph runtime/services.
+- **Delete later:** duplicated route tables, prose routing rules, per-stage scripts, terminal continuation chains, gateway-specific delivery details in core Producer docs.
+
+Every refactor step should replace one hardcoded decision with a typed spec field, graph edge, service method, or validator. If a rule cannot be expressed there, it is probably product behavior that needs a small contract, not more Producer prose.
+
+After BriefGate approval (`A`/`go`) and project initialization, Producer should run deterministic graph work immediately until it hits a ReviewGate `interrupt`, a long render job boundary, completion, or an error. Do not ask the user whether to continue from `p1_story`; approval of p0 already authorizes deterministic p1→p2→p3 work.
 
 ## Load order
 
 1. Load `pipeline-kinodel` first.
 2. Load this skill.
-3. For creative/design stages, prefer `delegate_task` with a compact handoff envelope instead of loading specialist skills into the main Producer context.
+3. For creative/design stages, prefer specialist graph nodes/subgraphs with a compact typed handoff envelope instead of loading specialist skills into the main Producer context. LangGraph provides graph nodes, subgraphs, tools, state transitions, interrupts, and checkpoints; Kinodel defines the specialist execution contract on top.
 4. Load references only on demand:
    - `references/state-machine.md` for goal ownership.
    - `references/token-aerodynamics.md` for compact handoffs/cache discipline.
@@ -59,7 +76,8 @@ After BriefGate approval (`A`/`go`) and project initialization, Producer should 
    - `references/brief-start.md` when normalizing a new user idea into the first BriefGate and `brief.json`.
    - `bugs/brief-stage-regression.md` when auditing weak brief questions, premature project init, or drift between brief-start/gate/default docs.
    - `references/brief-approval-autopilot.md` when auditing or fixing final BriefGate approval behavior: persist the minimal brief, then continue automatically to the first hard stop instead of adding a soft “if you want” stop.
-   - `references/pipeline-spec-runtime.md` when auditing or extending the Phase B spec-aware `state_guard.py` route compiler.
+   - `references/pipeline-spec-runtime.md` when auditing or extending the compatibility spec-aware route compiler.
+   - `../pipeline-kinodel/references/langgraph-runtime.md` when designing the standalone backend or replacing scripted helpers.
    - `references/mid-pipeline-video-flow-changes.md` when the user changes video flow/provider/duration after p7 or after `video_requests.json` exists.
    - `bugs/upstream-stream-drop-incident.md` only when debugging stream stalls.
    - `bugs/upstream-edit-fix-invalidation.md` — notes on invalidating stale render results after p4/p7 edit-fix loops and rerendering before trusting old manifests.
@@ -74,13 +92,13 @@ After BriefGate approval (`A`/`go`) and project initialization, Producer should 
 
 ## Invariants
 
-- **Future flexible-runtime refactors:** When adapting Producer for non-cinematic pipelines, keep orchestration source-of-truth in approved pipeline specs and capability binding, not ad-hoc prose or live invention. Pipeline-level contracts define stage graph/relationships; agent-level contracts define capabilities/IO; Producer binds them and validates artifacts. Preserve BriefGate/p4/p7 hard stops unless the approved spec maps them to compatibility aliases with explicit checkpoint semantics.
+- **LangGraph-first runtime:** When adapting Producer for non-cinematic pipelines, keep orchestration source-of-truth in approved pipeline specs compiled into graph nodes/edges, not ad-hoc prose, helper scripts, or live invention. Pipeline-level contracts define stage graph/relationships; agent-level contracts define capabilities/IO; Producer binds them and validates artifacts. Preserve BriefGate/p4/p7/p12 hard stops unless the approved spec maps them to explicit checkpoint semantics.
 - **Double-Check Media Links**: When presenting ReviewGate previews in Telegram, ensure URLs are copied exactly from the `render_results` manifests. Avoid manual re-typing or truncation of file IDs to prevent broken image links.
 - **IP-Safety QC at ReviewGates**: If a preview from a "style of <famous franchise/character>" brief is visually too close to the protected original (exact costume, logo/emblem, signature mask, direct likeness), call it out at p4/p7 and recommend `C` edit-fix to make the design more original while preserving the requested vibe.
 - **Verification over Assumption**: If a render/montage step fails, read the relevant request/result JSON immediately to identify schema mismatches (e.g., `anchors` vs `jobs`) or path issues (relative vs absolute) before retrying.
 - **Native Media Delivery in Telegram**: When presenting rendered image/video previews from `render_results/*.json.selected_outputs`, include native media attachments using `MEDIA:<absolute local path>` for each existing selected output path, then include the exact `url` as a fallback/reference. Do not send only ngrok URLs and local filesystem paths; the user expects the image/video itself to appear in chat. For storyboard/p7 image gates and video gates, send all current selected outputs together as one Telegram media group/album when there are 2-10 items; if there are more than 10, split into ordered albums of max 10. Avoid sending only the first shot.
 - **Direct Link Delivery**: For the final cinematic delivery, use the `MEDIA:` prefix with the absolute path to the `final.mp4` to ensure the user receives a native video bubble rather than just a text path.
-- Do not load designer skills (`storytell`, `wardrobe`, `storyboard`, `filmmaker`) into Producer context during normal production; delegate them with paths/refs and validate outputs.
+- Do not load designer skills (`storytell`, `wardrobe`, `storyboard`, `filmmaker`) into Producer context during normal production; call the owner node/subgraph with paths/refs and validate outputs. During migration, this may still be implemented with a compatibility delegation adapter.
 - Do not pass full JSON artifacts, logs, provider responses, whole chunks, raw vector hits, or broad indexes between agents.
 - For Phase RAG/chunk handoffs, prefer mandatory direct chunk loads when Producer already knows the needed artifacts. Use `chunk_resolver.py --chunk-path <*_chunk.json>` (repeatable) to project direct chunks into compact selected paths / optional per-run `context_pack`, even when no SQLite index exists; then pass them through `state_guard.py handoff --chunk-path ... --context-pack ...`. Treat context packs as disposable `/tmp` handoff cache, not canon. Current preproduction policy: when the needed chunks are known by index/use_case, attach those explicit chunk paths/context packs to the specialist handoff; do not introduce semantic/vector search or ask agents to compare embeddings until a later production-retrieval phase explicitly requires it. Mandatory direct chunks must fail closed if provider/runtime/blob keys are present or if they cannot fit the token budget.
 - **NEVER use Python `false`/`true` (lowercase) in `execute_code` blocks; always use `False`/`True` (capitalized) to prevent `NameError`.**
@@ -149,7 +167,7 @@ Never scaffold empty project directories before the brief is approved.
 
 ## Handoff discipline
 
-Send specialists a static delegate contract plus one final dynamic handoff JSON, not artifact bodies. Keep `delegate_task.goal` and the top of `context` stage-neutral; do not put `stage.goal`, `stage.owner_skill`, project data, or edit notes in early prose.
+Send specialists a static contract plus one final dynamic handoff JSON, not artifact bodies. In LangGraph runtime this is node input. In Hermes compatibility mode this is the `delegate_task` context. Keep dynamic data out of early prose.
 
 ```json
 {
@@ -176,7 +194,7 @@ Send specialists a static delegate contract plus one final dynamic handoff JSON,
 }
 ```
 
-Use the packaged step planner first:
+Legacy compatibility adapter:
 
 ```bash
 python3 ~/.hermes/skills/kinodel/producer-kinodel/scripts/producer_step.py \
@@ -220,7 +238,7 @@ When an edit-fix rewrites an upstream planner artifact that already has a render
 
 For spec-based projects (`pipeline_spec.json` or `producer_state.json.pipeline_id`), `state_guard.py handoff --goal <downstream>` fail-closes across prior ReviewGates. A direct handoff to p5/p8 or any future downstream stage requires an explicit approved gate decision in `producer_state.json.gate_decisions[]` matching the gate `goal` or `gate_alias` (`decision: "A"` / `approve` / `approved`). Render-result existence alone never unlocks spec-based handoffs.
 
-For designer stages, pass the static delegate contract from `references/delegated-design-stages.md` plus the handoff JSON to a fresh `delegate_task` with `toolsets=["skills", "file", "terminal"]`. The subagent writes the artifact directly to disk; Producer then validates the file. Avoid generated prose prompts and stage-specific prose in production because they add variable text and reduce prompt-cache locality.
+For designer stages, pass the static specialist contract plus one typed handoff envelope to the owner node/subgraph. The worker writes the artifact directly to disk; Producer then validates the file. Avoid generated prose prompts and stage-specific prose in production because they add variable text and reduce prompt-cache locality.
 
 `io` means input/output, but it is too opaque for Kinodel. New handoffs use `artifacts.read` and `artifacts.write`; specialists may accept legacy `io` only as a migration alias. `context_cache` is a compact digest/summary layer for high-reuse artifacts (`brief.json`, `story.json`) and must never contain full prompt logs, provider responses, or complete large artifacts.
 
@@ -287,7 +305,7 @@ For video-flow/provider changes after p7:
 
 ## Render execution
 
-When a complete render request exists, launch only packaged render worker scripts:
+When a complete render request exists in legacy mode, launch only packaged render worker scripts:
 
 ```bash
 python3 ~/.hermes/skills/kinodel/render-kinodel/scripts/render.py \
@@ -298,7 +316,7 @@ python3 ~/.hermes/skills/kinodel/render-kinodel/scripts/render.py \
   --output-dir ~/projects/<project_id>/v1/outputs
 ```
 
-Use background terminal with `notify_on_complete=true` for long renders. Prefer the render action returned by `producer_step.py`; its `command` is the render-boundary wake-up chain `render.py` → `render_wakeup.py`. The wake-up bridge lives in `render-kinodel` because render owns worker completion and result packaging; it promotes the scratch result, validates the durable manifest through Producer's guard, then asks Producer for the next action and formats the message. Do not add per-stage wake-up scripts for `p3`/`p6`/`p9`; extend the universal bridge or Producer action model instead. Autonomous continuation requires a Hermes wake consumer to enqueue `producer_agent_prompt` as a new Producer agent turn in the target session/runtime; terminal `notify_on_complete=True` alone only delivers stdout.
+Use background terminal with `notify_on_complete=true` for long renders in legacy mode. In the standalone LangGraph backend, replace terminal wake-up continuation with a render job/event model that promotes the manifest and resumes the graph thread through the checkpointer. Do not add per-stage wake-up scripts for `p3`/`p6`/`p9`; extend the universal render service or graph action model instead.
 
 Practical render-polling pitfall: a durable result file can appear before it is ready. If `render_results/*.json` exists but still shows `status: "pending"` or empty `selected_outputs`, treat it as in-flight and keep waiting for the wake-up bridge / final promotion instead of chaining downstream from that file.
 
