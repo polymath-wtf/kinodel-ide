@@ -1,0 +1,191 @@
+{
+  "schema": "kinodel.pipeline_spec.v1",
+  "pipeline_id": "cinematic.v1",
+  "display_name": "Cinematic Pipeline",
+  "version": 1,
+  "status": "active",
+  "runtime": {
+    "backend": "langgraph",
+    "state_profile": "compact_artifact_refs",
+    "checkpoint_required": true
+  },
+  "project_layout_profile": "cinematic.v1",
+  "final_chunk": {
+    "type": "cinema_chunk",
+    "path": "final_chunk.json",
+    "schema": "kinodel.final_chunk.v1"
+  },
+  "gate_policy": {
+    "choices": ["A", "B", "C", "D"],
+    "text_first": true,
+    "render_completion_is_approval": false,
+    "ambiguous_text": "edit_notes"
+  },
+  "stages": [
+    {
+      "id": "p0_briefgate",
+      "type": "briefgate",
+      "owner": "producer-kinodel",
+      "reads": [],
+      "writes": ["brief.json"],
+      "validator": "kinodel.brief.v1",
+      "edge": "p1_story"
+    },
+    {
+      "id": "p1_story",
+      "type": "agent_stage",
+      "owner": "storytell-kinodel",
+      "reads": ["brief.json"],
+      "writes": ["story.json"],
+      "validator": "kinodel.story.v1",
+      "edge": "p2_main_frame_plan"
+    },
+    {
+      "id": "p2_main_frame_plan",
+      "type": "agent_stage",
+      "owner": "wardrobe-kinodel",
+      "support_skills": ["flux2-prompt-engine"],
+      "reads": ["brief.json", "story.json"],
+      "writes": ["wardrobe_request.json"],
+      "validator": "kinodel.render_requests.v1",
+      "edge": "p3_main_frame_render"
+    },
+    {
+      "id": "p3_main_frame_render",
+      "type": "render_stage",
+      "service": "RenderService",
+      "reads": ["wardrobe_request.json"],
+      "writes": ["render_results/main_frame_result.json"],
+      "request_artifact": "wardrobe_request.json",
+      "result_artifact": "render_results/main_frame_result.json",
+      "modality": "image",
+      "validator": "kinodel.render_result.v1",
+      "edge": "p4_story_main_gate"
+    },
+    {
+      "id": "p4_story_main_gate",
+      "type": "review_gate",
+      "owner": "producer-kinodel",
+      "gate_id": "p4",
+      "label": "Story/Main Frame ReviewGate",
+      "reads": ["story.json", "render_results/main_frame_result.json"],
+      "previews": ["render_results/main_frame_result.json"],
+      "interrupt": true,
+      "routes": {
+        "A": "p5_storyboard_plan",
+        "B": "critic_loop",
+        "C": "edit_loop",
+        "D": "pause"
+      }
+    },
+    {
+      "id": "p5_storyboard_plan",
+      "type": "agent_stage",
+      "owner": "storyboard-kinodel",
+      "support_skills": ["flux2-prompt-engine"],
+      "reads": ["brief.json", "story.json", "render_results/main_frame_result.json"],
+      "selected_from": ["render_results/main_frame_result.json"],
+      "writes": ["storyboard_requests.json"],
+      "validator": "kinodel.render_requests.v1",
+      "edge": "p6_story_images_render"
+    },
+    {
+      "id": "p6_story_images_render",
+      "type": "render_stage",
+      "service": "RenderService",
+      "reads": ["storyboard_requests.json"],
+      "writes": ["render_results/story_frames_result.json"],
+      "request_artifact": "storyboard_requests.json",
+      "result_artifact": "render_results/story_frames_result.json",
+      "modality": "image",
+      "validator": "kinodel.render_result.v1",
+      "edge": "p7_story_images_gate"
+    },
+    {
+      "id": "p7_story_images_gate",
+      "type": "review_gate",
+      "owner": "producer-kinodel",
+      "gate_id": "p7",
+      "label": "Story Images ReviewGate",
+      "reads": ["render_results/story_frames_result.json"],
+      "previews": ["render_results/story_frames_result.json"],
+      "interrupt": true,
+      "routes": {
+        "A": "p8_video_plan",
+        "B": "critic_loop",
+        "C": "edit_loop",
+        "D": "pause"
+      }
+    },
+    {
+      "id": "p8_video_plan",
+      "type": "agent_stage",
+      "owner": "filmmaker-kinodel",
+      "support_skills": ["prompt-videos"],
+      "reads": ["brief.json", "story.json", "render_results/story_frames_result.json"],
+      "selected_from": ["render_results/story_frames_result.json"],
+      "writes": ["video_requests.json"],
+      "validator": "kinodel.render_requests.v1",
+      "edge": "p9_video_render"
+    },
+    {
+      "id": "p9_video_render",
+      "type": "render_stage",
+      "service": "RenderService",
+      "reads": ["video_requests.json"],
+      "writes": ["render_results/shot_videos_result.json"],
+      "request_artifact": "video_requests.json",
+      "result_artifact": "render_results/shot_videos_result.json",
+      "modality": "video",
+      "validator": "kinodel.render_result.v1",
+      "edge": "p10_montage"
+    },
+    {
+      "id": "p10_montage",
+      "type": "montage_stage",
+      "owner": "montage-kinodel",
+      "service": "MontageService",
+      "reads": ["render_results/shot_videos_result.json"],
+      "selected_from": ["render_results/shot_videos_result.json"],
+      "writes": ["outputs/final.mp4"],
+      "validator": "kinodel.montage_output.v1",
+      "edge": "p11_final_chunk"
+    },
+    {
+      "id": "p11_final_chunk",
+      "type": "chunk_write_stage",
+      "owner": "craft-kinodel",
+      "service": "ChunkService",
+      "reads": ["brief.json", "story.json", "render_results/main_frame_result.json", "render_results/story_frames_result.json", "render_results/shot_videos_result.json", "outputs/final.mp4"],
+      "writes": ["final_chunk.json"],
+      "validator": "kinodel.final_chunk.v1",
+      "edge": "p12_final_gate"
+    },
+    {
+      "id": "p12_final_gate",
+      "type": "review_gate",
+      "owner": "producer-kinodel",
+      "gate_id": "p12",
+      "label": "Final Project ReviewGate",
+      "reads": ["outputs/final.mp4", "final_chunk.json"],
+      "previews": ["outputs/final.mp4", "final_chunk.json"],
+      "interrupt": true,
+      "routes": {
+        "A": "p13_cinema_chunk",
+        "B": "critic_loop",
+        "C": "edit_loop",
+        "D": "pause"
+      }
+    },
+    {
+      "id": "p13_cinema_chunk",
+      "type": "agent_stage",
+      "owner": "craft-kinodel",
+      "reads": ["final_chunk.json", "render_results/main_frame_result.json", "render_results/story_frames_result.json", "render_results/shot_videos_result.json"],
+      "selected_from": ["render_results/main_frame_result.json", "render_results/story_frames_result.json"],
+      "writes": ["chunks/cinema_chunk.json"],
+      "validator": "kinodel.cinema_chunk.v1",
+      "edge": "END"
+    }
+  ]
+}

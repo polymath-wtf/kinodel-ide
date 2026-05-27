@@ -28,6 +28,18 @@ pipeline_spec stage = LangGraph node with declared inputs, outputs, validator, a
 
 That single abstraction removes most manual route enforcement.
 
+## Fresh skill set
+
+The LangGraph-era skills live under `skills/kinodel/`. They are intentionally responsibility-cut contracts:
+
+- **Pipeline** — graph law and active pipeline specs.
+- **Producer** — human-facing gates and decision language.
+- **Project layout** — project scaffold and artifact path policy.
+- **Specialists** — Storytell, Wardrobe, Storyboard, Filmmaker, Critic, Montage, Craft.
+- **Render** — provider adapter boundary and result promotion.
+
+The legacy skills under `legacy/kinodel/` remain migration references, not the next runtime center.
+
 ## Backend runtime
 
 Use LangGraph as the backend state-machine framework.
