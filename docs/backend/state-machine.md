@@ -1,0 +1,3 @@
+LangGraph is a framework that models AI agent workflows as explicit state machines, giving you fine-grained control over how your agents operate. Instead of relying solely on prompts, LangGraph uses a graph structure where transitions between steps are explicitly defined.
+
+Тоесть у нас есть пайплайн, в котором будет множество шагов /goal, которые будут выполняться последовательно, меняя свой статус и передавая данные друг другу.

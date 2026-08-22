@@ -1,0 +1,65 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": [
+      "@slkiser/opencode-quota@latest",
+      "opencode-mem"
+  ],
+  "lsp": true,
+  "mcp": {
+      "codegraph": {
+          "type": "local",
+          "command": ["codegraph", "serve", "--mcp"],
+          "enabled": true
+      },
+      "context7": {
+          "type": "remote",
+          "url": "https://mcp.context7.com/mcp",
+          "enabled": true
+      }
+  },
+  "default_agent": "safe-build",
+  "agent": {
+    "safe-build": {
+      "mode": "primary",
+      "description": "Work on this project with confirmation before code edits and most shell commands.",
+      "permission": {
+        "edit": "ask",
+        "bash": {
+          "*": "ask",
+          "git status*": "allow",
+          "git diff*": "allow",
+          "docker compose exec -T backend php artisan test*": "allow",
+          "docker compose exec -T backend ./vendor/bin/pint*": "allow"
+        }
+      }
+    },
+    "auto-build": {
+        "mode": "primary",
+        "description": "Work autonomously inside this project. Do not push to remote repositories or access external directories except OpenCode's temporary output directory.",
+        "permission": {
+            "edit": "allow",
+            "read": "allow",
+            "glob": "allow",
+            "grep": "allow",
+            "list": "allow",
+            "lsp": "allow",
+            "task": "allow",
+            "todowrite": "allow",
+            "question": "allow",
+            "webfetch": "allow",
+            "websearch": "allow",
+            "skill": "allow",
+            "bash": {
+                "*": "allow",
+                "git push*": "deny",
+                "git * push*": "deny"
+            },
+            "external_directory": {
+                "*": "deny",
+                "/tmp/opencode": "allow",
+                "/tmp/opencode/**": "allow"
+            }
+        }
+    }
+  }
+}
