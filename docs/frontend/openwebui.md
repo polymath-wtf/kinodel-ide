@@ -1,5 +1,7 @@
-У нас есть хороший референс фронтенда для нашего приложения, вот например скил для универсального openwebui, skills\open-webui-guide , который можно использовать как подсказку для разрабатывания нашего собственного интерфейса.
+# Open WebUI Reference
 
-Особенно мне нравится что там уже есть подсказки как упаковывать наши чанки и работать с rag skills\open-webui-guide\references\rag.md , надо будет ревёрс инжинирнуть под наш сабж.
+Status: **Reference only**
 
-Учти, что мы не будем использовать openwebui, а мы хотим собирать свой uiux frontend.
+Kinodel will not use Open WebUI as its product shell. `skills/open-webui-guide/` may inform chat ergonomics, attachment handling, RAG presentation, reconnect behavior, and operational lessons.
+
+Do not inherit its architecture or database contracts. Kinodel's source of truth remains LangGraph execution state plus validated artifacts, and its UI must support pipelines, review revisions, media boards, context assignment, and timeline editing directly.

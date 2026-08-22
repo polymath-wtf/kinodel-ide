@@ -1,8 +1,32 @@
-Наш open-source софт идеально интегрируется с Comfyui.
-У нас будут разные workflow, которые мы будем отправлять локально или по https на рендер в топовый софт.
-В самом comfyui бывают огромные детерминированные пайплайны, которые сводятся к конкретным inputs и получаем конкретные outputs, поэтому большой комфи флоу можно упаковать в один промежуточный этап, рендер контента.
-Бывают так-же и своеобразные флоу, к которым мы если чё напишем краткую инструкцию для render-kinodel.
+# ComfyUI Boundary
 
-Кстате, мб можно `alm` анализ делать прямо в comfyui, я знаю там пару фичей, как вариант, для нас главное дать конкретную песню на input, и получить нужные outputs.
+Status: **Provider/service design**
 
-По сути, мы уже умеем пользоваться comfyui, и у нас есть готовый скил который всё тебе расскажет D:\Ai\kinodel-ide\skills\comfyui-skill , он уже умеет и локально и с endpoints работать, так что можешь посмотреть как он устроен и выписать сюда чистый важный сабж для понимания концепции.
+ComfyUI is a first-class local or remote render backend. A large deterministic ComfyUI graph appears to Kinodel as one provider workflow with typed inputs, outputs, and capability metadata.
+
+## Contract
+
+Creative agents produce provider-neutral image/video/audio intent. The ComfyUI adapter owns:
+
+- workflow registration and versioning;
+- semantic-input to node-input mapping;
+- endpoint health/readiness;
+- upload and asset materialization;
+- submit, queue reconciliation, progress, cancellation where supported;
+- output discovery, download/import, and technical audit.
+
+## Rules
+
+- One workflow registry is authoritative; do not duplicate aliases in Python and JSON.
+- Every workflow declares accepted job kinds and required inputs.
+- Workflow version participates in the render job fingerprint.
+- Secrets, raw workflows, queue IDs, and logs stay out of creative artifacts.
+- A local `/view` URL is a preview, not durable asset identity.
+- Timeout may mean the GPU job still runs; reconcile queue/history before retry.
+- Provider health checks use real readiness endpoints and do not generate paid content.
+
+## ALM
+
+Audio analysis may be implemented through ComfyUI when a validated workflow exists. To Kinodel it remains a typed analysis service: audio asset in, timing/section/features artifact out. The pipeline must not depend on which backend produced the analysis.
+
+Implementation reference: `skills/comfyui-skill/`.

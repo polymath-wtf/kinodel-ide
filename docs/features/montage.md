@@ -1,4 +1,9 @@
-Надо придумать как агент будет монтировать видосики, мб через hyperframes mcp + ffmpeg
-Можно будет редактировать монтаж руками, а можно и попросить агента чёто изменить.
+# Montage
 
-Особое внимание *music-video*, там будет очень много шотов, которые будут иметь по запансой секунде в начале и в конце, чтобы можно было импровизировать с эффеками перехода между шотами.
+Status: **Deterministic MVP, interactive later**
+
+MVP Montage assembles explicit ordered clips and audio with ffmpeg from a typed timeline. It does not discover takes, choose narrative order, or infer transitions from folders.
+
+Music video requires handles at clip boundaries and an audio-master timing map so later edits can trim, overlap, and transition without regenerating immediately.
+
+Later, a human or editing agent may create revisions of a timeline artifact. Hyperframes/MCP or another editor is an implementation option to evaluate, not a foundation dependency.

@@ -1,3 +1,36 @@
-крч тут должна быть карта нашего проекта, без воды чисто путь + сабж.
-чтобы можно было быстро найти нужный файл во время смачного вайбкода.
-кстате, .mdc формат это типа который всегда есть в запросе или что? я в правильном месте .rules создал?
+---
+description: Kinodel IDE project map
+alwaysApply: true
+---
+
+# Project Map
+
+`SOUL.md` - product taste and non-negotiables
+`README.md` - public project overview
+`AGENTS.md` - coding-agent rules and routing
+`docs/README.md` - documentation index and authority
+`docs/backend/architecture.md` - system boundaries and modules
+`docs/backend/runtime.md` - execution identity, persistence, events, cancellation
+`docs/backend/state-machine.md` - LangGraph state and transition rules
+`docs/backend/artifacts.md` - immutable artifact contracts and provenance
+`docs/backend/pipeline.md` - shared pipeline model
+`docs/backend/langgraph.md` - LangGraph usage decisions
+`docs/backend/comfyui.md` - ComfyUI and provider boundary
+`docs/pipelines/cinematic.md` - cinematic graph
+`docs/pipelines/music-video.md` - music-video graph
+`docs/pipelines/serial.md` - season and episode graphs
+`docs/agents/README.md` - agent catalog and common contract
+`docs/agents/*.md` - one capability contract per agent/service
+`docs/tools/tools.md` - typed tool and service registry
+`docs/rag/architecture.md` - wiki, retrieval, multimodal context, lifecycle
+`docs/rag/chunks/chunks.md` - reusable creative-memory types
+`docs/frontend/webui.md` - product UI surfaces
+`docs/roadmap.md` - implementation order
+`docs/refactoring.md` - migration brief
+`skills/LangGraph/` - local LangGraph reference docs
+`skills/llm-wiki/` - local LLM Wiki reference
+`skills/comfyui-skill/` - ComfyUI reference implementation
+`legacy/` - read-only old-project evidence
+`.agents/` - future production agent builds
+
+`.mdc` auto-application is editor-specific. OpenCode relies on `AGENTS.md`; compatible Cursor-style clients can use this file because `alwaysApply: true` is set.

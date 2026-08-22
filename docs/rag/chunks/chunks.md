@@ -1,25 +1,66 @@
-- character chunk всё что связано с персонажем
-- cinematic chunk - финальный чанк синематика
-- season chunk - сюжет всего сериала, для контекста
-- episode chunk - сюжет каждой серии сериала. Та серия над которой мы сейчас работаем юзается с максимальным вниманием (например 3072 gemini-embedding-2) , а другие серии можно в мини размере типа 256-768 подавать. Вопрос в том, как именно мы экономим векторное пространство? текст разве становится весить меньше токенов? или мы просто меньше внимания посылаем на этот чанк?
-- music chunk - нейрон мызыки для вдохновения. Подаётся для вдохновения muse-kinodel , ювелирно не затрагивая авторские права, ато мы подаём песню в контекст агенту, но нам нужно прописать в правилах скила чтобы он это делал ювелирно.
-- product chunk - продукт
-- 
+# Creative Chunks
 
-## Gemini-embeddong-2
-Мультимодальный rag с поддержкой текста, изображений, видео и аудио. Подробная информация описана в wiki с тэгами legacy\hermes wiki\entities\gemini-embedding-2.md и в D:\Ai\kinodel-ide\legacy\rag.
+Status: **Domain contracts, introduced with their pipelines**
 
-## Agents Usecase
+A creative chunk is approved reusable memory, not an embedding record and not a process archive. Craft produces semantic content; validators and index services handle schema, storage, embeddings, and retrieval projections.
 
-Прямо в графическом интерфейсе, можно будет выбирать какие чанки каким агентам будут добавляться в контекст, тем самым мы изобретаем nextgen контекст инжиниринг для креативных агентов.
-Например:
-- Muse-kinodel может вдохновляться песнями `music_chunk`. Обрати внимание, что самому агенту muse а так-бо чанкам прийдётся добавлять дисклеймер об авторских правах, и нужно будет сделать особенную инструкцию чтобы их не нарушать (ну грубо говоря, вдохновляйся вайбом, но не копируй текст и стиль).
-- Wardrobe-kinodel использует `character_chunk`, чтобы сгенерировать образы персонажей для текущего сценария ((character sheet) в основных локациях), only locations (основные локации без персонажей). Делать он это будет с помощью исходников в `character_chunk` и техники img2img и опционально lora (если работаем в comfyui).
-С которым потом будет работать сторибордер. Тоесть гардеробщик генерирует 
-- Storyboard-kinodel использует `character_chunk` исходники в комбинации с output от wardrobe, потомучто например в `character_chunk` будет face-closeup фотография персонажа, которая всегда хороша для лучшего качества и сходства с персонажем.
-- Filmmaker-kinodel, использует исходники из `character_chunk` наприемер: images, lora, audio, video(v2v) и мб что-то ещё.
-- Season-kinodel генерирует `season_chunk` а так-же `episode_chunk` для каждого эпизода. Затем этот контекст передаётся episode-kinodel который и будет работать над каждой из серий.
-- Episode-kinodel видит сценарий всего сезона `season_chunk`, и работает с конкретным `episode_chunk` текущей серии, а ещё есть фича, он может смотреть будующие серии для контекста (если получится экономить с помощью gemini-embedding-2 MRL например размером 768 подавать).
+## Shared Rules
 
-## Wiki
-Можно ревёрс-инжинирнуть подходящие фичи из Andrej Karpathy's LLM Wiki pattern D:\Ai\kinodel-ide\skills\llm-wiki и D:\Ai\kinodel-ide\skills\wiki-creation .
+- source only approved artifact revisions and selected assets;
+- distinguish canon, inspiration, plan, and completed fact;
+- keep exact provenance and rights constraints;
+- store asset references, never base64 media;
+- exclude prompts/logs/provider payloads unless the prompt itself is approved reusable craft;
+- use a new immutable revision for updates;
+- index is derived and deletable;
+- load direct selected chunks before semantic search.
+
+## Types
+
+### `CharacterChunkV1`
+
+Identity, appearance, wardrobe anchors, voice/motion references, continuity constraints, approved image/video/audio assets, and optional LoRA reference metadata. Provider-specific activation belongs to adapters/runtime settings.
+
+Consumers: Wardrobe, Storyboard, Filmmaker, Season, Episode.
+
+### `CinemaChunkV1`
+
+Approved story/hook, visual language, selected main/story frames, clips/final video, and a concise account of what should carry forward.
+
+Consumers: future cinematic projects, style research, Muse/Season as explicitly selected inspiration.
+
+### `MusicChunkV1`
+
+Rights-aware inspiration memory: audio asset, analysis summary, genre/mood/instrumentation/vocal attributes, section/energy map, and explicit `take`/`ignore` rules.
+
+Muse may take abstract attributes. It must ignore exact melody, copyrighted lyrics, voice identity, and artist cloning.
+
+### `SeasonChunkV1`
+
+Approved season authority: premise, story engine, character and relationship arcs, canon, production defaults, ordered episode blueprints/statuses, and approved anchors.
+
+### `EpisodeChunkV1`
+
+Continuity memory: compact recap, exact ending state, character/relationship deltas, wardrobe/location/prop/injury continuity, open threads, required payoffs, approved anchors, and final episode asset.
+
+Planned and completed episode chunks are distinct revisions/statuses. Future plans never become past facts.
+
+### `MusicVideoChunkV1`
+
+Approved song selection, timing map, visual concept, selected frames/clips, final video, and rights-safe reusable lessons. It remains separate from a generic `MusicChunkV1` because project result and musical inspiration have different semantics.
+
+### Future Types
+
+Product, world/location, voice, and other chunks are added only when a real pipeline has a stable owner and consumer. Do not create empty schemas in anticipation.
+
+## Attention And Token Cost
+
+Gemini embedding dimensions do not make injected text shorter. Context cost is controlled by:
+
+- selecting fewer, more relevant chunks;
+- compact agent-specific projections;
+- direct references instead of broad retrieval;
+- summaries linked to full canonical artifacts;
+- measured prompt-token budgets.
+
+For Episode, pass the approved season summary, target episode, exact previous ending, and only relevant neighbors. Do not inject the whole series history or pretend a 256-dimensional vector makes that history cheaper to read.

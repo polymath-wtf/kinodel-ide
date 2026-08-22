@@ -1,4 +1,7 @@
-Главный концепт нашего проекта - это создание универсального инструмента для креаторов, внутри которого будут всеми любимые opensource фичи, а так-же специализированные агенты, узкоспециализированные синтаксисы для конкретных моделей, разного рода пайплайны и тд.
-И наша задача, упаковать все это в один удобный универсальный инструмент, который повысит продуктивность креаторов, а так-же упростит им жизнь тем что в нашем приложении будут правила для работы со всеми основными нейросетями, особенно делаем уклон на opensource решения и работу с comfyui на локальной машине или удалённом endpoint.
+# Product Vibe
 
-License Apache 2.0 и да прибудет с нами сила opensource
+Canonical taste lives in [`../SOUL.md`](../SOUL.md).
+
+Kinodel packages specialist agents, open workflows, model-specific craft, and reusable creative memory into one creator-first IDE. Local ComfyUI is first-class; remote providers are adapters, not lock-in. Complexity stays behind inspectable artifacts and explicit human choices.
+
+License: Apache-2.0. Open source is part of the product direction, not a marketing checkbox.

@@ -1,32 +1,48 @@
-Здесь будут зафиксированные решения нашего webui, не размышления, а сабж.
-Пока что мы на стадии планирования, так что можно сюда чисто крапалик source-of-truth сделать того что нам точно нужно, например RAG в виде obsidian mind map, а юзабельности у наших чанков будут уффф хоть отбавляй.
+# Web UI
 
-## Chunks usecase
+Status: **Product foundation**
 
-1. Создание чанков
-2. Использование чанков
-Прямо в графическом интерфейсе, можно будет выбирать какие чанки каким агентам будут добавляться в контекст, тем самым мы получим nextgen контекст инжиниринг.
-Например:
-- muse может вдохновляться песнями `music_chunk`
-- wardrobe использует `character_chunk`, чтобы сгенерировать образы персонажей для текущего сценария ((character sheet) в основных локациях), only locations (основные локации без персонажей). Делать он это будет с помощью исходников в `character_chunk` и техники img2img и опционально lora (если работаем в comfyui).
-С которым потом будет работать сторибордер. Тоесть гардеробщик генерирует 
-- storyboard использует `character_chunk` исходники в комбинации с output от wardrobe, потомучто например в `character_chunk` будет face-closeup фотография персонажа, которая всегда хороша для лучшего качества и сходства с персонажем.
-3. Редактирование чанков. Ну определённо можно будет как-то отредактировать чанки
-4. Удаление чанков. сомнительно но окей
+The UI is a projection and control surface for runtime state. It never becomes a second state machine.
 
-Обрати внимание на 2. Использование чанков - нам надо придумать как это элегантно упаковать в frontend. Например, чтобы добавить какой либо чанк в ризонинг определённого агента, нужно написать @@chunk_name , и это будет заменено на содержимое чанка или его категории, тоесть через @ обычно тегаются файлы, а через @@ будут тегаться чанки.
+## Primary Surfaces
 
-## Interfaces
+- **Project workspace**: current artifact, references, feedback, and preview.
+- **Pipeline timeline**: completed, running, waiting, blocked, failed, and future stages.
+- **Review gate**: exact artifact revision, previews, approve/revise/cancel actions.
+- **Artifact board**: briefs, stories, frames, clips, audio, final outputs, and revision lineage.
+- **Context explorer**: wiki/chunk search, provenance, rights, and explicit agent assignment.
+- **Render monitor**: job progress and actionable failures without raw provider sludge.
+- **Montage timeline**: later manual editing of explicit clip/audio selections.
 
-Нам пригодятся разные интерфейсы
-- чат с агентами
-- kanban, доска на которой можно видеть весь контент пайплайна, например (notes, txt, storyboard, video)
-- montage, видеодорожка с монтажом контента, которую можно править руками, а так-же просить внести правки montage-kinodel. Мб использовать hyperframes для монтажа?
-- rag, интерпритация чанков в виде obsidian second brain
-- nodes, нодовый интерфейс? comfyui inspired
+Chat is one interface, not the application shell. A creator should be able to inspect and change production without reconstructing state from conversation.
 
+## Runtime Rules
 
-## Features 
+- Every action sends an expected state/artifact revision.
+- Review cards show which revision and digest are being approved.
+- Reconnect derives truth from runtime/artifact queries, not missed events.
+- Output existence never changes a gate to approved.
+- Event delivery may duplicate; UI deduplicates by event ID.
+- Provider logs and secrets are operator diagnostics, not normal creator UI.
 
-- Progressbar пайплайна котороый постепенно заполняется
-- Мб есть что-то полезное в старом D:\Ai\kinodel-ide\legacy\old docs\uiux-raw.md , однако учти что он расчитан на openwebui , а мы хотим собирать свой uiux frontend.
+## Context UX
+
+- `@file` may reference a project artifact or source.
+- `@@chunk` may explicitly attach approved creative memory.
+- The UI shows the compact projection that will be supplied to each agent.
+- Users can inspect provenance and `take`/`ignore` rights constraints.
+- Removing context changes the next invocation, not historical artifacts.
+- Semantic suggestions remain suggestions until explicitly selected or allowed by pipeline policy.
+
+## First UI Slice
+
+Only build:
+
+1. create/open execution;
+2. show current stage and artifact;
+3. render typed brief/story forms and previews;
+4. approve, revise with notes, or cancel;
+5. reconnect to an interrupted execution;
+6. show typed failures.
+
+Kanban, node editor, Obsidian-like graph, and manual timeline editing are later surfaces.
