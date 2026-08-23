@@ -1,4 +1,4 @@
-# Knowledge And Retrieval Architecture
+# RAG Knowledge And Retrieval Architecture
 
 Status: **Decided foundation with evaluated rollout**
 

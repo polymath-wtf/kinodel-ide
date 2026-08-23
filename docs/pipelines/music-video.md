@@ -11,16 +11,16 @@ music_video_brief
 -> muse
 -> generate_music
 -> analyze_timing
--> song_style_review             [human: select song + direction]
 -> visual_anchor_plan
 -> render_style_frame
+-> song_style_review             [human: select song + concept approval]
 -> timed_frame_plan
 -> render_frames
--> visual_review                 [human]
 -> timed_motion_plan
+-> visual_review                 [human: approve storyboard]
 -> render_clips
 -> audio_master_montage
--> final_review                  [human]
+-> final_review                  [human: approve video clips]
 -> craft_music_video_memory
 -> complete
 ```

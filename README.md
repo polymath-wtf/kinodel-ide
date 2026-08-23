@@ -1,6 +1,6 @@
 # Kinodel IDE
 
-Kinodel IDE is an open-source, human-in-the-loop creative production app. A creator brings an idea, references, and constraints; a crew of narrow AI agents develops the story, visuals, video, music, and reusable creative memory through an explicit LangGraph pipeline.
+Kinodel IDE is an open-source, human-in-the-loop creative production app for cinema production. A creator brings an idea, references, and constraints; a crew of narrow AI agents develops the story, visuals, video, music, and reusable creative memory through an explicit LangGraph pipeline.
 
 ```text
 Human directs.

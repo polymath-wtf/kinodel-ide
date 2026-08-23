@@ -2,7 +2,8 @@
 
 ## Mission
 
-Rebuild Kinodel as a human-in-the-loop creative app on LangGraph. Preserve useful legacy invariants, not legacy machinery.
+Rebuild Kinodel as a human-in-the-loop creative app on LangGraph. Preserve useful legacy invariants, not legacy machinery. The architecture must make long-running generative work resumable and inspectable, in production pipeline.
+
 
 The architectural rule is:
 
