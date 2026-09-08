@@ -10,6 +10,9 @@ Roadmap follows risk, not feature count. Each phase must leave a usable, testabl
 - [x] Define cinematic, music-video, and serial pipeline topology.
 - [x] Define minimal knowledge/retrieval architecture.
 - [x] Choose Python for graph/backend runtime; retain TypeScript only for web UI/API consumers.
+- [x] Align the foundation delivery plan around `execution_work`, worker-only graph invocation, direct context, and baseline cancellation/security. Design alignment only; implementation and crash tests remain open.
+- [x] Define pre-build semantic contracts for the full agent catalog: common invocation/outcomes, role-specific craft, cinematic handoffs, bounded repairs, and future Muse/Season/Episode responsibilities. Not executable schemas or deployed agents.
+- [ ] Validate representative cross-agent cinematic contract fixtures and package/version each capability before enabling it; the first graph's three roles do not define the backend's architectural scope.
 - [ ] Define executable Pydantic contracts for the first slice.
 - [ ] Author the exact `foundation.v0` route table: approve/revise/clarify/cancel, Critic-mediated edits, bounded loops, blocked results, completion, and failure ownership.
 - [ ] Freeze identity and recovery semantics: pipeline ID/version/digest, operation IDs and input digests, idempotent execution start, lease fencing, and durable resume states.
@@ -25,27 +28,30 @@ Roadmap follows risk, not feature count. Each phase must leave a usable, testabl
 - [ ] Define deployable agent registry records and bundle rules for `.agents/`: exact schema IDs, model/runtime configuration, allowed tools, context policy, and only the references each capability needs.
 - [ ] Reconcile source-of-truth contradictions before implementation: stale `cinematic.v1.json`, RAG documentation routes, status labels, reference DTO names, lifecycle states, and singular-versus-bundle review contracts.
 
-Exit: the first slice can be implemented without consulting legacy orchestration code, and later pipeline/RAG phases have explicit contracts to refine rather than unresolved ownership boundaries.
+Exit: the entire agent catalog has reviewed semantic contracts, with complete cinematic ownership/input/output/repair/context boundaries and acceptance examples. The short runtime slice can be implemented without legacy orchestration or a three-agent-specific backend; executable schemas and capability packages are verified before activation. Later pipelines refine these boundaries rather than inventing their agents after the first build.
 
 ## 1. Restart-Safe HITL Slice
 
 - [ ] Project/execution identity and graph registry.
-- [ ] PostgreSQL Project DB: executions, operations, bindings, review requests, and leases.
-- [ ] `AsyncPostgresSaver`, managed local project storage, and one resume-worker process.
+- [ ] PostgreSQL Project DB: executions, operations, bindings, review requests, leases, `execution_work`, and `execution_controls`.
+- [ ] `AsyncPostgresSaver`, managed local project storage, and one worker for start/resume/reconcile/cancel; API never invokes the graph.
 - [ ] Artifact Store with immutable revisions, hashes, and slot bindings.
 - [ ] Explicit `foundation.v0` graph: brief draft/review -> story/review.
-- [ ] Producer, Storytell, and Critic node adapters with structured output.
+- [ ] Static versioned capability/mode registry with enabled-schema/context/modality validation; activate Producer, Storytell, and Critic node adapters with structured output, using the full catalog's common contract.
+- [ ] Direct typed-reference resolution and `ContextSelectionV1` persisted before calls, including empty optional selections, exact revisions, and per-agent projections; no discovery/index dependency.
+- [ ] Explicit first-deployment access mode, project authorization, managed-path isolation, input validation, and credential separation before accepting executions.
+- [ ] Baseline cancellation: durable acceptance, reject later decisions/production commits, worker finalization, and recovery after cancellation.
 - [ ] `interrupt()` and typed approve/revise/clarify/cancel resume.
 - [ ] Idempotent artifact commit and stale-review rejection.
-- [ ] Tests for commit-before-checkpoint replay, stale/duplicate review, fenced checkpoint writes, and execution lease recovery.
+- [ ] Real-PostgreSQL crash tests for accepted-start recovery, commit-before-checkpoint replay, consumed-response/unfinished-next-node recovery, stale/duplicate review, single-writer checkpoint ownership, cancellation races, and pinned context.
 - [ ] Minimal API and UI showing stage, artifact, review, and failure.
 
-Exit: stop the process at a review gate, restart it, resume once, and produce no duplicate artifacts.
+Exit: accepted starts and decisions survive process death before invocation, after business commit, and during the next node; recovery produces no duplicate canonical artifacts, rejects stale decisions, and cannot continue cancelled production. An in-memory saver or a review-gate-only restart test is insufficient. See the [runtime acceptance matrix](backend/runtime.md#acceptance-matrix); provider cases belong to phase 2.
 
 ## 2. First Rendered Cinematic
 
 - [ ] Wardrobe, Storyboard, Filmmaker, and Montage planning adapters.
-- [ ] Provider-payload-neutral visual/motion request schemas with frozen prompt-guidance profiles.
+- [ ] Implement the pre-designed visual/motion contracts and frozen prompt-guidance resources/projections; validate the entire unit mapping before render. These are agent resources, not deferred RAG discovery.
 - [ ] One ComfyUI provider profile and workflow registry.
 - [ ] Durable render jobs, external-wait resume, and output promotion.
 - [ ] Parallel frame/clip fan-out with keyed reducer and deterministic join.
@@ -58,8 +64,8 @@ Exit: one cinematic project survives provider delay, restart, revision, and fina
 ## 3. Product Runtime
 
 - [ ] Runtime event stream with reconnect/deduplication.
-- [ ] Cooperative cancellation and provider reconciliation.
-- [ ] Auth, authorization, quotas, secrets, and audit boundaries.
+- [ ] Extend baseline cancellation with operational controls and provider reconciliation visibility; render-job cancellation/reconciliation ships with phase 2.
+- [ ] Multi-user authentication/authorization, quotas, and expanded secret/audit operations; baseline access and credential boundaries already ship in phase 1.
 - [ ] Docker-based local deployment and endpoint configuration.
 - [ ] Operational metrics for graph, model, provider, and storage failures.
 
@@ -67,8 +73,8 @@ Exit: a small external test group can run concurrent projects safely.
 
 ## 4. Knowledge And Context
 
-- [ ] Direct mention resolver, `ContextSelectionV1`, and per-agent compact projections.
-- [ ] Agent-resource resolution for frozen generation profiles, including `@prompt-engine`.
+- [ ] Extend the phase-1 direct resolver and projections to source/wiki/chunk libraries and richer mention picking; do not reimplement operation-scoped selection.
+- [ ] Extend agent-resource coverage beyond the cinematic prompt-guidance resolver shipped in phase 2.
 - [ ] Creative chunk candidate, memory review, promotion, revision, archive, and purge lifecycle.
 - [ ] Immutable source manifest and maintained wiki workflow.
 - [ ] Recursive lint and claim-level provenance.

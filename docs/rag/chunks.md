@@ -91,6 +91,8 @@ The prepared operation freezes exact source revisions and projection versions/di
 
 **Creation:** after final video approval, Craft drafts the chunk from exact approved artifacts and promoted assets; memory review publishes it.
 
+Each reusable claim retains the minimal [Cinema claim evidence](../agents/craft.md#cinema-claim-evidence): labelled intent/measured/observed basis and exact field or inspected-media citations. Selected frame/clip handles derive from exact RenderResult unit entries; final-film claims cite the final asset, not merely planned motion or source clips. These are semantic requirements; executable cinema schemas and evidence validators remain pending.
+
 **Consumers:** Storytell, Wardrobe, Storyboard, Filmmaker, Montage, Muse, or Season only when the creator/pipeline explicitly selects a relevant projection. It is not mandatory context for a new cinematic by default.
 
 **Injection:** story lesson projection for Storytell; visual-language/anchor projection for Wardrobe or Storyboard; motion/editing lesson projection for Filmmaker or Montage. Final media is never pasted as text and is passed only through selected handles.

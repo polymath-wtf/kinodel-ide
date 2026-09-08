@@ -21,6 +21,7 @@ This directory is the source of truth for the rebuild. It records decisions, con
 - LangGraph rules: [`backend/langgraph.md`](backend/langgraph.md)
 - ComfyUI boundary: [`backend/comfyui.md`](backend/comfyui.md)
 - Frontend: [`frontend/webui.md`](frontend/webui.md)
+- Database logical architecture: [`database/README.md`](database/README.md), [`database/open-questions.md`](database/open-questions.md), [`database/source-coverage.md`](database/source-coverage.md) (Russian; entities, transaction boundaries, lifecycle and source coverage; hosting/auth choices remain open, not SQL or a replacement for domain contracts).
 - Roadmap: [`roadmap.md`](roadmap.md)
 - Migration brief: [`refactoring.md`](refactoring.md)
 - Deferred feature notes: [`features/`](features/)

@@ -8,16 +8,16 @@ Production backend code is Python. A tool is a typed Python operation at a trust
 
 | Caller | Allowed operation | Why |
 |---|---|---|
-| Web UI | create project, start execution, read status, submit review | creator control surface |
+| Web UI | create project, request execution start, read status, submit review, request cancellation | creator control surface |
 | Graph node adapter | read declared inputs, find prior operation, commit output | executes one safe stage |
 | Producer / Storytell / Critic | none | they return structured candidates only |
-| Resume worker | claim pending resume, invoke graph | crash recovery after review |
+| Execution worker | claim durable work, invoke/recover graph, finalize cancellation | sole graph invocation path from first start |
 
 No generic `ToolResult` envelope is needed inside Python. Services raise typed domain errors; FastAPI maps them to HTTP responses. Do not use stdout JSON, process exit codes, a terminal, or arbitrary paths as an internal contract.
 
 ## P0 Python Contracts
 
-These Pydantic models are the starting point. They belong with the domain DTOs, not in prompts or agent code.
+These Pydantic sketches are a starting point, not completed executable contracts. They belong with the domain DTOs, not in prompts or agent code. [runtime.md](../backend/runtime.md) owns work delivery; exact DTOs and validators remain a foundation task.
 
 ```python
 from typing import Any, Literal
@@ -77,14 +77,7 @@ class ReviewRespondRequest(BaseModel):
 
 class ReviewRespondResult(BaseModel):
     accepted: bool
-    resume_id: str
-
-
-class ResumeRequest(BaseModel):
-    resume_id: str
-    execution_id: str
-    payload: dict[str, Any]
-    expected_version: int
+    work_id: str
 ```
 
 `CommitArtifactsRequest` is one Project DB transaction: validate the current execution `lease_fence`, validate draft and provenance, write immutable metadata, replace the declared bindings, and save the operation result map. `expected_binding_revisions` must contain every output slot; use an explicit `None` only for a new slot. It returns the existing result only when both `operation_id` and `input_digest` match. A changed input with the same operation ID is an integrity error.
@@ -96,9 +89,10 @@ The `candidate` field is deliberately only an envelope here. Each stage passes i
 ### HTTP Endpoints, Not Agent Tools
 
 - `POST /projects` creates an empty project.
-- `POST /projects/{project_id}/executions` requires a client idempotency key, freezes the pipeline, stores `InitialRequestV1` as the `initial_request` binding, and starts the graph. The same key and payload return the existing execution; a changed payload conflicts.
+- `POST /projects/{project_id}/executions` requires a client idempotency key, freezes the pipeline, and atomically stores the execution, `InitialRequestV1` metadata/binding, and unique start work after preparing immutable bytes. It returns accepted identity, never invokes the graph. The same key and payload return the existing execution; a changed payload conflicts.
 - `GET /projects` and `GET /executions/{execution_id}` return read-only status and artifact projections.
-- `POST /review-requests/{request_id}/response` validates `ReviewRespondRequest`, records the decision and durable resume intent, then attempts resume.
+- `POST /review-requests/{request_id}/response` validates the current actionable request and `ReviewRespondRequest`, atomically records the decision and unique resume work, then returns accepted identity without invoking the graph.
+- `POST /executions/{execution_id}/cancel` records an idempotent cancellation control and cancel work under the execution-row lock. Acceptance means `cancelling`; only worker settlement establishes `cancelled`. Terminal outcomes are not overwritten.
 
 The browser never supplies an internal interrupt ID or checkpoint ID. Authorization is enforced at these endpoints, not delegated to an agent.
 
@@ -120,10 +114,12 @@ async def commit_artifacts(
 ) -> CommitArtifactsResult: ...
 
 
-async def claim_next_resume() -> "ResumeRequest | None": ...
+async def claim_next_work() -> "ExecutionWorkClaim | None": ...
 ```
 
-Node adapters call `get_operation_result()` before any model call. They use `get_declared_inputs()` rather than a free-form artifact lookup. `commit_artifacts()` is the only artifact mutation path. `claim_next_resume()` is used by the resume worker, never by an agent. The worker claims with an expiring owner token, verifies the expected active interrupt, invokes `Command(resume=resume.payload)` on `thread_id = resume.execution_id`, and marks the exact `resume_id` complete only after the invocation returns or checkpoint inspection proves it was already consumed.
+Node adapters call `get_operation_result()` before any model call. They use `get_declared_inputs()` rather than a free-form artifact lookup. `commit_artifacts()` is the only artifact mutation path and also checks cancellation and records the deterministic next activation. The worker-only `claim_next_work()` follows the advisory-lock/fence protocol in [runtime.md](../backend/runtime.md#single-writer-ownership); `ExecutionWorkClaim` is a pending DTO, not an agent tool or arbitrary resume payload. Recovery chooses start, exact-interrupt resume, continuation, or cancellation using the runtime decision table. Work settles only at a durable pause, explicit block, or terminal outcome. A consumed decision with an unfinished following node remains recoverable work.
+
+Direct context preparation is a foundation service, not a deferred retrieval feature: resolve declared exact references, authorize and project them for Producer/Storytell/Critic, and persist `ContextSelectionV1` on the prepared operation before any model call. No optional attachments is valid; required task inputs still apply. Retry reuses the selection and verifies rights/digests. Missing required context blocks instead of invoking search. See [context.md](../context/context.md).
 
 `artifact_validate`, `artifact_inspect`, and `artifact_get_by_operation` are not separate tools: validation belongs inside `commit_artifacts`; inspection is a read projection; lookup is `get_operation_result`.
 
@@ -136,7 +132,7 @@ These are needed by `cinematic.v1`, not by `foundation.v0`. Define their concret
 | Render | idempotent submit, durable job record, validated output promotion | separate preflight API, generic provider toolkit, provider tools for agents |
 | Media | bounded inspection and server-side remote import | arbitrary URL/path access and media utility toolbox |
 | Montage | validated `MontagePlanV1` to `MontageResultV1` with fixed ffmpeg operations | interactive editing engine or a generic ffmpeg command tool |
-| Context | direct typed-reference resolver and compact projections | FTS/vector discovery or persistent context packs |
+| Context extension | cinematic resource/media projections over the foundation resolver | FTS/vector discovery or persistent context packs |
 
 When rendering begins, the minimal boundary is:
 
@@ -147,7 +143,7 @@ async def promote_render(request: "RenderPromoteRequest") -> CommitArtifactsResu
 async def execute_montage(request: "MontageRequest") -> CommitArtifactsResult: ...
 ```
 
-Each mutating request includes `execution_id`, `stage_id`, `operation_id`, the current `lease_fence`, exact input refs, and expected binding revisions. The repository rejects a stale fence even if a long-running model/provider call later returns. The wait token is JSON-safe and contains `job_id`, `operation_id`, and expected job version. Graph nodes, not provider callbacks, decide when to advance.
+Each graph-owned mutating request includes `execution_id`, `stage_id`, `operation_id`, the current `lease_fence`, exact input refs, and expected binding revisions. The repository rejects a stale fence even if a long-running model/provider call later returns. Job workers use separate job ownership and cannot bind outputs. The immutable group wait token is `{wait_id, stage_id, activation_id, request_digest}`, not a mutable job version; terminal group result and unique wake work commit atomically per [runtime.md](../backend/runtime.md#rendering-extension). Graph nodes, not provider callbacks, decide when to advance.
 
 ## Explicitly Not Tools
 
@@ -166,9 +162,9 @@ Each mutating request includes `execution_id`, `stage_id`, `operation_id`, the c
 | `producer_step.py` route intent | authored graph edges, not a runtime tool |
 | `init_project.py` no-overwrite rule | project creation endpoint |
 | render worker submit/reconcile/import | deferred Python render service and worker |
-| `render_wakeup.py` completion wake-up | durable `execution_resumes` record |
+| `render_wakeup.py` completion wake-up | unique durable `execution_work` resume source |
 | provider scripts | provider-specific Python adapters |
-| `chunk_resolver.py` direct-first retrieval | deferred retrieval service |
+| `chunk_resolver.py` direct-first retrieval | foundation direct resolver; chunk-library support and discovery later |
 | chunk/index backfills and evaluations | admin commands and test suite |
 
 Do not rebuild `producer_state.json`, shell handoffs, duplicated provider registries, mock production vectors, or user-home dynamic imports.

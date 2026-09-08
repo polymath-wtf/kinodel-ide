@@ -41,7 +41,7 @@ type ArtifactRef = {
 
 ## Brief And Story Boundary
 
-`InitialRequestV1` preserves the creator's raw opening message and, when Producer needed one focused clarification, that clarification exchange. `BriefV1.user_vibe` is the approved extraction of the creator's idea from those messages; it is not a replacement for the raw input.
+`InitialRequestV1` preserves the creator's raw opening message. A later focused clarification exchange is stored separately as defined in [reviews.md](reviews.md#clarification-and-limits), never appended to immutable initial bytes. `BriefV1.user_vibe` is the approved extraction of the creator's idea from those inputs; it is not a replacement for the raw input.
 
 `BriefV1` is the production contract. Its minimum content is:
 
@@ -53,7 +53,11 @@ type ArtifactRef = {
 
 The execution freezes pipeline identity before the graph starts. Brief review may confirm that choice but cannot silently switch the running graph. Generation profiles are stable runtime selectors, not raw model IDs, workflow JSON, credentials, LoRA paths, or provider payloads.
 
-`StoryV1` is separate narrative truth: hook, compact story, and an ordered list of stable shot units. Each shot says what happens and which story beat it carries. Storyboard owns image composition and image prompts; Filmmaker owns motion, camera behavior, transitions, and video prompts. Story does not duplicate Brief settings or pre-write their specialist work.
+Producer receives versioned product defaults and supported constraints alongside explicit creator requirements. It fills only absent settings, labels their origin and assumptions, and cannot override explicit values silently. The prepared Brief operation pins these proposal inputs for retry; approval of the exact Brief freezes its effective production/generation settings for downstream operations. Before approval, Brief repair can revise them within the fixed pipeline's supported constraints. Afterwards, changing them requires a new execution. A missing/unsupported required choice blocks or uses the bounded input path, not an invented provider default.
+
+A provider preference is an explicit selection constraint, not a generation-profile ID. The adapter deterministically resolves registered profiles from the supplied versioned defaults/capabilities under the [provider selection rule](comfyui.md#profile-selection); Producer extracts requirements and explains the resulting selections, not guesses a workflow. Brief validation repeats that check before review. The effective stable profile IDs resolve to pinned immutable profile versions/digests, retained with the prepared operation and approval provenance; an existing execution never follows a changed registry alias.
+
+`StoryV1` is separate narrative truth: hook, compact story, and an ordered list of stable shot units. Each shot says what happens and which story beat it carries. Storyboard owns image composition and image prompts; Filmmaker owns within-clip motion, camera behavior, and video prompts; Montage owns cross-clip transitions and the final mix. Story does not duplicate Brief settings or pre-write their specialist work. Detailed craft requirements and acceptance examples live in the [agent contracts](../agents/README.md).
 
 ## Logical Bindings
 
@@ -142,6 +146,14 @@ Rejected candidates remain job history under retention policy and never become c
 
 `RenderResultV1` records an ordered mapping from each required unit or shot ID to one promoted `AssetRef` and its source candidate ID. The deterministic promotion operation records the approving review request/digest, so downstream approval checks can follow the exact selected candidates into the resulting artifact. Downstream stages consume this artifact, never the candidate directory.
 
+### Selected Media References
+
+Within a downstream plan, a selected rendered input is `{render_result_ref: ArtifactRef, unit_key: string}`. The ref identifies the exact immutable `RenderResultV1`; the key selects exactly one entry and resolves its `AssetRef`. This is an inline selector, not a new artifact, frame identity, or mapping registry. Adapters hydrate the selected asset and validate result type, unit existence, media kind, required approval, freshness, and digest. Any materialized asset ID in a projection/provider request must match that resolved entry; it is not an independent selection. Candidate IDs remain promotion provenance, never downstream input selectors.
+
+FramePlan uses this selector for promoted anchors; MotionPlan uses it for start/end frames; MontagePlan uses it for selected clips. Other explicitly supplied assets retain their exact `AssetRef`. Unit ownership and the first cinematic identity mapping are defined in [cinematic.md](../pipelines/cinematic.md#unit-contracts).
+
+### Render Group Integrity
+
 The manifest freezes stage/activation identity, request digest, ordered required unit IDs, candidate IDs/digests, source jobs, and exact dependency provenance. It may span many jobs but is one review subject, not one subject per job. Join rejects missing, duplicate, extra, or wrong-request units; each required unit must have at least one technically valid candidate. Approval selects exactly one candidate per required unit in the declared order. Review acceptance and promotion both verify the active attempt and dependency closure, not merely an unchanged manifest digest.
 
 The render group uses an immutable wait token `{wait_id, request_digest}`. Mutable unit-job versions are worker reconciliation details, not graph wait identity. Same-request technical retry retains successful units and reconciles uncertain jobs before resubmission. The first renderer rebuilds all units for a creatively revised aggregate; selective cross-revision reuse is deferred. Partial progress is inspectable but cannot become a complete manifest or promoted result.
@@ -198,14 +210,14 @@ Apply the same closure checks at input preparation, commit, review acceptance, a
 
 ## Minimal Schemas
 
-Start with only the schemas needed by the vertical slice:
+Design the semantic contracts for the entire agent catalog before the first backend build, including the complete cinematic artifact chain. Implement executable schemas in activation order; a short runtime graph does not reduce the architecture to three agents:
 
 - `initial_request.v1`;
 - `brief.v1`;
 - `story.v1`;
 - `VisualAnchorPlanV1`, `FramePlanV1`, `MotionPlanV1`, candidate-set records, `RenderResultV1`, `MontagePlanV1`, and `MontageResultV1` when cinematic rendering is added;
-- reusable chunk schemas only when their pipeline exists.
+- reusable chunk executable schemas when their pipeline is activated; their ownership/content contract is defined now.
 
 Do not build one universal artifact envelope that attempts to model every domain field.
 
-These are architectural contracts, not claims that executable schemas exist. Render consumes `FramePlanV1`, `MotionPlanV1`, or the later `MusicPlanV1` through deterministic adapters; no redundant universal `render_requests` artifact is needed. Future `SeasonPlanV1`, `SeasonMemoryDraftV1`, episode extensions, and audio-analysis fields are proposed with their pipelines, not foundation blockers.
+These are architectural contracts, not claims that executable schemas exist. Render consumes `FramePlanV1`, `MotionPlanV1`, or the later `MusicPlanV1` through deterministic adapters; no redundant universal `render_requests` artifact is needed. `SeasonPlanV1`, `SeasonMemoryDraftV1`, episode extensions, and audio-analysis fields have planned domain boundaries before the build; their executable implementations do not block the three-agent runtime test.

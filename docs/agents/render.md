@@ -34,6 +34,10 @@ Deterministic adapters consume those plans directly and own provider payload con
 - Promotion stages/syncs/publishes immutable bytes first, then commits metadata, selected assets, binding, operation result, and next activation in one DB transaction. This is not cross-store atomicity; see the Artifact Store protocol.
 - Generation completion does not imply selection, promotion, artifact creation, or approval.
 
+## Contract Checks
+
+Before activation, provide representative FramePlan/MotionPlan-to-request fixtures, rejection of wrong/missing unit mappings, ambiguous-submission recovery, and exact-selection promotion tests. In the first cinematic profile use explicit image-to-video units and silent output; alternative workflows and audio remain separate capability activations. No prompt repair or candidate ranking model is hidden inside this service. Technical validity permits review, never automatic selection of the "best" take.
+
 ## Boundaries
 
 - No prompt invention, story decisions, gate approval, RAG, or user conversation.

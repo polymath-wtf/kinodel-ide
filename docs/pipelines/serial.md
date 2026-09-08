@@ -115,8 +115,8 @@ These are future pipeline contracts, not extra `foundation.v0` schemas. Each per
 | per-act direction / Wardrobe | approved Brief/Story, relevant character/physical-state projections | `visual_anchor_plan`: `VisualAnchorPlanV1`, own gate |
 | act-anchor images / Storyboard; Render | approved Brief/Story/visual plan | `anchor_frame_plan`: `FramePlanV1`; selected `act_anchors`: `RenderResultV1` |
 | frames / Storyboard; Render | same inputs plus exact approved act anchors | `frame_plan`: `FramePlanV1`; selected `story_frames`: `RenderResultV1` |
-| motion / Filmmaker; Render | approved Brief/Story/frames and current continuity | `motion_plan`: `MotionPlanV1`; selected `clips`: `RenderResultV1` |
-| Montage / agent and executor | approved Brief/clips/audio when present | validated `montage_plan`; `final_video`: `MontageResultV1`, own gate |
+| motion / Filmmaker; Render | approved Brief/Story/visual direction/frames and current continuity | `motion_plan`: `MotionPlanV1`; selected `clips`: `RenderResultV1` |
+| Montage / agent and executor | approved Brief/Story/clips/audio when present, measured metadata | validated `montage_plan`; `final_video`: `MontageResultV1`, own gate |
 | completed memory / Craft and promotion service | exact approved final sources, selected assets, supporting provenance | `episode_memory_draft`: completed `EpisodeChunkV1`, own gate then binding |
 
 SeasonPlan assigns stable episode IDs; Story assigns stable act/shot IDs and order. Visual/image plans map every required episode or act anchor explicitly; frame and motion plans preserve shot mappings and terminal `flf2v` end-frame coverage. Join creates one stage-level candidate manifest across unit jobs, and a single gate selects every required unit before promotion. Technical retry keeps successful same-request units; revised creative aggregates rebuild all units initially. No full episode generation is hidden in the season graph.

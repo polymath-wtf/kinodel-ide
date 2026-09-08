@@ -55,7 +55,7 @@ Review identity includes the exact subject, attempt, and dependency closure. Eac
 
 A repair path includes render joins, deterministic execution, and any required intermediate reapprovals; it is not a direct edge that skips them. Critic preserves feedback and cannot rewrite an approved ancestor. On `needs_input`/`out_of_scope`, the creator may revise feedback, approve the existing subject only if still valid, or cancel. Foundation/V1 has no automatic upstream rewind: use a new execution with adjusted Brief/context when the change exceeds this gate's owner. General reopening is deferred.
 
-Freeze defaults of five accepted revisions and five clarifications per gate for the execution. Accepted feedback counts even if Critic cannot dispatch it; duplicates, crash replay, and technical retries do not. At either limit the next request offers approve/cancel only for a valid subject. Invalid mandatory context or stale dependencies block approval and require recovery/cancel. Revision progress labels derive from review requests and operations; no revision-workflow table is needed.
+Freeze defaults of five accepted revisions and five clarifications per gate for the execution. Accepted feedback counts even if Critic cannot dispatch it; duplicates, crash replay, and technical retries do not. Exhausting one limit removes only that action; only when both are exhausted does the next request offer approve/cancel alone. Invalid mandatory context or stale dependencies block approval and require recovery/cancel. Revision progress labels derive from review requests and operations; no revision-workflow table is needed.
 
 ## Shared Shape
 
@@ -103,7 +103,7 @@ type AgentHandoff = {
 
 Node-specific models narrow this transport. The operation stores one frozen [`ContextSelectionV1`](../context/context.md), including projection versions/digests, before the model call; retries reuse it. Graph state and handoffs carry only the reference, not the full trace or bodies. At the agent boundary the adapter hydrates typed artifact bodies and consumer-specific context content from those prepared refs. A selection trace alone is not prompt content. Missing mandatory context blocks the stage. Do not pass writable paths, cache choreography, provider payloads, or duplicated selected media in each handoff.
 
-An agent stage owns one aggregate output artifact. `StageSpec.writes` remains an array because deterministic service/join stages may commit more than one declared output atomically. Graph-factory validation builds a `slot -> owner stage` index within each pipeline version and rejects duplicate owners, except a declared revision loop back to that same owner. Gates write no artifact slots.
+A successful creative production stage owns one aggregate output artifact. Critic, Producer explanation/question modes, and non-ready outcomes instead store typed operation results without creative bindings. `StageSpec.writes` remains an array because deterministic service/join stages may commit more than one declared output atomically. Graph-factory validation builds a `slot -> owner stage` index within each pipeline version and rejects duplicate owners, except a declared revision loop back to that same owner. Gates write no artifact slots. Capability/mode, prepared inputs, outcome semantics, and enabling checks follow the [agent catalog](../agents/README.md#common-contract).
 
 ## Production Joins
 

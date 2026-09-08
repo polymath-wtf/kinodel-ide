@@ -83,7 +83,7 @@ These fields refine the future pipeline, not the `foundation.v0` implementation 
 | visual direction / Wardrobe | approved Brief/MusicPlan/song, validated timing map, visual context | `visual_anchor_plan`: `VisualAnchorPlanV1`, own gate |
 | style image / Storyboard; promote / Render | same spine plus approved visual plan | `style_frame_plan`: `FramePlanV1`; selected `style_frame`: `RenderResultV1` |
 | timed frames / Storyboard; promote / Render | exact spine/timing, approved visual plan/style frame | `frame_plan`: `FramePlanV1`; selected `story_frames`: `RenderResultV1` |
-| timed motion / Filmmaker; promote / Render | exact spine/timing and approved frames | `motion_plan`: `MotionPlanV1`; selected `clips`: `RenderResultV1` |
+| timed motion / Filmmaker; promote / Render | exact spine/timing, approved visual direction and frames | `motion_plan`: `MotionPlanV1`; selected `clips`: `RenderResultV1` |
 | Montage plan / agent; audio master / executor | approved Brief/song/clips and validated timing map | `montage_plan`: `MontagePlanV1`; `final_video`: `MontageResultV1`, final gate |
 | Craft / memory promotion service | approved final sources, selected assets, supporting timing/montage provenance | `music_video_memory_draft`: `MusicVideoChunkV1`; own gate then chunk binding |
 

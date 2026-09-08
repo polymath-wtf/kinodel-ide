@@ -266,29 +266,9 @@
         "type": "PowerLoraLoaderHeaderWidget"
       },
       "lora_1": {
-        "on": {{ $('Webhook').item.json.body.loras[0].enabled }},
-        "lora": "{{ $('Webhook').item.json.body.loras[0].path_high }}",
-        "strength": {{ $('Webhook').item.json.body.loras[0].weight }}
-      },
-      "lora_2": {
-        "on": {{ $('Webhook').item.json.body.loras[1].enabled }},
-        "lora": "{{ $('Webhook').item.json.body.loras[1].path_high }}",
-        "strength": {{ $('Webhook').item.json.body.loras[1].weight }}
-      },
-      "lora_3": {
-        "on": {{ $('Webhook').item.json.body.loras[2].enabled }},
-        "lora": "{{ $('Webhook').item.json.body.loras[2].path_high }}",
-        "strength": {{ $('Webhook').item.json.body.loras[2].weight }}
-      },
-      "lora_4": {
-        "on": {{ $('Webhook').item.json.body.loras[3].enabled }},
-        "lora": "{{ $('Webhook').item.json.body.loras[3].path_high }}",
-        "strength": {{ $('Webhook').item.json.body.loras[3].weight }}
-      },
-      "lora_5": {
-        "on": {{ $('Webhook').item.json.body.loras[4].enabled }},
-        "lora": "{{ $('Webhook').item.json.body.loras[4].path_high }}",
-        "strength": {{ $('Webhook').item.json.body.loras[4].weight }}
+        "on": true,
+        "lora": "path/to/lora_high.safetensors",
+        "strength": 1.0
       },
       "➕ Add Lora": "",
       "model": [
@@ -311,29 +291,9 @@
         "type": "PowerLoraLoaderHeaderWidget"
       },
       "lora_1": {
-        "on": {{ $('Webhook').item.json.body.loras[0].enabled }},
-        "lora": "{{ $('Webhook').item.json.body.loras[0].path_low }}",
-        "strength": {{ $('Webhook').item.json.body.loras[0].weight }}
-      },
-      "lora_2": {
-        "on": {{ $('Webhook').item.json.body.loras[1].enabled }},
-        "lora": "{{ $('Webhook').item.json.body.loras[1].path_low }}",
-        "strength": {{ $('Webhook').item.json.body.loras[1].weight }}
-      },
-      "lora_3": {
-        "on": {{ $('Webhook').item.json.body.loras[2].enabled }},
-        "lora": "{{ $('Webhook').item.json.body.loras[2].path_low }}",
-        "strength": {{ $('Webhook').item.json.body.loras[2].weight }}
-      },
-      "lora_4": {
-        "on": {{ $('Webhook').item.json.body.loras[3].enabled }},
-        "lora": "{{ $('Webhook').item.json.body.loras[3].path_low }}",
-        "strength": {{ $('Webhook').item.json.body.loras[3].weight }}
-      },
-      "lora_5": {
-        "on": {{ $('Webhook').item.json.body.loras[4].enabled }},
-        "lora": "{{ $('Webhook').item.json.body.loras[4].path_low }}",
-        "strength": {{ $('Webhook').item.json.body.loras[4].weight }}
+        "on": true,
+        "lora": "path/to/lora_low.safetensors",
+        "strength": 1.0
       },
       "➕ Add Lora": "",
       "model": [

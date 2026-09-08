@@ -121,6 +121,8 @@ The retrieval index is derived and may be rebuilt. It is not a fourth source of 
 
 This is a deliberately reduced `foundation.v0` test graph, not the final `cinematic.v1` topology.
 
+Before building it, establish the [full agent-catalog contracts](../agents/README.md): all roles, typed input/output meaning, context, repair scope, and quality criteria, especially the entire cinematic chain. The graph activates only three capabilities to prove runtime safety; the backend's capability boundaries must already accommodate the designed catalog without three-agent special cases. Later activation does not mean later architectural ownership decisions.
+
 ```text
 create brief draft
 -> interrupt for review
