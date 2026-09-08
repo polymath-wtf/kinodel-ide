@@ -8,7 +8,7 @@ The UI is a projection and control surface for runtime state. It never becomes a
 
 - **Project workspace**: current artifact, references, feedback, and preview.
 - **Pipeline timeline**: completed, running, waiting, blocked, failed, and future stages.
-- **Review gate**: exact artifact revision, previews, approve/revise/cancel actions.
+- **Review gate**: one exact current-stage subject, previews, approve/edit/clarify/cancel actions.
 - **Artifact board**: briefs, stories, frames, clips, audio, final outputs, and revision lineage.
 - **Context explorer**: wiki/chunk search, provenance, rights, and explicit agent assignment.
 - **Render monitor**: job progress and actionable failures without raw provider sludge.
@@ -19,7 +19,7 @@ Chat is one interface, not the application shell. A creator should be able to in
 ## Runtime Rules
 
 - Every action sends an expected state/artifact revision.
-- Review cards show which revision and digest are being approved.
+- Review cards show which single subject revision and digest are being approved.
 - Reconnect derives truth from runtime/artifact queries, not missed events.
 - Output existence never changes a gate to approved.
 - Event delivery may duplicate; UI deduplicates by event ID.
@@ -41,7 +41,7 @@ Only build:
 1. create/open execution;
 2. show current stage and artifact;
 3. render typed brief/story forms and previews;
-4. approve, revise with notes, or cancel;
+4. approve, edit with notes, ask for clarification, or cancel;
 5. reconnect to an interrupted execution;
 6. show typed failures.
 

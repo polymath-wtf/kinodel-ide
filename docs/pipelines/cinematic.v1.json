@@ -3,8 +3,9 @@
   "pipeline_id": "cinematic.v1",
   "display_name": "Cinematic Pipeline",
   "version": 1,
-  "status": "active",
-  "description": "Machine-readable Kinodel p0-p13 cinematic route. p12 is a final hard ReviewGate; only after approval does p13 delegate Craft to create/index v1/chunks/cinema_chunk.json with up to six image attachments.",
+  "status": "legacy_reference_only",
+  "authority": "Non-canonical legacy snapshot. Use docs/pipelines/cinematic.md and the authored Python graph factory.",
+  "description": "Historical machine-readable p0-p13 route retained only as migration evidence.",
   "compatibility": {
     "legacy_goal_aliases": true,
     "hard_gate_aliases": [

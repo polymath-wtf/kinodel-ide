@@ -20,7 +20,7 @@ Kinodel is being rebuilt from the legacy Hermes prototype. The new foundation de
 - **Tools and services** own validation, persistence, retrieval, rendering, and montage side effects.
 - **Artifacts** are immutable, validated production truth; graph state stores references only.
 
-The Producer is the user-facing creative lead, not the state machine. Pipeline is configuration, not an agent. Render and Montage are deterministic services, not personas.
+The Producer is the user-facing creative lead, not the state machine. Pipeline is configuration, not an agent. Render is a service; Montage uses a creative planning agent plus deterministic ffmpeg execution.
 
 ## First Pipelines
 
@@ -33,11 +33,11 @@ Every creative checkpoint is a durable LangGraph interrupt. Render completion ne
 
 ## Context
 
-Kinodel combines explicit context with a derived multimodal retrieval layer:
+Kinodel starts with explicit direct context and may later add a derived multimodal discovery layer:
 
-- user-selected chunks and assets always come first;
+- user-selected chunks, pipeline-required canon, and versioned agent resources are resolved directly;
 - a Karpathy-style Markdown wiki stores compiled knowledge with provenance;
-- FTS is the baseline; one 768d Gemini Embedding 2 profile is added only if evaluation shows value;
+- FTS and one 768d Gemini Embedding 2 profile are added only when library discovery is needed and evaluation shows value;
 - runtime context is ephemeral and cited, never a second source of truth;
 - approved outputs may become reusable domain chunks such as character, music, season, episode, or cinema memory.
 

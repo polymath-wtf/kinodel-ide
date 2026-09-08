@@ -1,333 +1,174 @@
-Все тестовые тулы надо переписать на python!!!
-
 # Tools And Services
 
 Status: **Foundation registry**
 
-Tools are typed, least-privilege operations. They do not replace graph nodes and they do not expose a terminal or arbitrary filesystem to agents.
+Production backend code is Python. A tool is a typed Python operation at a trust boundary, not a shell command and not an automatic capability given to an agent. The TypeScript web app calls HTTP endpoints; graph nodes call Python services and repositories.
 
-## Boundary
+## What Exists In `foundation.v0`
 
-| Concern | Correct home |
-|---|---|
-| route stage, interrupt, resume, join | LangGraph node/edge |
-| creative judgment | specialist agent |
-| validate/read/commit artifact | deterministic tool |
-| provider submission and polling | background job service |
-| render/montage execution | service/worker |
-| UI cards and notifications | pure event projection |
-| migration/backfill/rebuild | admin operation |
+| Caller | Allowed operation | Why |
+|---|---|---|
+| Web UI | create project, start execution, read status, submit review | creator control surface |
+| Graph node adapter | read declared inputs, find prior operation, commit output | executes one safe stage |
+| Producer / Storytell / Critic | none | they return structured candidates only |
+| Resume worker | claim pending resume, invoke graph | crash recovery after review |
 
-## Result Contract
+No generic `ToolResult` envelope is needed inside Python. Services raise typed domain errors; FastAPI maps them to HTTP responses. Do not use stdout JSON, process exit codes, a terminal, or arbitrary paths as an internal contract.
 
-```ts
-type ToolResult<T> =
-  | {
-      ok: true;
-      data: T;
-      meta: {
-        operation_id: string;
-        idempotency_key?: string;
-      };
-    }
-  | {
-      ok: false;
-      error: {
-        code:
-          | "INVALID_ARGUMENT"
-          | "NOT_FOUND"
-          | "ALREADY_EXISTS"
-          | "VERSION_CONFLICT"
-          | "SCHEMA_INVALID"
-          | "PRECONDITION_FAILED"
-          | "FORBIDDEN"
-          | "PROVIDER_UNAVAILABLE"
-          | "TIMEOUT_UNKNOWN"
-          | "PARTIAL_FAILURE"
-          | "INTERNAL";
-        message: string;
-        retryable: boolean;
-        field_errors?: Array<{ path: string; message: string }>;
-      };
-      meta: { operation_id: string };
-    };
+## P0 Python Contracts
+
+These Pydantic models are the starting point. They belong with the domain DTOs, not in prompts or agent code.
+
+```python
+from typing import Any, Literal
+
+from pydantic import BaseModel
+
+
+class ArtifactStateRef(BaseModel):
+    artifact_id: str
+    schema_id: str
+    schema_version: str
+    uri: str
+    digest: str
+    media_type: str
+
+
+class BindingRef(ArtifactStateRef):
+    binding_revision: int
+
+
+class ArtifactDraft(BaseModel):
+    slot: str
+    schema_id: str
+    schema_version: str
+    candidate: dict[str, Any]
+
+
+class CommitArtifactsRequest(BaseModel):
+    project_id: str
+    execution_id: str
+    stage_id: str
+    operation_id: str
+    lease_fence: int
+    input_digest: str
+    input_refs: list[ArtifactStateRef]
+    outputs: list[ArtifactDraft]
+    expected_binding_revisions: dict[str, int | None]
+
+
+class CommitArtifactsResult(BaseModel):
+    outputs: dict[str, BindingRef]
+
+
+class ReviewDecision(BaseModel):
+    action: Literal["approve", "revise", "clarify", "cancel"]
+    feedback: str | None = None
+    question: str | None = None
+    selected_candidate_ids: list[str] | None = None
+
+
+class ReviewRespondRequest(BaseModel):
+    request_id: str
+    expected_request_digest: str
+    decision: ReviewDecision
+    idempotency_key: str
+
+
+class ReviewRespondResult(BaseModel):
+    accepted: bool
+    resume_id: str
+
+
+class ResumeRequest(BaseModel):
+    resume_id: str
+    execution_id: str
+    payload: dict[str, Any]
+    expected_version: int
 ```
 
-Do not use stdout JSON or process exit codes as internal service contracts.
+`CommitArtifactsRequest` is one Project DB transaction: validate the current execution `lease_fence`, validate draft and provenance, write immutable metadata, replace the declared bindings, and save the operation result map. `expected_binding_revisions` must contain every output slot; use an explicit `None` only for a new slot. It returns the existing result only when both `operation_id` and `input_digest` match. A changed input with the same operation ID is an integrity error.
 
-## Mutation Rules
+The `candidate` field is deliberately only an envelope here. Each stage passes its concrete Pydantic model, such as `BriefV1` or `StoryV1`; it is not an untyped production artifact format. Review validators require feedback for `revise`, a question for `clarify`, candidate IDs only for a selection gate, and no hidden creative changes in `approve`.
 
-Every mutating operation must:
+## Foundation Operations
 
-- accept an idempotency key and canonical input digest;
-- validate before side effects;
-- enforce ownership and authorization;
-- use optimistic concurrency when replacing an existing binding or control record;
-- commit content and metadata atomically;
-- return the previous result for the same key and same digest;
-- reject the same key with different input;
-- avoid arbitrary paths supplied by agents.
+### HTTP Endpoints, Not Agent Tools
 
-## P0: Artifact And Project Tools
+- `POST /projects` creates an empty project.
+- `POST /projects/{project_id}/executions` requires a client idempotency key, freezes the pipeline, stores `InitialRequestV1` as the `initial_request` binding, and starts the graph. The same key and payload return the existing execution; a changed payload conflicts.
+- `GET /projects` and `GET /executions/{execution_id}` return read-only status and artifact projections.
+- `POST /review-requests/{request_id}/response` validates `ReviewRespondRequest`, records the decision and durable resume intent, then attempts resume.
 
-### `project_create`
+The browser never supplies an internal interrupt ID or checkpoint ID. Authorization is enforced at these endpoints, not delegated to an agent.
 
-```ts
-project_create({
-  project_id,
-  idempotency_key
-}) -> { project_id, project_revision }
+### Internal Repository And Service Operations
+
+```python
+async def get_operation_result(
+    *, execution_id: str, operation_id: str
+) -> CommitArtifactsResult | None: ...
+
+
+async def get_declared_inputs(
+    *, execution_id: str, slots: list[str]
+) -> dict[str, BindingRef]: ...
+
+
+async def commit_artifacts(
+    request: CommitArtifactsRequest,
+) -> CommitArtifactsResult: ...
+
+
+async def claim_next_resume() -> "ResumeRequest | None": ...
 ```
 
-Creates the durable workspace, refuses accidental overwrite, and publishes atomically. It does not require an already approved brief.
+Node adapters call `get_operation_result()` before any model call. They use `get_declared_inputs()` rather than a free-form artifact lookup. `commit_artifacts()` is the only artifact mutation path. `claim_next_resume()` is used by the resume worker, never by an agent. The worker claims with an expiring owner token, verifies the expected active interrupt, invokes `Command(resume=resume.payload)` on `thread_id = resume.execution_id`, and marks the exact `resume_id` complete only after the invocation returns or checkpoint inspection proves it was already consumed.
 
-### `execution_start`
+`artifact_validate`, `artifact_inspect`, and `artifact_get_by_operation` are not separate tools: validation belongs inside `commit_artifacts`; inspection is a read projection; lookup is `get_operation_result`.
 
-```ts
-execution_start({
-  project_id,
-  pipeline_ref,
-  initial_request,
-  idempotency_key
-}) -> { execution_id, thread_id, pipeline_ref }
+## Deferred Production Services
+
+These are needed by `cinematic.v1`, not by `foundation.v0`. Define their concrete Pydantic contracts only when their first stage is implemented.
+
+| Service | Keep | Do not build yet |
+|---|---|---|
+| Render | idempotent submit, durable job record, validated output promotion | separate preflight API, generic provider toolkit, provider tools for agents |
+| Media | bounded inspection and server-side remote import | arbitrary URL/path access and media utility toolbox |
+| Montage | validated `MontagePlanV1` to `MontageResultV1` with fixed ffmpeg operations | interactive editing engine or a generic ffmpeg command tool |
+| Context | direct typed-reference resolver and compact projections | FTS/vector discovery or persistent context packs |
+
+When rendering begins, the minimal boundary is:
+
+```python
+async def start_render(request: "RenderStartRequest") -> "JobRef": ...
+async def get_render_candidates(job_id: str) -> "CandidateSetRef": ...
+async def promote_render(request: "RenderPromoteRequest") -> CommitArtifactsResult: ...
+async def execute_montage(request: "MontageRequest") -> CommitArtifactsResult: ...
 ```
 
-Freezes the pipeline reference and starts its first graph invocation. Brief drafting and approval occur inside the graph.
+Each mutating request includes `execution_id`, `stage_id`, `operation_id`, the current `lease_fence`, exact input refs, and expected binding revisions. The repository rejects a stale fence even if a long-running model/provider call later returns. The wait token is JSON-safe and contains `job_id`, `operation_id`, and expected job version. Graph nodes, not provider callbacks, decide when to advance.
 
-### `project_get_status`
+## Explicitly Not Tools
 
-```ts
-project_get_status({ project_id, execution_id? })
-  -> ProjectStatusSummary
-```
-
-Pure query over checkpoints/project metadata. It never repairs or synchronizes state.
-
-### `project_list`
-
-```ts
-project_list({ status?, limit?, cursor? })
-  -> { projects, next_cursor? }
-```
-
-Uses indexed metadata, not recursive filesystem discovery.
-
-### `artifact_get`
-
-```ts
-artifact_get({
-  project_id,
-  artifact_id?,
-  slot?,
-  expected_schema?,
-  projection?: "full" | "summary" | "selected_assets"
-}) -> { ref, value }
-```
-
-Agents normally receive hydrated inputs from node adapters instead of calling this themselves.
-
-### `artifact_validate`
-
-```ts
-artifact_validate({
-  project_id,
-  schema_id,
-  candidate,
-  input_refs
-}) -> { valid, issues, content_digest }
-```
-
-Runs JSON-schema/Pydantic validation plus semantic and cross-artifact invariants. It never mutates state.
-
-### `artifact_commit`
-
-```ts
-artifact_commit({
-  project_id,
-  execution_id,
-  slot,
-  schema_id,
-  candidate,
-  input_refs,
-  expected_binding_revision,
-  idempotency_key
-}) -> { artifact_ref, binding_revision }
-```
-
-Only the declared stage owner may write the slot. Validation and immutable commit are one transaction boundary.
-
-### `artifact_get_by_operation`
-
-```ts
-artifact_get_by_operation({ project_id, execution_id, operation_id })
-  -> { artifact_ref } | null
-```
-
-Every model/service node calls this before repeating nondeterministic work. It makes replay after commit-before-checkpoint failure safe.
-
-### `artifact_inspect`
-
-```ts
-artifact_inspect({ project_id, artifact_id })
-  -> { ref, counts, selected_assets, issues }
-```
-
-Compact projection for Producer, UI, and diagnostics.
-
-### `review_respond`
-
-```ts
-review_respond({
-  execution_id,
-  interrupt_id,
-  decision,
-  expected_request_digest,
-  expected_checkpoint_id,
-  idempotency_key
-}) -> { accepted, checkpoint_id }
-```
-
-This is the typed API boundary around LangGraph resume. `checkpoint_id` is the LangGraph checkpoint observed by the client, not an application-invented state counter. Under the thread lock, the runtime rejects stale cards and conflicting duplicate decisions.
-
-## P0: Render Tools And Service
-
-### `render_preflight`
-
-```ts
-render_preflight({
-  request_ref,
-  stage_id,
-  provider_profile_id
-}) -> { request_digest, normalized_jobs, provider_bindings, resource_plan }
-```
-
-Validates stage/job compatibility, exact input assets, dimensions, capability support, and stable job fingerprints without loading secrets or submitting work.
-
-### `render_start`
-
-```ts
-render_start({
-  request_ref,
-  provider_profile_id,
-  idempotency_key
-}) -> { run_id, request_digest, status, job_count }
-```
-
-Backed by a durable worker. Submission intent is persisted before provider contact. An unknown timeout is reconciled before retry.
-
-### `render_get`
-
-```ts
-render_get({ run_id })
-  -> { status, request_digest, jobs }
-```
-
-Returns compact job state; raw provider payloads stay in restricted diagnostics.
-
-### `render_promote`
-
-```ts
-render_promote({
-  run_id,
-  expected_request_ref,
-  expected_result_binding_revision,
-  idempotency_key
-}) -> { result_ref, selected_assets, binding_revision }
-```
-
-Verifies terminal success, output count, hashes, and request provenance; imports assets and commits the result binding atomically. The calling graph node updates checkpoint state.
-
-### `provider_health`
-
-Runtime/operator tool for liveness/readiness and declared capabilities. It is not exposed to creative agents and must not trigger paid generation as a health check.
-
-## P0: Media Tools
-
-- `media_inspect(asset_id)` returns bounded metadata and model-readable projections.
-- `media_import_remote(url, policy, idempotency_key)` performs SSRF-safe, size-limited, MIME-verified import.
-- `media_derive_dimensions(modality, aspect_ratio, quality)` is pure and rejects unsupported combinations.
-- `montage_execute(timeline_ref, idempotency_key)` runs deterministic ffmpeg assembly and returns a technical result containing the final asset; the calling node validates and commits `MontageResultV1` before updating the graph binding.
-
-## P1: Context And Chunk Tools
-
-### `chunk_validate`
-
-Validates a domain chunk, provenance, rights constraints, referenced assets, and forbidden runtime keys.
-
-### `chunk_resolve`
-
-```ts
-chunk_resolve({
-  project_id,
-  consumer_capability,
-  mandatory_refs,
-  query?,
-  filters?,
-  mode: "direct" | "fts" | "hybrid",
-  max_context_tokens,
-  limit
-}) -> {
-  index_revision,
-  selected_evidence,
-  estimated_context_tokens
-}
-```
-
-Order is direct references, filters, FTS, then optional vector retrieval. It returns compact cited projections, not a permanent context-pack file.
-
-### `chunk_index`
-
-Background operation keyed by chunk/source digest, model, dimension, input format, and chunker version. It replaces obsolete records transactionally and physically isolates test/mock vectors from production.
-
-### `context_estimate`
-
-Estimates the actual agent-context token cost. Embedding dimensionality is not used as a proxy for prompt tokens.
-
-## Admin-Only Operations
-
-- pipeline/capability registry validation;
-- source and chunk backfill;
-- remote media migration;
-- embedding rebuild;
-- retrieval evaluation;
-- provider workflow registration.
-
-Destructive rebuilds and mock indexing are never agent tools.
+- graph routing, joins, retry policy, and `interrupt()`;
+- project/execution status queries as agent capabilities;
+- agent file, terminal, SQL, network, or provider access;
+- generic `artifact_validate` or `render_preflight` APIs;
+- admin backfills, index rebuilds, workflow registration, and retrieval evaluation;
+- legacy wake-up prompts, `/goal` maps, or output-directory scans.
 
 ## Legacy Extraction
 
-| Legacy script | Preserve | New home |
-|---|---|---|
-| `state_guard.py` | schema/provenance/gate invariants | validators + graph gates |
-| `producer_step.py` | none of the action transport; only route intent | authored graph edges |
-| `producer_notify.py` | compact review/progress presentation | pure UI event projector |
-| `chunk_resolver.py` | direct-first retrieval and budget | `chunk_resolve` |
-| `init_project.py` | validation and no-overwrite rule | `project_create` |
-| pipeline compatibility `init_project.py` | no unique capability | delete |
-| `render_worker.py` | preflight, per-job resume, concurrency | render service |
-| `render.py` | bounded retry classification | worker retry policy |
-| `render_wakeup.py` | completion validation and resume intent | job event handler |
-| `copy_worker_result.py` | canonical import, hashes, provenance | `render_promote` |
-| provider scripts | payload mapping and polling | provider adapters |
-| `fal_video_generate.py` | duplicate fal submit/poll/download | delete; fal adapter owns it |
-| `estimate_chunk_tokens.py` | context-size estimation | `context_estimate` |
-| `craft_cinema_chunk.py` | approved-source projection | Craft node or typed function |
-| `backfill_cinema_chunks.py` | migration and remote import | admin backfill + `media_import_remote` |
-| `index_chunks.py` / `embed_gemini.py` | embedding/index behavior | index worker + embedding adapter |
-| `eval_chunk_retrieval.py` | golden retrieval checks | evaluation suite |
-| `validate_chunk_schema.py` | chunk/schema invariants | `chunk_validate` |
-| `validate_pipeline_spec.py` / `validate_agent_contracts.py` | spec/capability validation | CI/startup registry validation |
+| Legacy behavior | Keep as |
+|---|---|
+| `state_guard.py` validation and approval checks | Pydantic/semantic validators plus graph gates |
+| `producer_step.py` route intent | authored graph edges, not a runtime tool |
+| `init_project.py` no-overwrite rule | project creation endpoint |
+| render worker submit/reconcile/import | deferred Python render service and worker |
+| `render_wakeup.py` completion wake-up | durable `execution_resumes` record |
+| provider scripts | provider-specific Python adapters |
+| `chunk_resolver.py` direct-first retrieval | deferred retrieval service |
+| chunk/index backfills and evaluations | admin commands and test suite |
 
-## Do Not Rebuild
-
-- shell command handoffs and wake-up prompts;
-- hardcoded `/goal` route maps;
-- `producer_state.json`;
-- arbitrary `read/write/terminal` agent toolsets;
-- provider registries duplicated in Python and JSON;
-- `/tmp` context packs as durable truth;
-- dynamic imports from user-home Hermes paths;
-- output-directory scans as selection logic;
-- render resume keyed only by filename or shot ID;
-- production `--mock` vectors;
-- compatibility forwarders for the unshipped legacy runtime.
+Do not rebuild `producer_state.json`, shell handoffs, duplicated provider registries, mock production vectors, or user-home dynamic imports.

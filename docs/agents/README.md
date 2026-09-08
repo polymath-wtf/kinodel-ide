@@ -8,20 +8,21 @@ Kinodel agents are narrow creative capabilities invoked inside LangGraph nodes. 
 
 | Capability | Class | Status | Owned output |
 |---|---|---|---|
-| [Producer](producer.md) | user-facing agent | active design | brief draft or review interpretation |
+| [Producer](producer.md) | user-facing agent | active design | brief draft or clarification answer |
 | [Storytell](storytell.md) | creative agent | active design | story |
 | [Wardrobe](wardrobe.md) | creative agent | active design | visual-anchor plan |
 | [Storyboard](storyboard.md) | creative agent | active design | frame plan |
 | [Filmmaker](filmmaker.md) | creative agent | active design | motion plan |
 | [Critic](critic.md) | review agent | active design | issue report |
 | [Craft](craft.md) | memory agent | active design | reusable creative chunk |
-| [Render](render.md) | service, not agent | active design | selected generated media |
-| [Montage](montage.md) | service, not agent | active design | final assembled media |
+| [Render](render.md) | service, not agent | active design | candidates and promoted selected media |
+| [Montage](montage.md) | creative agent | active design | montage plan |
+| [Montage executor](montage.md) | service | active design | final assembled media |
 | [Muse](muse.md) | creative agent | planned | music concept and request |
 | [Season](season.md) | creative agent | planned | season plan |
 | [Episode](episode.md) | creative agent | planned | episode story |
 
-Pipeline, project initialization, finalization, indexing, ALM analysis, and provider adapters are nodes/tools/services, not agent personas.
+Pipeline, project initialization, finalization, indexing, ALM analysis, provider adapters, and ffmpeg execution are nodes/tools/services, not agent personas.
 
 ## Legacy Disposition
 
@@ -37,7 +38,7 @@ Every agent node receives only:
 
 - project and execution identity;
 - exact validated input artifact revisions;
-- explicit user-selected or runtime-resolved context;
+- one resolved `ContextSelectionV1` from explicit mentions, pipeline requirements, and allowed agent resources;
 - optional typed revision feedback;
 - one declared output schema.
 

@@ -9,41 +9,54 @@ Roadmap follows risk, not feature count. Each phase must leave a usable, testabl
 - [x] Define active and planned capability contracts.
 - [x] Define cinematic, music-video, and serial pipeline topology.
 - [x] Define minimal knowledge/retrieval architecture.
-- [ ] Choose implementation language after a small LangGraph spike.
-- [ ] Define executable Pydantic/Zod contracts for the first slice.
+- [x] Choose Python for graph/backend runtime; retain TypeScript only for web UI/API consumers.
+- [ ] Define executable Pydantic contracts for the first slice.
+- [ ] Author the exact `foundation.v0` route table: approve/revise/clarify/cancel, Critic-mediated edits, bounded loops, blocked results, completion, and failure ownership.
+- [ ] Freeze identity and recovery semantics: pipeline ID/version/digest, operation IDs and input digests, idempotent execution start, lease fencing, and durable resume states.
+- [ ] Define the managed-file/Project-DB commit protocol, including content-addressed writes, committed metadata, replay checks, and orphan cleanup.
+- [ ] Define durable review and approval semantics for one exact current-stage subject, including stale detection, Critic-mediated edits, clarification, asset/take selection, and downstream approval lookup.
+- [ ] Specify executable `BriefV1` and `StoryV1`: Brief owns approved project/generation settings and extracted user vibe; Story owns narrative beats and ordered shot actions without pre-writing Storyboard or Filmmaker prompts.
+- [ ] Resolve cinematic production invariants: main frame as a continuity anchor, job candidates versus promoted assets, clip/take review before montage, managed local project storage, and revision invalidation rules.
+- [ ] Define physical ownership and lifecycle for sources, wiki claims, creative chunks, retrieval projections, embeddings, and retrieval traces; include archive, supersede, rights withdrawal, purge, and rebuild behavior.
+- [ ] Define the first creative-chunk envelope and promotion contract: immutable revision, approval authority, provenance, rights, semantic media handles, `take`/`ignore`, and consumer-specific continuity constraints.
+- [ ] Define `ContextSelectionV1` and per-agent context policies: mandatory direct context versus suggestions, trust/canon role, citations, precedence, token budgets, compact projections, and fail-closed conflict/truncation behavior.
+- [ ] Verify and freeze the Gemini Embedding 2 adapter/index contract before vector rollout: endpoint/model, supported modalities and limits, task types, 768d output, preprocessing, normalization, similarity metric, index identity, shadow reindex/cutover, and rollback.
+- [ ] Define a versioned retrieval gold set and numerical promotion gate for direct/FTS, hybrid vectors, reranking, multimodal handles, stale/deleted leakage, latency, cost, and context-token regressions.
+- [ ] Define deployable agent registry records and bundle rules for `.agents/`: exact schema IDs, model/runtime configuration, allowed tools, context policy, and only the references each capability needs.
+- [ ] Reconcile source-of-truth contradictions before implementation: stale `cinematic.v1.json`, RAG documentation routes, status labels, reference DTO names, lifecycle states, and singular-versus-bundle review contracts.
 
-Exit: the brief/story slice can be implemented without consulting legacy orchestration code.
+Exit: the first slice can be implemented without consulting legacy orchestration code, and later pipeline/RAG phases have explicit contracts to refine rather than unresolved ownership boundaries.
 
 ## 1. Restart-Safe HITL Slice
 
 - [ ] Project/execution identity and graph registry.
+- [ ] PostgreSQL Project DB: executions, operations, bindings, review requests, and leases.
+- [ ] `AsyncPostgresSaver`, managed local project storage, and one resume-worker process.
 - [ ] Artifact Store with immutable revisions, hashes, and slot bindings.
 - [ ] Explicit `foundation.v0` graph: brief draft/review -> story/review.
-- [ ] Producer and Storytell node adapters with structured output.
-- [ ] `interrupt()` and typed approve/revise/cancel resume.
+- [ ] Producer, Storytell, and Critic node adapters with structured output.
+- [ ] `interrupt()` and typed approve/revise/clarify/cancel resume.
 - [ ] Idempotent artifact commit and stale-review rejection.
-- [ ] Unit tests for restart at every boundary and duplicate resume.
+- [ ] Tests for commit-before-checkpoint replay, stale/duplicate review, fenced checkpoint writes, and execution lease recovery.
 - [ ] Minimal API and UI showing stage, artifact, review, and failure.
 
 Exit: stop the process at a review gate, restart it, resume once, and produce no duplicate artifacts.
 
 ## 2. First Rendered Cinematic
 
-- [ ] Wardrobe, Storyboard, and Filmmaker adapters.
-- [ ] Provider-neutral visual/motion request schemas.
+- [ ] Wardrobe, Storyboard, Filmmaker, and Montage planning adapters.
+- [ ] Provider-payload-neutral visual/motion request schemas with frozen prompt-guidance profiles.
 - [ ] One ComfyUI provider profile and workflow registry.
 - [ ] Durable render jobs, external-wait resume, and output promotion.
 - [ ] Parallel frame/clip fan-out with keyed reducer and deterministic join.
-- [ ] ffmpeg Montage service.
-- [ ] p4, p7, and final review loops.
-- [ ] Craft `CinemaChunkV1` from approved output.
+- [ ] Validated `MontagePlanV1` to ffmpeg execution service.
+- [ ] Story, main-frame, frame, clip-selection, and final review loops.
+- [ ] Craft and review `CinemaChunkV1` from approved output.
 
 Exit: one cinematic project survives provider delay, restart, revision, and final human approval.
 
 ## 3. Product Runtime
 
-- [ ] Postgres checkpointer and per-thread invocation lock.
-- [ ] Object storage and managed asset delivery.
 - [ ] Runtime event stream with reconnect/deduplication.
 - [ ] Cooperative cancellation and provider reconciliation.
 - [ ] Auth, authorization, quotas, secrets, and audit boundaries.
@@ -54,14 +67,15 @@ Exit: a small external test group can run concurrent projects safely.
 
 ## 4. Knowledge And Context
 
+- [ ] Direct mention resolver, `ContextSelectionV1`, and per-agent compact projections.
+- [ ] Agent-resource resolution for frozen generation profiles, including `@prompt-engine`.
+- [ ] Creative chunk candidate, memory review, promotion, revision, archive, and purge lifecycle.
 - [ ] Immutable source manifest and maintained wiki workflow.
 - [ ] Recursive lint and claim-level provenance.
-- [ ] Direct reference and FTS retrieval baseline.
+- [ ] FTS library-discovery baseline when direct selection no longer scales.
 - [ ] Gold retrieval/evidence evaluation set.
 - [ ] One 768d Gemini Embedding 2 index if it beats FTS baseline.
-- [ ] User-selected chunks/assets and compact per-agent projections.
 - [ ] Image/PDF representations only where evaluation proves value.
-- [ ] Archive and purge lifecycle.
 
 Exit: context improves measured tasks without becoming hidden canon or leaking deleted data.
 

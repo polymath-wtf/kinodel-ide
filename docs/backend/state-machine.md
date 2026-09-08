@@ -1,98 +1,121 @@
-# State Machine
+# Execution State Machine
 
-Status: **Decided foundation**
+Status: **Decided design; executable schemas pending**
 
-The runtime state describes execution references and termination, not the creative project body.
+There is one production transition graph, authored in LangGraph. Database lifecycles describe work, approvals, jobs, and outcomes; they are not a second switch statement that selects creative stages.
 
-## wtf State machine?
+## Ownership
 
-Это машина состояния каждого `execution`, из нашего пайплайна. Работает с состояниями артефактов:
-- `bindings`: слот → точная версия материала («story» → история v3);
-- `decisions`: вердикты человека по каждому запросу ревью;
-- `active_jobs`: ссылки на внешние задачи (рендеры);
-- `success` / `working` / `idle` / `failure` - состояние выполнения
- состояния в state machine.
+| Concern | Canonical owner | What a checkpoint carries |
+|---|---|---|
+| graph position, pending tasks, interrupt/resume values | LangGraph checkpointer | canonical task state |
+| execution identity and frozen pipeline | Project DB execution/snapshot | immutable IDs |
+| terminal outcome | Project DB execution terminal receipt | optional reference; may lag final commit |
+| runnable intent, claim, block, retries | `execution_work` | not the scheduler |
+| prepared inputs, result and authored next activation | `operations` | operation/activation refs and returned delta |
+| artifact revisions and active execution bindings | Project DB metadata + managed immutable files | exact binding projections |
+| review/input request, decision, application receipt | `review_requests` + apply operation | exact request/decision refs |
+| provider attempt and group completion | jobs/group records | immutable group-wait ref |
+| cancel request | `execution_controls` | queried, never copied as a mutable flag |
+| reusable memory publication | `chunk_bindings` | only selected exact references via operation context |
 
-## State machine — что это и какой нам нужен
-*Гуманитарно*. Это настольная игра-бродилка. Фишка всегда стоит ровно на одной клетке («написана история»), и из каждой клетки выходят стрелки только в разрешённые следующие графы («можно рисовать раскадровку», «можно переделать историю», «можно остановиться»). Никто — ни уставший агент, ни нетерпеливый человек — не может телепортироваться с клетки «история» на клетку «монтаж»: такой стрелки просто нет. Часть клеток особые: «режиссёр смотрит материал, игра стоит». И в любой момент игра сохраняется: выключил компьютер сегодня — завтра продолжил с той же клетки.
-*Реально*. Строго говоря, нам нужен не классический конечный автомат из учебника, а персистентный workflow-граф: направленный граф + чекпоинт после каждого шага + паузы на человеке + защита от повторов.
-*Опасность оверинжиниринга* тут конкретная, надо сделать всё по красоте.
+The UI lifecycle status is **derived**, not canonical production truth. Only identity, control decisions, terminal receipts and committed results are authoritative business facts. A checkpoint can lag a business commit; replay restores its projection from the recorded operation, never repairs the database from an old checkpoint binding map.
 
-Какой state предлагаем (упрощение + переход на python)
-```python
-class ExecutionState(TypedDict):
-    project_id: str
-    pipeline: PipelineRef                  # {id, version, digest} — заморожено
-    bindings: dict[str, ArtifactRef]       # слот -> точная ревизия
-    decisions: dict[str, ReviewDecision]   # digest ревью -> вердикт
-    active_jobs: dict[str, JobRef]         # внешние рендеры
-    termination: Termination | None
+## Identities
+
+| Identity | Scope and rule |
+|---|---|
+| `project_id` | durable workspace, not one run |
+| `execution_id` / `thread_id` | one run of a frozen graph; they are equal |
+| `pipeline_id`, `version`, `digest` | frozen together at start; registry must match on resume |
+| `work_id` | one durable runnable segment triggered by start/decision/job/control |
+| `invocation_id` | process attempt for diagnostics only |
+| `activation_id` | one authorized logical entry into a stage, derived from its durable trigger |
+| `operation_id` | hash of execution, stage, activation, operation kind and optional unit/task ID |
+| `logical_attempt_revision` | display ordinal allocated once per stage/activation, not a clock or retry count |
+| `request_id` / `request_revision` | one exact human question/card; new card means new revision |
+| `binding_revision` | monotonic version of one execution slot, not the artifact body |
+| `wait_id` | one immutable external group wait, not the provider's mutable job version |
+
+The triggering transition determines the next activation before it returns a state update. Start, owner revision, clarification, and downstream entry each have stable triggering IDs. Replay returns that recorded transition. Do not recalculate identities from current bindings, random IDs, or an increment performed outside an idempotent transaction.
+
+## Checkpoint Projection
+
+`ExecutionStateV1` is implemented as a Python `TypedDict`; boundary DTOs use Pydantic. The contract is a compact JSON-serializable projection:
+
+| Field | Content |
+|---|---|
+| `project_id`, `execution_id`, `pipeline` | immutable run identity |
+| `bindings` | slot -> compact ArtifactRef plus binding revision |
+| `activation_refs` | current authored stage activations, keyed by stage; no full operation records |
+| `review_ref` | exact current review/input request ID, revision and digest, or null |
+| `decision_ref` | exact accepted decision reference while wait/apply executes, or null |
+| `wait_ref` | exact external wait identity, or null; introduced with rendering |
+| `task_results` | current fan-out group's keyed result refs; introduced with rendering |
+
+Compact artifact refs contain ID, schema/version, URI, digest and media type. Hydration reads canonical metadata. No artifact bodies, context passages, transcripts, provider payloads, secrets, lifecycle status, or unbounded review history enter state. Runtime service handles, user authorization context and current fence enter through `Runtime[Context]`, not persistence.
+
+Sequential nodes return partial updates. A gate clears completed decision/wait references as part of its recorded transition. An operation replay returns the same projected references; it does not choose the latest request or silently replace its input with newer canon.
+
+For fan-out, only `task_results` has a keyed merge reducer. Its key includes group activation and stable unit/task identity. An identical duplicate is harmless; a conflicting duplicate is an integrity error. The join verifies the exact expected set and plan order, is the sole aggregate binding owner, and resets the accumulator before the next group. No append-only list across creative revisions, no shared binding writes by workers, and no parallel human interrupts.
+
+## Execution View
+
+Compute the view in this priority order from durable records and the most recently reconciled checkpoint. No edge reads it.
+
+| Status | Required evidence | User meaning |
+|---|---|---|
+| `completed` / `cancelled` / `failed` | immutable terminal receipt | final execution outcome |
+| `cancelling` | accepted cancel control without terminal receipt | stopping, provider cancellation may still be pending |
+| `blocked` | durable nonterminal work block with reason and permitted action | cannot safely continue; retry/cancel or required corrective action |
+| `running` | claimed/runnable work, including an accepted decision not yet settled | preparing, creating, recovering, or applying feedback |
+| `waiting_review` | durable actionable review interrupt without accepted response | approve, revise, clarify, or cancel |
+| `waiting_input` | durable actionable input interrupt without an answer | answer a focused missing-input question |
+| `waiting_job` | group wait with outstanding provider work and no runnable graph work | generation in progress externally |
+| `created` | accepted start, not yet claimed/checkpointed | queued to start |
+
+For the final two nonterminal cases, an unclaimed start is displayed as `created` rather than generic `running`; a queued accepted resume is `running`. An unexposed prepared card while checkpoint settlement is pending is `running/opening`, not `waiting_review`. `recovering`, `critiquing`, and `applying` are activity labels alongside status, not new lifecycle machines. If reads race, return versioned projections and refresh; do not infer success from missing work or missing interrupts.
+
+```text
+created -> running -> waiting_review | waiting_input | waiting_job
+              ^                  | accepted response / group ready
+              +------------------+
+running -> blocked -> running (authorized same-input retry)
+any nonterminal -> cancelling -> cancelled
+running -> completed | failed
 ```
-## Execution State
 
-```ts
-type ExecutionStateV1 = {
-  schema: "kinodel.execution_state.v1";
-  project_id: string;
-  execution_id: string;
-  pipeline: PipelineRef;
-  bindings: Record<string, ArtifactRef>;
-  decisions: Record<string, ReviewDecision>;
-  active_jobs: Record<string, JobRef>;
-  task_results: Record<string, TaskResultRef>;
-  termination?: {
-    kind: "completed" | "cancelled" | "failed";
-    reason?: string;
-  };
-  failure?: FailureRef;
-};
-```
+An execution never leaves a terminal outcome. A new creative production after completion/cancellation/failure is a new execution; operator checkpoint editing is not a public restart mechanism. A retained approved output can remain useful even when a later stage failed.
 
+## Operation And Stage View
 
-`bindings` is the only slot map: logical slot to its latest produced immutable revision. A binding may be stale when its recorded input digests no longer match upstream bindings; validators prevent its use while keeping it inspectable. `decisions` is keyed by review-request digest; `active_jobs` contains compact references to durable Project-store job records. Do not duplicate a mutable `current_goal` or `pending_gate` unless an API proves it needs a cached projection. LangGraph checkpoints, `next`, and active interrupts already describe execution position.
+Operations have `prepared`, `committed`, `blocked`, `failed`, or `superseded` status. Running is derived from active work ownership; it is not a second durable permission to write. `prepared` freezes inputs before effects. `committed` means result and next transition are recorded, not that an artifact was approved. Some operations produce a question, explanation, Critic report, or control receipt rather than an artifact.
 
-## Identity
+`blocked -> prepared` requires an authorized same-input retry; a change to effective creative inputs requires a new activation. `committed` is immutable. Marking an old unfinished activation superseded cannot erase its audit or promote a late result. Nodes validate activation identity before committing any output.
 
-- `project_id`: durable creative workspace.
-- `execution_id`: one attempt using a frozen pipeline version.
-- `thread_id`: equal to `execution_id`.
-- `invocation_id`: one start or resume API call.
-- `operation_id`: stable key for one external effect across retries and resumes.
+Stage display distinguishes `not_started`, `running`, `waiting_review`, `waiting_job`, `blocked`, `ready`, and `stale`. `ready` requires the stage's declared output checks and approval policy, not merely a committed operation. This is a projection over operation, review, binding and dependency records, never an editable stage-status table. Detailed revision progress is defined in [reviews.md](reviews.md).
 
-## Transition Invariants
+## Artifact State Is Not One Enum
 
-1. Pipeline ID, version, and digest never change after execution start.
-2. A node starts only after all declared input revisions validate.
-3. A produced artifact enters state only after atomic commit.
-4. Review decisions bind to gate ID, revision, and request digest.
-5. Output existence never implies approval.
-6. Revision and repair loops have hard bounds.
-7. One invocation owns a thread lock at a time.
-8. Parallel workers write unique task IDs; the join owns shared bindings.
-9. Unexpected integrity errors fail the execution rather than asking an LLM to improvise.
-10. Cancellation is cooperative and never rolls back committed artifacts.
+| Dimension | Independent question |
+|---|---|
+| validation | did the candidate pass its schema, semantic and provenance checks? |
+| freshness/availability | are its required dependency closure and rights usable for this execution? |
+| approval | was this exact subject or selection explicitly approved? |
+| binding/selection | is this the currently selected output of the declared owner? |
+| publication | is this memory revision available through an approved chunk binding? |
 
-## Review Decision
+An artifact can be historically approved but stale now. A rendered candidate can be technically valid but neither selected nor promoted. A final film may be approved while its memory draft is unapproved. These combinations are intentional, not contradictory statuses. See [artifacts.md](artifacts.md) for checks and transitive invalidation.
 
-```ts
-type ReviewDecision = {
-  gate_id: string;
-  request_revision: number;
-  request_digest: string;
-  action: "approve" | "revise" | "cancel";
-  feedback?: string;
-};
-```
+## Invariants
 
-UI shortcuts such as A/B/C/D are presentation aliases, not domain state.
-
-Review decisions are compact checkpoint state, not separate creative artifacts. Under the per-thread lock, `review_respond` first inspects the checkpoint: an identical recorded decision is an idempotent success, a different decision for the same request is a conflict, and an undecided active interrupt is resumed. The gate node records the validated decision in the same graph update that routes onward.
-
-## Errors
-
-- transient provider/network error: bounded retry;
-- invalid structured model output: bounded repair in the agent adapter;
-- missing human information: interrupt;
-- creative rejection: explicit revision edge;
-- provider still running: durable external wait;
-- schema/integrity/programming error: fail with a typed failure reference.
+1. One execution has at most one live graph invocation, protected by the saver-owning advisory-lock session. Expiry alone cannot steal that session.
+2. API control/decision acceptance uses short optimistic transactions, not the invocation lock. Canonical graph commits additionally require the current fence.
+3. Each accepted start/response/terminal job has durable work. An unfinished runnable segment cannot disappear when its process or HTTP request ends.
+4. Every recorded transition contains the stable next activation; replay does not allocate another creative attempt.
+5. Human request identity includes the exact subject and producing activation. Only a matching current request can create usable approval.
+6. No operation consumes stale transitive execution dependencies; pinned library revisions do not silently follow `latest`, but access/rights are rechecked.
+7. Approval is never inferred from artifact existence, status, checkpoint position, or a model's text.
+8. Job history can advance under its own claim after execution cancellation; canonical promotion cannot.
+9. Terminal outcomes are explicit and immutable. Empty checkpoint `next` alone is not a completed production.
+10. A paused LangGraph thread is durable but not self-scheduling. [runtime.md](runtime.md) defines the one worker recovery protocol.

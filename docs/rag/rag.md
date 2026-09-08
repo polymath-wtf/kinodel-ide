@@ -1,4 +1,4 @@
-# RAG Knowledge And Retrieval Architecture
+# Knowledge And Future Retrieval Architecture
 
 Status: **Decided foundation with evaluated rollout**
 
@@ -7,16 +7,27 @@ Kinodel has two related but distinct memory systems:
 1. **Knowledge base**: sources and maintained wiki pages used for research and guidance.
 2. **Creative chunks**: approved domain memory used for identity, style, and continuity.
 
-Both can share retrieval infrastructure, but neither should become a copy of runtime state.
+Both can later share discovery infrastructure, but neither should become a copy of runtime state. The current baseline is direct context injection, not search; see [`../context/context.md`](../context/context.md).
+
+## Current Baseline
+
+Known chunks, sources, artifacts, and agent resources are selected explicitly by the creator, an authored pipeline policy, or an allowlisted agent-resource selector. The runtime resolves exact revisions, authorizes them, builds consumer-specific projections, enforces the context budget, and records `ContextSelectionV1` before invoking an agent.
+
+The exact selection and projection versions/digests are frozen on the prepared Project DB operation, not in checkpoint bodies. Technical retries hydrate that same selection and verify its digests. Shared canon is `pinned_revision`: ordinary supersede does not update running executions; rights withdrawal or missing mandatory data blocks use. New context requires a new authorized activation/execution, never silent reselection on retry.
+
+No FTS or vector index is required for this path. Search later answers only "which items might be relevant?"; it does not change canon, trust, approval, or the agent-input contract.
 
 ## Layers
 
 ```text
 immutable source revisions
 -> maintained Markdown wiki / approved creative chunks
--> derived FTS and vector index
--> ephemeral cited context selection
+-> direct exact-reference resolution
+-> operation-scoped frozen selection, ephemeral hydrated content
 -> typed agent input
+
+optional later branch:
+canonical knowledge -> derived FTS/vector discovery -> same context selection
 ```
 
 | Layer | Canonical | Lifecycle |
@@ -25,7 +36,7 @@ immutable source revisions
 | wiki page | yes, compiled knowledge | edited with provenance |
 | approved creative chunk | yes, domain memory | immutable revision |
 | retrieval record/vector | no | replace/rebuild/delete |
-| runtime context selection | no | per invocation |
+| runtime context selection | operation audit, not creative canon | frozen per operation across retries |
 
 ## Karpathy-Style Wiki
 
@@ -46,9 +57,11 @@ Every source revision records stable source ID, revision ID, path/URI, MIME type
 
 Archive hides a source from normal retrieval but retains it. Purge removes source bytes, derivatives, wiki claims that cannot remain, and all index records according to retention policy.
 
-## Retrieval Projection
+## Future Retrieval Projection
 
-Use one generic retrieval chunk schema for wiki/source passages. Domain creative chunks keep their own semantic schema but are projected into the same retrieval index.
+When discovery is implemented, use one generic retrieval chunk schema for wiki/source passages. Domain creative chunks keep their own semantic schema but may be projected into the same derived index.
+
+The following is a proposed derived projection, not a frozen executable schema:
 
 ```ts
 type RetrievalChunkV1 = {
@@ -77,6 +90,8 @@ type RetrievalChunkV1 = {
 
 Embedding metadata lives in derived index rows, not canonical chunks: provider, endpoint, model, dimension, input format, media options, hashes, and timestamp.
 
+Reindexing has no graph transition and cannot create approval, promote memory, or change a prepared operation. An index can suggest IDs only; the direct resolver still enforces exact revision, rights, dependency, approval, and mandatory-context rules. Index unavailability does not block direct selection. Full Gemini adapter/index design remains deferred and is not expanded by this seam.
+
 ## Chunking
 
 Initial text policy:
@@ -90,9 +105,9 @@ Initial text policy:
 
 These are starting parameters, not model truths. Evaluation decides changes.
 
-## Gemini Embedding 2
+## Future Gemini Embedding 2 Experiment
 
-Initial production hypothesis:
+Evaluation hypothesis, not an MVP dependency:
 
 - one explicit 768-dimensional index;
 - unified model space for text and selected media representations;
@@ -105,18 +120,21 @@ Embedding dimensionality changes vector storage and retrieval quality. It does *
 
 Model IDs, modality limits, normalization, and request syntax are provider facts that must be reverified at implementation time; they are not frozen architecture.
 
-## Retrieval Order
+## Resolution And Future Retrieval Order
 
 ```text
 explicit user-selected refs
--> direct IDs, paths, aliases, and wikilinks
+-> pipeline-required refs and agent resources
+-> direct IDs, aliases, and wikilinks
 -> security/status/project filters
--> FTS
--> optional vector search
+-> consumer projection and context budget
+
+optional discovery branch:
+FTS -> optional vector search
 -> reciprocal-rank merge
 -> deduplicate/group/diversify
 -> optional top-K rerank
--> context budget
+-> same projection and context budget
 ```
 
 Do not use a universal cosine threshold as truth. Rank and evaluate against domain queries.
@@ -150,7 +168,7 @@ Keep instructions outside retrieved content. Preserve exact excerpts separately 
 
 ## Evaluation Gate
 
-Before advanced retrieval, create a small gold set covering exact lookup, paraphrase, multi-source synthesis, contradiction/current-status, stale/deleted leakage, and cross-modal queries.
+Before implementing advanced discovery, create a small gold set covering exact lookup, paraphrase, multi-source synthesis, contradiction/current-status, stale/deleted leakage, and cross-modal queries.
 
 Compare:
 
@@ -164,9 +182,11 @@ Track Recall@K, MRR/nDCG, duplicate rate, citation precision/coverage, stale lea
 
 ## Non-Goals
 
-- no graph database at launch;
-- no permanent per-run context packs;
-- no four-dimensional-profile MRL stack;
+- no search/index dependency for explicitly selected chunks or files;
 - no append-only vectors that retain purged knowledge;
-- no broad autonomous retrieval by every agent;
-- no blobs, provider traces, or runtime logs in knowledge.
+- no broad autonomous retrieval by every agent; each specialist receives bounded typed input and does not browse project directories.
+
+## Future Features
+
+- A graph database may later represent useful wiki relationships such as styles and camera angles. Markdown wiki pages remain sufficient while direct links and mentions work; not all knowledge should become a creative chunk.
+- Multi-resolution or Matryoshka-style embedding profiles are deferred until chunk/context contracts are stable and one measured 768d index demonstrates a real discovery need.

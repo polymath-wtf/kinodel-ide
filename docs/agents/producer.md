@@ -5,11 +5,11 @@ Status: **Active design**
 
 ## Responsibility
 
-Turn conversation into a clear brief, present review choices, and interpret human feedback. Producer represents the production to the creator; LangGraph runs it.
+Turn conversation into a clear brief, present review choices, and answer focused clarification questions. Producer represents the production to the creator; LangGraph runs it.
 
 ## Input
 
-- user message;
+- immutable initial creator messages and one focused clarification exchange when needed;
 - compact project/execution summary;
 - current brief draft or `ReviewRequest`;
 - preview refs selected by the runtime.
@@ -20,10 +20,12 @@ One typed result:
 
 - `BriefDraft`;
 - `ClarificationQuestion`;
-- `ReviewDecision` candidate;
+- `ReviewClarificationAnswer`;
 - user-facing summary.
 
-The API/runtime validates the final review decision and binds it to the active interrupt.
+Review actions come from the creator through the typed API. Critic, not Producer, analyzes `revise` feedback.
+
+`BriefDraft` preserves an extracted `user_vibe`, must-keep constraints, subjects/character refs, shot count, duration, resolution, workflow class, and the frozen pipeline/generation-profile selections. It does not invent plot or contain provider payloads.
 
 ## Boundaries
 
@@ -32,6 +34,7 @@ The API/runtime validates the final review decision and binds it to the active i
 - Does not launch or poll render jobs.
 - Does not persist gates, repair state, or infer approval from files.
 - Does not expose provider/runtime details to the creator unless actionable.
+- Does not change the frozen pipeline identity from inside a running execution.
 
 ## Tools
 

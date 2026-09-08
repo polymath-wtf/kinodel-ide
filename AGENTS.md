@@ -2,7 +2,10 @@
 
 ## Mission
 
-Rebuild Kinodel as a human-in-the-loop creative app on LangGraph. Preserve useful legacy invariants, not legacy machinery. The architecture must make long-running generative work resumable and inspectable, in production pipeline.
+Kinodel is a human-in-the-loop creative production system built on LangGraph.
+The architecture must make long-running generative work resumable and inspectable, in production pipeline.
+A creator generates an idea, chooses the vibe, and lets a crew of AI subagents help make it beautiful: stories, visuals, videos, music, episodes, worlds, and reusable creative memory.
+Under the hood, Kinodel breaks production into clean stages: story, visual anchors, storyboard frames, video shots, montage, and final chunks. Each stage has its own specialist agent, its own artifact, and its own place in the pipeline.
 
 
 The architectural rule is:
@@ -31,16 +34,15 @@ Read in this order:
 
 | Work | Read first |
 |---|---|
-| Runtime, state, resume, gates | `docs/backend/runtime.md`, `docs/backend/state-machine.md` |
+| Runtime, state, resume, gates | `docs/backend/runtime.md`, `docs/backend/state-machine.md`, `docs/backend/reviews.md` |
 | Artifact contracts | `docs/backend/artifacts.md` |
 | Pipeline topology | `docs/backend/pipeline.md`, `docs/pipelines/` |
 | Agent behavior | `docs/agents/README.md`, then the agent page |
 | Tool calls and side effects | `docs/tools/tools.md` |
-| RAG, chunks, context injection | `docs/rag/architecture.md`, `docs/rag/chunks/chunks.md` |
+| RAG, chunks, context injection | `docs/context/context.md`, `docs/rag/rag.md`, `docs/rag/chunks.md` |
 | Frontend concepts | `docs/frontend/webui.md` |
 | ComfyUI/provider work | `docs/backend/comfyui.md`, `skills/comfyui-skill/` |
 | Legacy migration question | `docs/refactoring.md`, then a targeted search in `legacy/` |
-
 ## Engineering Rules
 
 - Build the smallest restart-safe vertical slice before generic infrastructure.
