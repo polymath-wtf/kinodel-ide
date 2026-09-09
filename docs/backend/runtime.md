@@ -1,12 +1,14 @@
 # Runtime
 
-Status: **Decided design; PostgreSQL integration and crash tests pending**
+Status: **Decided design; SQLite/PostgreSQL integration and crash tests #todo**
+
+Decision, 2026-09-09: SQLite local and PostgreSQL server are selected. The [local profile](../database/local-vs-hosted.md) has one application process and one active graph runner per data directory; PostgreSQL supports multiple workers, with one invocation per execution. All durability/approval invariants apply to both; implementations and crash tests remain #todo, and PostgreSQL locks cannot be assumed on SQLite.
 
 The runtime reliably delivers authorized work to an explicit LangGraph graph. It does not independently choose production stages. The target is recoverable execution with idempotent business commits, not exactly-once model/provider calls.
 
 ## First Deployment
 
-Use Python 3.12, FastAPI, Pydantic, PostgreSQL, `AsyncPostgresSaver`, one backend-managed local storage root, and one worker process. The API and worker import the same services. Redis, Celery, a graph compiler, and an event bus are not needed.
+Use Python 3.12, FastAPI and Pydantic. Local: SQLite, managed local data directory, API and one background graph runner in one application process. Server: PostgreSQL, managed server storage and separate API/worker entry points; begin with one worker and support multiple workers through execution ownership. SQLite/PostgreSQL checkpointer setup remains #todo. Redis, Celery, a graph compiler, and an event bus are not needed.
 
 | Component | Owns |
 |---|---|
@@ -17,7 +19,7 @@ Use Python 3.12, FastAPI, Pydantic, PostgreSQL, `AsyncPostgresSaver`, one backen
 | Project DB | work, operations, bindings, requests, terminal outcomes, controls, later jobs |
 | managed files | immutable validated artifact/media bytes; never scheduling |
 
-The API returns an accepted execution/request/work identity after its transaction. HTTP completion, browser disconnect, and streaming lifetime never own graph execution. A second worker may later use the same claim protocol; no new scheduler architecture is required.
+The API returns an accepted execution/request/work identity after its transaction. HTTP completion, browser disconnect, and streaming lifetime never own graph execution. Additional server workers use the server claim protocol; the local profile does not allow a second active runner.
 
 ## Durable Work
 
@@ -55,13 +57,17 @@ Start idempotency is scoped to project and client key. Store a normalized payloa
 
 ## Single-Writer Ownership
 
+Local SQLite: one application holds exclusive OS-backed ownership before DB open/migrations and for its entire lifetime, including saver tasks. A second application refuses startup; heartbeat expiry never evicts a live owner. One active graph runner consumes durable work. Short serialized write transactions enforce OCC, current fence/activation and cancel checks; no write transaction spans model/network calls. API handlers enqueue work, never invoke the graph. Stop effects on ownership/DB failure; shutdown drains or stops tasks and flushes saver writes before releasing ownership. Recovery first reacquires directory ownership, then uses the common decision table. Network-share data directories and concurrent writable restored copies are unsupported. [Local startup](local-startup.md) proposes permanent-file stdlib OS locks, alias/child-process rules and bounded busy handling; platform selection and actual crash/saver tests remain #todo.
+
+The numbered protocol below is **PostgreSQL server only**. References elsewhere to execution-row serialization mean short SQLite write transactions locally, row locks on server; the invariant is atomic control/commit ordering, not portable lock syntax.
+
 1. Select due work, then obtain the execution's PostgreSQL **session advisory lock** on a dedicated connection. Use a server-derived stable lock key; collisions may serialize extra executions but never allow two writers.
 2. Under that lock, claim the work and increment the durable execution fence in a short transaction. Read current controls/outcome and verify the registered frozen graph digest.
 3. Construct the invocation's `AsyncPostgresSaver` with that same connection, not an unrelated pool. It remains open and lock-owning through all checkpoint writes and task cleanup. Use `durability="sync"`.
 4. Heartbeat claim/ownership through short repository transactions. Graph business commits lock the execution row, validate current fence, active activation, expected bindings, and cancellation before commit.
 5. On lost connection or heartbeat failure, stop issuing effects, cancel/await local graph tasks, and close the saver connection. Never reconnect a saver underneath an old invocation. Release ownership only after tasks/checkpoint writes are stopped.
 
-Lease expiry is a recovery signal, **not permission to steal a live advisory lock**. The fence advances only after the new worker acquires the lock. This makes the standard same-session saver sufficient for single-writer checkpoint ordering; do not introduce a custom fenced saver merely to bypass a live owner.
+Lease expiry is a recovery signal, **not permission to steal a live advisory lock**. The fence advances only after the new worker acquires the lock. Same-session saver ordering remains a proposed integration guarantee, not a passed test: pin and verify direct-connection support, connection lifetime, pending writes and failure cleanup. Do not introduce a custom fenced saver merely to bypass a live owner; if the pinned saver cannot preserve this invariant, block rollout and evaluate a minimal fenced saver explicitly.
 
 A hung but connected process delays recovery until bounded call/DB timeouts or its process supervisor terminate it and PostgreSQL releases the session. The product does not promise immediate takeover during a network partition. This safety/availability tradeoff must be measured in the integration test. API cancellation does not require this long-lived lock.
 
@@ -84,6 +90,8 @@ derive operation identity from persisted activation
 Operation identity, artifact commit, and dependency semantics are specified in [artifacts.md](artifacts.md). Technical retry/recovery retains the activation and prepared input. Creative revision or authorized upstream recomputation gets a new activation derived from the durable triggering transition. Clock time, lease fence, and process attempt never identify creative work.
 
 Model output lost before commit may require another model call and may differ or incur another charge. Only the committed result is canonical. Paid external generation instead persists a job intent before submission and reconciles ambiguous acceptance before retrying.
+
+For an agent's ordinary OpenRouter HTTP response/stream, the adapter completes and validates the bounded output, persists artifact bytes or the typed operation result, then commits result/next activation before returning graph state. This is not necessarily a webhook or a durable provider job. Partial streamed text is not a completed production result. A callback, if a provider later needs one, still cannot directly advance graph state.
 
 Replay may return old recorded refs to finish an interrupted transition; it must never reinstall them over newer bindings. An unexpected active-activation mismatch blocks as an integrity problem, rather than guessing that the current binding belongs to this task.
 
@@ -172,7 +180,7 @@ Freeze one exact context selection on the prepared operation. Recovery rehydrate
 
 Foundation exposes polling-friendly execution/work/request/artifact queries. Streaming and an at-least-once outbox are later; dropped events cannot lose work. UI reconnect queries current records. Authorization, path isolation, validation, and credential separation apply from the first deployable slice, not only after streaming is added.
 
-Deployment runs migrations/saver setup once, pins tested graph/schema/framework versions, retains registered graph versions for open executions, and starts worker reconciliation. Shutdown stops claiming, drains bounded work, flushes saver writes, then closes sessions. Restart safety assumes durable PostgreSQL and managed storage; coordinated backup/restore and disk-loss recovery are separate deployment requirements, not guaranteed by checkpoints.
+Deployment runs version-gated profile-specific migrations/saver setup, pins tested graph/schema/framework versions, retains registered graph versions for open executions, and starts worker reconciliation. Local startup checks schema versions every launch under ownership; initialization is automatic for fresh data, existing-data upgrades require an explicit tested maintenance path, never reset. Shutdown stops claiming, drains bounded work, flushes saver writes, then releases ownership. Restart safety assumes durable SQLite locally or PostgreSQL on server plus managed storage. Complete stopped-installation manual transfer includes Project DB, saver data/pending writes, immutable files and version manifest. Automated backups, RPO/RTO and disk-loss restore drills are #future production, not MVP acceptance; without an independent copy disk loss can destroy work.
 
 ## Acceptance Matrix
 
@@ -196,4 +204,4 @@ These are required runnable integration tests for implementation, not claims tha
 | fast job completion, duplicate callback, cancelled late result | one wake source; correct wait only; no cancelled promotion |
 | context reindex/supersede/rights withdrawal during a pause | unchanged pinned input for first two; blocked use for withdrawal |
 
-Use real PostgreSQL and process termination for ownership/pending-write tests; an in-memory saver cannot prove these guarantees. Test local file publication on the deployed filesystem before claiming power-loss durability.
+Run the common cases separately on real SQLite and PostgreSQL with process termination; an in-memory saver cannot prove these guarantees. PostgreSQL additionally tests session loss/live-lock takeover and concurrent workers. SQLite additionally tests second-app refusal, one active runner, busy/error handling and saver flush/process death. Compatible manual transfer is tested when shipped; automated backup/disk-loss restore is #future production. Test file publication on each supported filesystem before claiming power-loss durability. All checks remain #todo.

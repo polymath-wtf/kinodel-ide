@@ -4,20 +4,24 @@ Status: **Foundation registry**
 
 Production backend code is Python. A tool is a typed Python operation at a trust boundary, not a shell command and not an automatic capability given to an agent. The TypeScript web app calls HTTP endpoints; graph nodes call Python services and repositories.
 
-## What Exists In `foundation.v0`
+Persistence profiles are SQLite local / PostgreSQL server. Execution-row locks and advisory-session claims below describe server mechanics; local uses serialized short write transactions and one background runner under exclusive application/data-directory ownership, as defined in [runtime](../backend/runtime.md#single-writer-ownership). Logical commands and OCC/idempotency obligations are shared, not a transparent SQL compatibility layer.
+
+## Planned Foundation Callers
+
+Nothing in this table claims deployed tools. The text milestone precedes the rendered [build gate](../roadmap.md#current-build-gate).
 
 | Caller | Allowed operation | Why |
 |---|---|---|
 | Web UI | create project, request execution start, read status, submit review, request cancellation | creator control surface |
 | Graph node adapter | read declared inputs, find prior operation, commit output | executes one safe stage |
-| Producer / Storytell / Critic | none | they return structured candidates only |
+| Producer / Storytell / Critic / Wardrobe / Storyboard | none | they return structured candidates only |
 | Execution worker | claim durable work, invoke/recover graph, finalize cancellation | sole graph invocation path from first start |
 
 No generic `ToolResult` envelope is needed inside Python. Services raise typed domain errors; FastAPI maps them to HTTP responses. Do not use stdout JSON, process exit codes, a terminal, or arbitrary paths as an internal contract.
 
 ## P0 Python Contracts
 
-These Pydantic sketches are a starting point, not completed executable contracts. They belong with the domain DTOs, not in prompts or agent code. [runtime.md](../backend/runtime.md) owns work delivery; exact DTOs and validators remain a foundation task.
+The field-level proposal now lives in [physical-dtos.md](../backend/physical-dtos.md), including strict action unions, unit-to-candidate selection, start pins and trusted commit metadata. The older sketches below are **non-authoritative shape illustrations**, not implementation templates: their nullable action bag, `selected_candidate_ids` list, `dict[str, Any]` candidate and `accepted: bool` omit required invariants. No backward compatibility with these unshipped sketches is required. [runtime.md](../backend/runtime.md) owns work delivery.
 
 ```python
 from typing import Any, Literal
@@ -125,7 +129,7 @@ Direct context preparation is a foundation service, not a deferred retrieval fea
 
 ## Deferred Production Services
 
-These are needed by `cinematic.v1`, not by `foundation.v0`. Define their concrete Pydantic contracts only when their first stage is implemented.
+The single-image Render/media path and its required context projections are part of deployable `foundation.v0`; they follow the internal text milestone. Montage, multiple-shot generation and other full `cinematic.v1` services remain deferred. Define concrete Pydantic contracts with each enabled stage.
 
 | Service | Keep | Do not build yet |
 |---|---|---|

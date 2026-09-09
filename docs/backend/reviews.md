@@ -50,6 +50,8 @@ Critic receives the exact subject, original feedback/proposed changes, relevant 
 
 The first release has no arbitrary backward jump into already approved ancestors. A request such as changing the approved Brief while reviewing clips is explicitly out of scope; an adjusted production starts a new execution with retained source references. Authored upstream reopening is a later product feature, not hidden `update_state()` or an LLM-selected route.
 
+Decision, 2026-09-09: earlier-stage rework creates a new execution/branch in the same project from an exact approved/validated prefix, under the [prefix-reuse contract](../database/artifacts-media.md#возврат-к-раннему-этапу). Old outputs stay immutable for comparison; changed outputs never inherit approval. Critic analyzes the correction and the declared owner produces the replacement. [Physical rework](rework.md) proposes terminal-source-only entry and receipts; [DTOs](physical-dtos.md#human-commands) define candidate/review fields. Implementation remains #todo; no arbitrary backward routes are added to an existing gate.
+
 ## Revision Progress
 
 These are read projections from the accepted request, linked operations, and replacement review. They never select an edge.
@@ -92,6 +94,8 @@ The request digest covers the subject, producing activation, dependency/selectio
 
 The apply operation rechecks these preconditions. If rights or required inputs became invalid after submission, retain the submitted decision as history but do not create usable approval or promote output. Block with a reason. Cancellation and terminal outcomes never erase past approvals.
 
+Current revision means the exact current request, producing activation and binding/manifest, not merely an existing artifact revision. If another accepted edit produces S2/R2, approval from S1/R1 conflicts and the UI refreshes the current card; it neither approves S2 nor reselects S1. An identical previously accepted command may return its receipt without advancing again. Historical approval and comparison remain available, but choosing an old result again requires an explicit authorized review/reuse path.
+
 ## Clarification And Limits
 
 Producer answers about the exact subject without changing it. Its bounded `ReviewClarificationAnswer` is a durable operation result linked to the next card, not a creative artifact or unbounded conversation. If the question contains a new requirement, the answer explains that `revise` is needed; it does not apply it.
@@ -112,15 +116,24 @@ Each logical gate consists of prepare, wait, and apply nodes. Names below are lo
 | `brief_review` | approve | `story_propose -> story_review` |
 | `brief_review` | revise | `brief_critic -> brief_propose -> brief_review` |
 | `brief_review` | clarify | `brief_explain -> brief_review`, same subject |
-| `story_review` | approve | `complete -> END` |
+| `story_review` | approve | `visual_anchor_plan -> visual_anchor_review` |
 | `story_review` | revise | `story_critic -> story_propose -> story_review` |
 | `story_review` | clarify | `story_explain -> story_review`, same subject |
-| either Critic / repair owner | needs input or out of scope | original gate, unchanged subject, reason attached |
+| `visual_anchor_review` | approve | `main_frame_plan -> render_main_frame_candidates` |
+| `visual_anchor_review` | revise | visual-anchor Critic -> Wardrobe `visual_anchor_plan` -> same gate |
+| `render_main_frame_candidates` | durable group intent | separate submit/wait/join nodes; verified imported candidates -> `main_frame_review` |
+| `main_frame_review` | approve exact selection | `promote_main_frame -> complete -> END` |
+| `main_frame_review` | revise | rendered-frame Critic -> Storyboard `main_frame_plan` -> render/wait/join -> same gate |
+| visual/main-frame gate | clarify | Producer explanation -> same-subject new request |
+| any Critic / repair owner | needs input or out of scope | original gate, unchanged subject, reason attached |
+| first-generation owner without a subject | non-ready result other than the bounded pre-Brief question | block with reason; do not fabricate a review subject |
 | any active stage/request | cancellation accepted | stop effects, finalize cancelled under worker ownership |
 | any operation | recoverable infrastructure failure | retain activation, block/retry work under runtime policy |
 | any operation | integrity/programming failure | durable failed outcome; no creative route around it |
 
 An approve transition alone authorizes the next stage. A revise transition alone authorizes a new creative activation. No successor is inferred from the displayed status, a file, or the agent's report text.
+
+This table follows the current rendered [build gate](../roadmap.md#current-build-gate). The earlier text-only `story_review -> complete` is an internal test milestone, not the deployable `foundation.v0` route. Visual/main-frame inputs, units and fixed repair owners follow [cinematic dependencies](../pipelines/cinematic.md#exact-dependencies). Completion requires current approved Brief, Story and VisualAnchorPlan plus the current promoted main-frame result's exact selection receipt. Main-frame plan is validation-only. There is one required `main` unit, no graph fan-out. Exact Python node declarations and per-node deltas still require executable fixtures.
 
 ## Required Checks
 

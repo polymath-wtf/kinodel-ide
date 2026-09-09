@@ -6,6 +6,8 @@ Context is the exact bounded material prepared for one stage operation and hydra
 
 The first release resolves explicit references only. Search and embeddings may later discover candidates, but every candidate must pass through the same selection, authorization, projection, and injection contract.
 
+Personal wiki/RAG/taste are private and enter context only through explicit selection, never automatic account-wide history injection. Local selections/indexes remain local; Kinodel signup uploads nothing. A remote endpoint receives only the selected authorized payload, not library access. Public wiki is owner-published through GitHub releases and selections pin exact snapshot/revision/digest. Future retrieval must restrict the authorized corpus before searching and recheck ACL/rights at hydration, citation and media delivery, including caches. CinemaChunk publication and taste changes require separate explicit user approval.
+
 ## Context Sources
 
 | Origin | Selected by | Example | Trust role |
@@ -66,10 +68,15 @@ Storyboard, Filmmaker, and Muse may use prompt guidance to produce model-targete
 The context resolver prepares one operation-scoped selection, frozen across retries. These pseudo-types describe the trace, not the hydrated agent input or a completed executable schema:
 
 ```ts
+type ContextSourceRefV1 =
+  | { kind: "artifact"; ref: ArtifactRef }
+  | { kind: "source"; source_id: string; revision_id: string; digest: string }
+  | { kind: "agent_resource"; resource_id: string; version: string; digest: string };
+
 type ContextSelectionItemV1 = {
   origin: "user_mention" | "pipeline_required" | "agent_resource" | "retrieval";
   role: "canon" | "continuity" | "plan" | "inspiration" | "evidence" | "guidance";
-  source_ref: string;
+  source_ref: ContextSourceRefV1;
   source_revision: string;
   source_digest: string;
   projection_id: string;
@@ -88,8 +95,8 @@ type ContextSelectionV1 = {
   operation_id: string;
   capability_id: string;
   items: ContextSelectionItemV1[];
-  omitted: Array<{ source_ref: string; reason: string }>;
-  conflicts: Array<{ refs: string[]; reason: string }>;
+  omitted: Array<{ source_ref: ContextSourceRefV1; reason: string }>;
+  conflicts: Array<{ refs: ContextSourceRefV1[]; reason: string }>;
   input_token_budget: number;
   selected_tokens: number;
 };
@@ -100,6 +107,8 @@ The full trace belongs to the prepared Project DB operation before the model cal
 Adapters supply consumer-specific typed content beside the trace reference: narrative canon for Storytell/Season/Episode; identity/appearance for Wardrobe/Storyboard; motion/voice for Filmmaker; rights-safe music inspiration for Muse; optional editing lessons for Montage. Craft reads declared exact source projections directly; Render and Montage execution consume plans/assets, not creative-memory search. No universal prompt-content envelope is required.
 
 New context requires a new authorized activation or execution, never a changed selection under the same operation ID. Within foundation/V1, feedback cannot silently replace approved ancestor canon; if outside the current repair path, start a new execution with adjusted Brief/context. Reindexing is an administrative derived-data operation, not a graph transition, approval, or reason to rebuild a prepared selection.
+
+`ContextSourceRefV1` is the canonical shape shared with [physical DTOs](../backend/physical-dtos.md#references-and-receipts), including omitted/conflicting refs. `ArtifactRef` is defined there; chunks use artifact refs. `source_revision` equals the immutable `artifact_id`, source `revision_id`, or resource `version` for the respective kind; `source_digest` equals that ref's digest. These redundant fields cannot select another revision. This is an unshipped contract correction, not a data migration or string-ref compatibility path.
 
 ## Resolution
 

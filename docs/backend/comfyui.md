@@ -4,6 +4,8 @@ Status: **Provider/service design**
 
 ComfyUI is a first-class local or remote render backend. A large deterministic ComfyUI graph appears to Kinodel as one provider workflow with typed inputs, outputs, and capability metadata.
 
+Local projects remain in SQLite/files; registration uploads neither chats nor projects. Local direct ComfyUI imports an authorized output file or native `/view` download, verifies path/ownership/job/unit/size/type/digest and publishes managed candidate files plus DB metadata; no hosted order auth or bucket upload. Provider-neutral AssetRef/RenderResult does not make local paths trusted. Remote Kinodel compute receives only selected authorized job payload, stores order metadata in PostgreSQL and workflow/input/output in private GCS. All declared remote outputs upload/verify before success; lifecycle stays 365 days. MVP service order logs/durable identities have no scheduled deletion; final retention is #todo, workflow/input/prompt-body policy separate. Remote signed URLs are transient and import verifies bytes/order/unit/generation at the project owner; browser-hosted managed files stay server-side. Paid generated downloads have no arbitrary quota, technical validation/timeouts remain. Only review/promotion advances production. Proposed [hosted order DTOs](physical-dtos.md#endpoint-wire) are not native ComfyUI routes; see [Q2/Q6/Q16](../database/open-questions.md).
+
 ## Contract
 
 Creative agents produce provider-neutral image/video/audio intent. The ComfyUI adapter owns:
@@ -37,6 +39,18 @@ This is a deterministic adapter rule, not an LLM provider choice or a claim that
 Freeze effective profile versions/digests with exact Brief approval. Render resolves that pinned binding and checks readiness without upgrading or reselecting on retry. Unavailable pinned configuration blocks execution. Concrete defaults, workflow registrations, supported values, executable resolver/validators, and integration checks remain pending; this page invents none.
 
 ## Workflow Submission
+
+## Audited Workflow Profiles
+
+Audited 2026-09-09 from the bundled API-format JSON files. Node IDs/classes are fixture evidence, not verified endpoint capabilities.
+
+| Profile candidate | Job | Semantic input nodes/fields | Output | Blockers |
+|---|---|---|---|---|
+| `krea2-txt2img` | image text-to-image | prompt `864.text`; dimensions `854.width/height`; sampler `856.seed/steps/cfg/denoise` | `851.images` and `853.image` | custom KJ/rgthree/Crystools nodes, model names, and actual links/capabilities must be verified |
+| `krea2-img2img` | image reference edit | source `879.image`; resize `866.image/width/height`; prompt `876.prompt`; edit controls `875.ref_boost/ref_boost_a/fit_mode` | `873.images` and `874.image` | custom Krea/Ostris/KJ nodes, models, URL input policy, links, and output MIME are unverified |
+| `minimax-h3-ref2vid` | reference-to-video | prompt/size/length `136.prompt/width/height/length`; refs `136.ref_images.ref_image_0/_1`; source images `147/148` | `157.images`; optional interpolation `158.frames` | MiniMax/VHS/RIFE/custom nodes, audio policy, duration, and output shape are unverified; not first-slice eligible |
+
+These are audit leads, not registered profiles. The adapter must validate API graph shape, links, installed node schemas, model availability, output MIME, and endpoint execution before freezing a profile. No numeric capability or seed mapping is claimed from editor JSON alone.
 
 The requested integration is an HTTP submission of `workflow.json` to ComfyUI. No custom webhook is configured or specified yet. Native local ComfyUI already provides `POST /prompt`: send a JSON body `{"prompt": <resolved API-format node graph>, "client_id": <persisted client identifier>}`, not a filename, multipart workflow upload, or editor-format `nodes`/`links` document. Record the returned `prompt_id`; inspect `GET /queue` and `GET /history/{prompt_id}`, then fetch declared outputs through `/view`. WebSocket events are optional progress hints, not durable completion. Cloud/proxy paths and authentication must be verified for the deployed endpoint rather than copied from local examples.
 

@@ -29,6 +29,12 @@ Unavailable pinned source/version или mismatch блокирует опера�
 
 ## Производный поиск, позже
 
+Private wiki принадлежит локальному владельцу либо hosted account/workspace, не одному execution: доступную страницу можно явно выбрать в другом своём проекте. Local index остаётся локальным и опирается на OS/data-root boundary без обязательного Kinodel login. Hosted private corpus логически изолирован account/workspace ACL; отдельная физическая БД на пользователя не требуется. Public index содержит только разрешённые public resources, не private passages с флагом «спрятать в ответе».
+
+Это принятая граница: SQLite/files/index local, PostgreSQL/private storage hosted; signup не запускает upload или indexing локальных данных на сервере. Personal wiki/taste и CinemaChunk не попадают в prompt автоматически. Public wiki выбирается по exact owner-published GitHub release snapshot/revision/digest, не по плавающему latest.
+
+Авторизация ограничивает corpus до поиска и до раскрытия titles/snippets/counts; повторяется при hydration, цитировании и выдаче media, включая cached results. Отзыв/удаление блокирует canonical resolution сразу и инвалидирует index/cache/projections, не ждёт планового reindex для запрета доступа. Endpoint не получает доступ к wiki/index целиком: приложение передаёт только выбранный authorized payload. `@` не выдаёт права и не запускает рекурсивный обход ссылок.
+
 | Предлагаемая запись | Минимум | Восстановление |
 |---|---|---|
 | Retrieval passage | Exact source kind/ID/revision, heading/locator, excerpt/content hash, modality/assets, chunker version | Перестроить из разрешённого source snapshot |

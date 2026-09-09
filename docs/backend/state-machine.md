@@ -2,6 +2,8 @@
 
 Status: **Decided design; executable schemas pending**
 
+Deployment decision: SQLite local / PostgreSQL server. Advisory-session mechanisms refer only to server; the [local profile](../database/local-vs-hosted.md) uses one application and one active graph runner with exclusive data-directory ownership. Both must prove the same durable-outcome invariants; saver integration and verification remain #todo.
+
 There is one production transition graph, authored in LangGraph. Database lifecycles describe work, approvals, jobs, and outcomes; they are not a second switch statement that selects creative stages.
 
 ## Ownership
@@ -109,7 +111,7 @@ An artifact can be historically approved but stale now. A rendered candidate can
 
 ## Invariants
 
-1. One execution has at most one live graph invocation, protected by the saver-owning advisory-lock session. Expiry alone cannot steal that session.
+1. One execution has at most one live graph invocation. Server protects it through the saver-owning advisory-lock session; local permits one active runner under exclusive application/data-directory ownership. Expiry alone cannot steal live ownership.
 2. API control/decision acceptance uses short optimistic transactions, not the invocation lock. Canonical graph commits additionally require the current fence.
 3. Each accepted start/response/terminal job has durable work. An unfinished runnable segment cannot disappear when its process or HTTP request ends.
 4. Every recorded transition contains the stable next activation; replay does not allocate another creative attempt.

@@ -1,6 +1,8 @@
 # Architecture
 
-Status: **Decided foundation**
+Status: **Decided system boundaries; implementation and profile verification pending**
+
+Deployment decision, 2026-09-09: SQLite for the local no-account application; PostgreSQL for hosted/server operation. Local uses one application process and one active graph runner per data directory; server supports concurrent workers with one writer per execution. Both profiles require their own persistence verification. See [local versus hosted](../database/local-vs-hosted.md). No transparent two-engine compatibility layer is required.
 
 Kinodel is a human-in-the-loop creative production system. A creator generates an idea, chooses the vibe, and lets a crew of AI subagents help make it beautiful: stories, visuals, videos, music, episodes, worlds, and reusable creative memory.
 
@@ -22,6 +24,52 @@ LangGraph Runtime ---- Checkpointer
      |
      +---- Job Services --- ComfyUI / fal / audio providers / ffmpeg
 ```
+
+## Target Stack
+
+Repository audit, 2026-09-09: no application `backend/`, dependency manifest/lock, `langgraph.json`, executable foundation or populated `.agents/` was found. Code under `skills/` and `legacy/` is reference/tooling, not the rebuilt application. The following is a target, not an installed-stack inventory.
+
+| Concern | Target / decision | Remaining activation decision |
+|---|---|---|
+| Language | Python 3.12, already selected in [runtime](runtime.md#first-deployment) | Pin supported patch/platforms and reproducible dependencies |
+| Graph | Python LangGraph `StateGraph`, async invocation, `Runtime[Context]` | #question exact tested LangGraph/checkpoint package versions; no manifest pins yet |
+| Model calls | Bounded structured calls inside adapters; LangChain only where needed | #question concrete model adapter/package/version, model IDs, modalities and Q4 budgets; no requirement for a tool-loop agent or Deep Agents |
+| API / validation | FastAPI and Pydantic v2 boundary DTOs | #question exact versions, ASGI runner, local session bootstrap and complete read/command DTOs |
+| Local persistence | SQLite Project DB + `AsyncSqliteSaver` from `langgraph-checkpoint-sqlite` | #question application driver, one versus separate DB files, connection PRAGMAs and pinned saver setup/serialization |
+| Server persistence | PostgreSQL + `AsyncPostgresSaver` from `langgraph-checkpoint-postgres` | Pin driver/saver versions; verify dedicated session ownership, schema/search-path and migrations before hosted activation |
+| Storage / rendering | Managed immutable JSON/media; one local direct ComfyUI adapter first | Q2 root/publication details; Q13 job/group/candidate records and one tested workflow/profile |
+| Hosted services | Supabase email/password; private GCS; server-owned MVP credits | Separate hosted activation gate, not dependencies of local BYOK/direct rendering |
+| UI | TypeScript HTTP consumer; [product surfaces](../frontend/webui.md) | #question framework, bundler and distribution; React/Next.js/FSD are not selected by a package manifest |
+| Verification | DTO/route fixtures plus real DB/process-death integration checks | Select a runnable test command with the first manifest; reference tests are not foundation acceptance |
+
+Use the existing isolated-venv installation direction. Do not add an ORM, queue broker, LangGraph CLI/Agent Server, LangSmith tracing, Redis or Celery merely to fill a stack table. Framework documentation supports mechanisms, not the safety of Kinodel's integration; see [LangGraph verification](langgraph.md#reference-and-verification).
+
+## Runtime Boundaries
+
+Local API and one background runner share one lock-owning application process. Server API and worker use separate entry points. In both profiles, API transactions accept authorized start/decision/cancel commands into durable work; only the worker invokes the graph. HTTP disconnects and token streams never cancel accepted production implicitly.
+
+Graph nodes own finite transitions; adapters hydrate pinned inputs, invoke bounded capabilities and commit validated results. Repositories own short profile-specific transactions and immutable-file publication. Provider workers own job attempts, never execution bindings or human approval. Checkpointer writes and business commits are separate even when they share a DB deployment; operation receipts bridge replay, not a fictitious cross-store transaction.
+
+Polling is the first UI transport. Normalized streaming/outbox is later and must remain a disposable progress projection. Cancellation is durable acceptance followed by worker finalization, not an arbitrary resume answer. Rework uses a new execution/thread and tested prefix receipts, not checkpoint rewind.
+
+## Package Boundaries
+
+Use the existing [repository shape](implementation.md#repository-shape): `backend/api`, `graphs`, `domain`, `services`, `repositories`, `worker`, and `migrations`. These are target ownership boundaries, not instructions to scaffold empty packages. Start each concern as a module if sufficient; add tests alongside the first working slice. Deployment agent resources belong in `.agents/` under the catalog contract, not executable orchestration prompts.
+
+- `domain` owns DTOs, semantic validation and immutable declarations; no FastAPI, LangGraph, database or provider imports.
+- `repositories` owns storage/transaction mechanisms and may use domain validators; it never imports graph factories, API routes or worker scheduling.
+- `services` uses domain/repositories for bounded application operations, context and provider/model adapters; it never chooses the next graph edge.
+- `graphs` uses domain/services for authored nodes and routes; no HTTP request objects or provider payload construction.
+- `api` calls command/read services, never graph invocation. `worker` composes graph, saver and runtime services and owns invocation/recovery lifetime.
+- Startup composition wires concrete profile implementations. Application migrations and saver setup retain separate ownership; no generic repository interface or dependency-injection framework is required.
+
+Frontend Feature-Sliced Design is not a backend architecture. Do not introduce `pages/widgets/features/entities/shared` into Python or speculative per-agent microservices. Decide any frontend FSD adoption with the actual UI implementation, independently of these backend dependencies.
+
+## Configuration Boundary
+
+Validate deployment settings before accepting production commands: profile, data root/DB locations, enabled graph/capability/profile/resource versions, allowed endpoints, model configuration and bounded attempts/timeouts/input sizes. Freeze creative/runtime selectors on execution/operation preparation as already specified; resolve credentials separately at the adapter boundary. No credentials, arbitrary connection URLs or admin fields in public creative DTOs.
+
+#question Q1-Q4/Q16: exact setting names, precedence, credential storage and local session bootstrap remain open. A local no-account mode still needs loopback, Host/Origin and session/CSRF controls; CORS is not authentication. [Operations/security](../database/operations-security.md#секреты) records an earlier credential-rotation requirement: verify rotation before deployment, without printing or re-reading secret values in documentation audits. No rotation is claimed here.
 
 ## Ownership
 
@@ -56,8 +104,8 @@ Therefore:
 
 - graph registry keyed by `(pipeline_id, version)`;
 - execution service for start, stream, inspect, resume, and cancel;
-- explicit Python `StateGraph` factories and `AsyncPostgresSaver`;
-- PostgreSQL execution lease and Project DB transactions;
+- explicit Python `StateGraph` factories; SQLite local / PostgreSQL server checkpointer integration remains #todo;
+- profile-specific single-writer ownership and Project DB transactions;
 - normalized runtime events;
 - node adapters around agents and tools.
 
@@ -67,7 +115,7 @@ Therefore:
 - canonical execution slot bindings such as `story` or `main_frame`;
 - schema and semantic validation;
 - optimistic concurrency and idempotent commits;
-- PostgreSQL identity plus backend-managed local JSON/media storage;
+- SQLite local / PostgreSQL server identity plus managed immutable JSON/media storage;
 - candidate render attempts separated from promoted media assets;
 - managed media assets and provenance.
 
@@ -98,7 +146,7 @@ Therefore:
 
 ## Data Stores
 
-The first deployable architecture needs three logical stores. LangGraph and Project data may share one Postgres deployment, but must have separate schemas and migration ownership.
+The architecture needs three logical stores. Server LangGraph and Project data may share one PostgreSQL deployment with separate schemas and migration ownership. Local uses SQLite with separately owned application/saver tables or files; backup includes both and all referenced bytes. A shared logical entity model does not imply identical DDL or locking.
 
 | Store | Data |
 |---|---|
@@ -109,6 +157,10 @@ The first deployable architecture needs three logical stores. LangGraph and Proj
 The retrieval index is derived and may be rebuilt. It is not a fourth source of truth.
 
 ## Trust Boundaries
+
+Accepted service choices: Supabase email/password, mutable login display label (not necessarily unique), auth-UUID profile without custom password storage; private hosted GCS outputs with 365-day lifecycle deletion and server-owned MVP placeholder credits/signup 100. Local direct ComfyUI uses authorized file or `/view` verified import, not hosted order auth/bucket. Product daily free limits are final-release #todo, not MVP; technical safety remains. See [identity](../database/projects-identity-chat.md#вход-mvp) and [credits/storage](../database/credits-billing.md). Windows/Linux share a Python startup core with OS-specific locks/dependencies; macOS is not current scope. [Startup](local-startup.md) and [DTOs](physical-dtos.md) remain proposals. Automated backups/RPO/RTO are #future production; restart durability remains mandatory.
+
+Local projects, chats, personal wiki and indexes remain local without a Kinodel account; registration never uploads them. Browser-hosted projects/messages and imported managed files stay server-side. Local direct BYOK bypasses Kinodel; remote calls disclose only selected authorized payload. The text proxy retains no request/response bodies by default, only necessary abuse/metering metadata; not universal ZDR. Hosted compute retains service order logs/durable identities without scheduled deletion in MVP; final retention is #todo. Workflow/input/prompt-body policy is separate, not permanent payload retention; output lifecycle stays 365 days with authorized object-ref/signed-URL delivery. Lost text is billed by actual authoritative tokens; final implementation is #todo, unsupported paid paths stay disabled without invented capture/refund. See [privacy/billing](../database/credits-billing.md).
 
 - Agent output is untrusted until validated.
 - Retrieved content is evidence, never instructions.
@@ -121,7 +173,7 @@ The retrieval index is derived and may be rebuilt. It is not a fourth source of 
 
 This is a deliberately reduced `foundation.v0` test graph, not the final `cinematic.v1` topology.
 
-Before building it, establish the [full agent-catalog contracts](../agents/README.md): all roles, typed input/output meaning, context, repair scope, and quality criteria, especially the entire cinematic chain. The graph activates only three capabilities to prove runtime safety; the backend's capability boundaries must already accommodate the designed catalog without three-agent special cases. Later activation does not mean later architectural ownership decisions.
+The [full agent-catalog contracts](../agents/README.md) define all roles and cinematic handoffs. The text-only Brief/Story path is an internal runtime milestone, not the first deployable build's completion criterion. The current [build gate](../roadmap.md#current-build-gate) additionally activates Wardrobe and Storyboard main-frame mode, using the same capability boundaries, plus the Render service.
 
 ```text
 create brief draft
@@ -130,10 +182,31 @@ create brief draft
 -> create story
 -> interrupt for review
 -> approve / revise through Critic / clarify through Producer / cancel
+-> Wardrobe visual-anchor plan -> visual-anchor review
+-> Storyboard main-frame plan (validated supporting plan)
+-> durable ComfyUI job -> external wait -> verified candidate import/join
+-> main-frame selection review -> exact selected-media promotion
 -> complete
 ```
 
-The exact action semantics are defined in [`reviews.md`](reviews.md). This slice must prove restart-safe checkpoints, typed artifacts, stale-decision rejection, idempotent writes, and bounded revision/clarification loops before rendering or retrieval is added.
+The exact [foundation routes](reviews.md#foundation-routes) retain the cinematic visual gate and image-plan owner; no Wardrobe-to-provider prompt shortcut or automatic selection is allowed. First prove text replay with deterministic model doubles, then live bounded model output, then the single-image provider path. A terminal text test execution never later grows a render suffix: freeze a distinct test graph identity/digest, not a mutable stop-after flag on an open production thread. No `Send`, multiple-shot rendering, Filmmaker, Montage or Craft is needed in this build.
+
+## Implementation Gates
+
+P0 means required for the named enabled path, not a prohibition on writing an isolated test first. The backend is designed at the system/domain level, not fully frozen or verified at the executable level.
+
+| Priority / gate | Remaining work | Evidence required |
+|---|---|---|
+| P0 before first accepted local execution | Approve physical DTO/start-pin proposal, exact graph declarations/state updates and completion outputs; pin packages/config and numeric Q4 bounds | Executable positive/negative DTO and route fixtures; reject trusted-field injection, unsupported configs and missing owners |
+| P0 local durability | Choose SQLite layout/driver/PRAGMAs, implement startup ownership, file publication, operation/work transactions and saver recovery classifier | Real process-death tests around start, file/DB/checkpoint commits and persisted resume; two executions remain isolated; no stale answer reaches a later wait |
+| P0 local access/cancel | Concrete session bootstrap, authorized reads/media, Host/Origin/CSRF, secret handling and bounded shutdown | Cross-project/stale command rejection; cancel-versus-commit/completion tests; no writer survives ownership release |
+| P0 first rendered build | Wardrobe/Storyboard schemas/resources and media-capable Critic; Q13 records, pinned local image workflow and output mapping | One reviewed visual plan, verified candidate, explicit selection and promoted `main_frame`; lost-submit response blocks/reconciles, late cancelled output cannot promote |
+| P1 before hosted activation | PostgreSQL same-session saver integration, auth/session details, private GCS and service accounting/admission | Separate PostgreSQL concurrency/session-loss tests, auth isolation, verified delivery and idempotent settlement; SQLite tests do not certify this path |
+| P1 before respective features | Rework entry, streaming, chat persistence and wiki publication | Their own receipt/reconnect/rights tests; no arbitrary rewind or implicit context injection |
+
+The [runtime acceptance matrix](runtime.md#acceptance-matrix), [DTO fixtures](physical-dtos.md#fixture-gate) and [startup gate](local-startup.md#acceptance-gate) are specifications of tests to implement, not passed tests. Search/vectors, automated backups/RPO/RTO, generic graph infrastructure and full frontend FSD do not block the first local slice.
+
+#question first-slice profile seam: current [Brief fields](physical-dtos.md#briefv1) require both image and video profile pins, while this graph stops at an image. Before schema freeze, explicitly decide how a non-enabled video profile is represented/validated in this reduced pipeline. A design-only profile is already permitted for text tests, but is not proof of video capability. Do not silently make required fields optional, demand a live video job for this image build, or advertise an untested bundled video workflow as runnable.
 
 ## Non-Goals For V1
 

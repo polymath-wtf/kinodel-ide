@@ -4,13 +4,25 @@
 
 ## Размещение без второго владельца
 
-Project DB и LangGraph могут использовать один PostgreSQL deployment с отдельными schemas и migration ownership. Local dev и production являются разными окружениями, не двумя синхронизируемыми владельцами одних live projects. Один API и один worker достаточно для foundation; библиотека/платежи не требуют другого DB engine.
+Принято: SQLite local / PostgreSQL server. Серверные Project DB и LangGraph могут использовать один PostgreSQL deployment с отдельными schemas и migration ownership, с конкурентными workers и одним writer на execution. Локальная установка без аккаунта Kinodel использует одну application и один active graph runner под exclusive data-directory ownership; [local-first](local-vs-hosted.md) задаёт ограничения. Обе checkpointer integration #todo.
 
-Supabase является возможным размещением PostgreSQL с дополнительными Auth/Storage, не обязательной отдельной «базой пользователей». При его выборе auth identity может связываться с прикладным профилем через `auth.users`; профиль не заменяет login и project permission. Систему входа выбираем отдельно от движка. Чужую auth schema не мигрируем как свою.
+| Принятый профиль | Где живёт проект | Что находится за удалённой границей |
+|---|---|---|
+| Локальное приложение из GitHub | SQLite, managed files, сообщения, private wiki/RAG | Local ComfyUI, прямой BYOK или Kinodel endpoint. Регистрация не загружает проект/чаты/wiki |
+| Полное hosted-приложение | Серверная БД и storage, включая проекты и сообщения; PostgreSQL baseline | Provider jobs; браузерный cache не canonical store |
+| Kinodel SaaS endpoint вычислений | Хранит собственные заказы, входы/результаты по retention и расчёты MVP credits; реальные платежи позднее, не копию Project DB клиента | Возвращает результат заказа. Локальный adapter проверяет и импортирует его как candidate; approval и promotion остаются у владельца проекта |
 
-Worker saver требует одной lock-owning DB session через все checkpoint writes. Direct connection или проверенный session-preserving режим рассматриваются для него; transaction pooling не подменяет эту гарантию. Короткие API транзакции могут иметь другой connection path. Никакой тариф/network/pooler конкретного deployment ещё не проверен.
+Для hosted-приложения рекомендуем общую Project DB с проверкой project ownership, не DB-per-user. Локальная БД и БД endpoint принадлежат разным владельцам фактов, не синхронизации фильма. Если endpoint и hosted app размещены вместе, отдельная БД только ради названия сервиса не нужна. Оба пользовательских режима подтверждены; Q1/Q16 уточняют упаковку и transport.
+
+При переносе live проекта старый worker прекращает владение до включения нового. Local/cloud sync и две writable копии не входят в требование. Engine выбран; Q1 уточняет packaging/OS ownership. PostgreSQL session-lock правила ниже относятся только к серверному профилю.
+
+Supabase email/password выбран для пользователей; регистрация включает login как mutable display label без обязательной уникальности. Auth UUID связывается с actor/profile, имя не credential и не project permission; custom auth/password table не создаём. [Q3](projects-identity-chat.md#вход-mvp) уточняет sessions/verification/recovery. Это не выбор Supabase Storage: hosted endpoint outputs находятся в private GCS, local direct ComfyUI bucket не требует. Чужую auth schema не мигрируем как свою.
+
+Server worker saver требует одной lock-owning DB session через все checkpoint writes. Direct connection или проверенный session-preserving режим рассматриваются для него; transaction pooling не подменяет эту гарантию. Короткие API транзакции могут иметь другой connection path. Local saver работает под ownership приложения, без эмуляции PostgreSQL sessions. Никакой тариф/network/pooler конкретного deployment ещё не проверен.
 
 ## Доступ по роли процесса
+
+Без аккаунта локальный владелец определяется установкой/OS user и правами data root. Local API доступен только на loopback, проверяет Host/Origin и локальную session/CSRF защиту; CORS один не auth. Отсутствие центрального аккаунта не означает публичный unauthenticated API. Публикация в LAN/интернет требует отдельного auth решения. Hosted и endpoint получают actor из проверенного Supabase входа; anonymous browser mode запрещён.
 
 | Участник | Необходимое право | Чего не получает |
 |---|---|---|
@@ -27,15 +39,25 @@ Worker saver требует одной lock-owning DB session через все 
 
 Credentials остаются в разрешённом secret store/config, в DB только safe binding/reference. Даже restricted audit payload не должен содержать Authorization headers/token/query secrets. Логи используют operation/job/actor IDs и безопасные причины, а не всю prompt/chat/media body. Пользовательский URL не разрешает SSRF или обход egress policy.
 
+## Секреты
+
+`OPENROUTER_API_KEY` был обнаружен в workspace `.env`; его необходимо ротировать до любого deployment. Значение не публикуется в документации, логах или ответах агента.
+
 ## Миграции
 
-Deployment один раз выполняет Project DB migrations и отдельно saver setup; не на каждом graph call. Сохраняются tested versions графа, schemas, capabilities, profiles и projection/resources, нужные открытым executions. Changed graph digest блокирует resume вместо silent upgrade. Новые индексы/constraints проверяются на реальных access paths, не добавляются на каждый JSON field.
+Каждый startup проверяет версии Project DB и совместимость actual saver schema с pinned package. Local получает OS ownership до DB open/setup; до первого saver call проверяются integrity и required tables existing store, чтобы auto-setup не скрыл потерю таблиц. Штатный внутренний idempotent setup SQLite saver, включая DDL, разрешён после preflight; это не per-call application migration и не требование custom saver/выдуманного migration journal. Fresh install инициализируется автоматически, existing-data upgrade требует явного maintenance действия; потерянная БД не пересоздаётся рядом с существующими проектами. [Протокол запуска](../backend/local-startup.md) задаёт venv/version/lock/shutdown порядок. Сохраняются tested versions графа, schemas, capabilities, profiles и projection/resources, нужные открытым executions. Changed graph digest блокирует resume вместо silent upgrade. Новые индексы/constraints проверяются на реальных access paths, не добавляются на каждый JSON field.
 
-#todo До rollout: fresh install, upgrade с существующим paused execution, отказ incompatible graph, доступ runtime roles без DDL/admin. Rollback кода не должен читать уже несовместимый формат; выбрать проверенную forward fix/restore процедуру с сохранением creative truth.
+#todo До rollout: fresh install, upgrade с существующим paused execution, отказ incompatible graph, server runtime roles без migration DDL/admin; local SQLite допускает штатный saver setup после preflight. Rollback кода не должен читать уже несовместимый формат; выбрать проверенную forward fix/restore процедуру с сохранением creative truth.
 
 ## Backup и restore
 
+**Обновлённый scope: автоматические backups, RPO/RTO, расписание/retention копий и disk-loss drills отложены пользователем до production (#future).** Следующие абзацы описывают требования будущего backup/restore и полного ручного переноса остановленной установки, а не обязательную MVP-подсистему. Restart durability и сохранение принятых команд после process death обязательны сейчас. Без независимой копии потеря диска может уничтожить всю локальную работу; год GCS outputs не восстанавливает local DB, чат или approvals.
+
 Нужна согласованная recovery point для Project DB, checkpoints/pending writes, всех referenced immutable bytes, source/wiki revisions и versioned resources/code. Индекс можно пересоздать. Backup БД не включает media автоматически, в том числе в Supabase Storage.
+
+Полный локальный backup с переносом на другую машину подтверждён. Минимум: вся установка данных одного engine profile, не конвертация СУБД. SQLite backup согласует WAL и saver writes; при нескольких DB files нужны все. Секреты подключаются безопасно отдельно, plaintext ключи не входят в обычный экспорт. Формат ещё Q20.
+
+Принятый переносимый data directory включает SQLite Project DB, saver DB/tables и pending writes, referenced files/wiki/source revisions и manifest совместимых code/schema/resource versions. Restore разрешён только на совместимом профиле с выключенными effects до проверки и reconciliation; вторую writable копию не запускают. Копирование live `.db` без согласования WAL/saver не считается backup. Remote endpoint хранит order/workflow/input/output/audit отдельно в private storage; локальная копия не откатывает его заказы и не обещает вернуть уже purged удалённые результаты.
 
 Для первого одного worker рекомендуем простой maintenance backup: остановить приём mutating commands/claims, завершить или безопасно остановить bounded работу и saver writes, приостановить GC, снять согласованные копии DB/files и manifest versions/digests. Более сложный online coordinated backup нужен только при требовании доступности; #question Q5 определяет допустимый простой и способ копирования. Внешние provider jobs не откатываются вместе с DB snapshot и после restore требуют reconciliation.
 
@@ -45,9 +67,11 @@ Deployment один раз выполняет Project DB migrations и отде�
 4. Проверить auth/secret bindings без копирования production credentials в dev; unknown external/payment outcomes сверить перед новым submit/grant.
 5. Только затем включить worker reconciliation. Потерянные bytes блокируют зависимые executions, а не генерируются заново под прежним ID.
 
-#question Q5/Q6: выбрать носитель/доступ к deletion records, независимый от откатываемой копии, backup retention и RPO/RTO. Здесь не обещается нулевая потеря данных или мгновенный takeover. #todo Испытать disk-loss restore и измерить фактические потерю/время.
+#future production Q5/Q6: выбрать носитель/доступ к deletion records, независимый от откатываемой копии, backup retention и RPO/RTO. Здесь не обещается нулевая потеря данных или мгновенный takeover. Disk-loss restore с измерением потери/времени не блокирует MVP.
 
 ## Удаление
+
+MVP service order logs и durable order/request/settlement identities не удаляются по расписанию; окончательная retention/tombstone policy #todo финального релиза. Это не permanent storage всех payload: output lifecycle остаётся 365 дней, workflow/input/prompt bodies имеют отдельную policy. Pre-order orphan cleanup с ownership/live-pin checks остаётся необходимым. Product daily free limits отложены; paid generated downloads без произвольной quota, но technical size/validation/timeouts обязательны. [Billing](credits-billing.md) сохраняет MVP credits/signup 100 и принятую actual-token оплату lost text; без надёжного usage/reconciliation платный path выключен, не capture/refund по догадке.
 
 | Действие | Что означает | Чего не означает |
 |---|---|---|

@@ -2,6 +2,8 @@
 
 Status: **Decided foundation**
 
+Deployment decision: SQLite local / PostgreSQL server; Project DB ownership is independent of engine and both integrations remain #todo. [Earlier-stage rework](../database/artifacts-media.md#возврат-к-раннему-этапу) is accepted as a new execution in the same project from an exact immutable prefix, not permission to bypass invalidation or rewind arbitrary checkpoints. Entry routes and reuse DTO implementation remain #todo.
+
 Artifacts are validated creative truth. A checkpoint says where an execution is; an artifact says what it produced.
 
 ## Principles
@@ -170,7 +172,7 @@ projects/<project_id>/
   runtime-audit/<job_id>/...
 ```
 
-These are managed storage URIs, not a user-editable state protocol. The backend creates every path, verifies hashes, and never lets an agent scan or write arbitrary project files. JSON lives beside project media for inspection and export, while PostgreSQL remains the authority for identity, current bindings, approvals, jobs, and provenance.
+These are managed storage URIs, not a user-editable state protocol. The backend creates every path, verifies hashes, and never lets an agent scan or write arbitrary project files. JSON lives beside local project media for inspection/export; the Project DB (SQLite local / PostgreSQL server) owns identity, current bindings, approvals, jobs and provenance. Hosted bytes stay on server. Kinodel endpoint order/workflow/input/output/audit use private object storage with authorized object-ref/signed-URL delivery; a URL never becomes canonical identity or uploads the local project implicitly.
 
 The prepared operation pins intended objects before file publication and keeps that protection through finalization or explicit abandonment. Stage validated bytes in a temporary file on the destination filesystem, flush and sync the file, then atomically publish the immutable destination without overwriting an existing object. An existing destination must match the expected hash; a mismatch is an integrity failure. Verify platform-specific no-overwrite publication and crash durability, including directory metadata durability where required, in the storage spike rather than claiming portable guarantees from rename alone.
 
@@ -206,7 +208,7 @@ Examples:
 
 Old revisions remain valid historical outputs. A slot may still point to its latest produced revision after an upstream change, but provenance validation marks that binding stale and prevents downstream consumption until the owning stage replaces it. History and stale previews therefore remain inspectable without pretending they satisfy current preconditions.
 
-Apply the same closure checks at input preparation, commit, review acceptance, and promotion. Obsolete pending reviews/jobs cannot advance production. Retain historical approvals, but require current validity before consuming them. Invalidation is not an automatic rewind: foundation/V1 only rebuild through declared repair paths; changing an approved ancestor outside that path requires a new execution with adjusted Brief/context. General reopen is deferred.
+Apply the same closure checks at input preparation, commit, review acceptance, and promotion. Obsolete pending reviews/jobs cannot advance production. Retain historical approvals, but require current validity before consuming them. Invalidation is not an automatic rewind: a change outside the current repair path creates a new execution in the same project. The accepted [prefix-reuse contract](../database/artifacts-media.md#возврат-к-раннему-этапу) requires explicit reuse confirmation, exact source receipts/closure and compatibility checks. Historical prefix closure is frozen as pinned evidence through a matching reuse receipt; new descendants depend on E2 bindings. Target/downstream outputs get new revisions and approvals; old outputs remain immutable for comparison. Until a tested authored rework entry exists, ordinary start still begins at Brief. Arbitrary rewind/merge remains out of scope.
 
 ## Minimal Schemas
 
@@ -218,6 +220,6 @@ Design the semantic contracts for the entire agent catalog before the first back
 - `VisualAnchorPlanV1`, `FramePlanV1`, `MotionPlanV1`, candidate-set records, `RenderResultV1`, `MontagePlanV1`, and `MontageResultV1` when cinematic rendering is added;
 - reusable chunk executable schemas when their pipeline is activated; their ownership/content contract is defined now.
 
-Do not build one universal artifact envelope that attempts to model every domain field.
+Do not build one universal artifact envelope that attempts to model every domain field. Field-level proposed candidate/body/ref/commit contracts are in [physical-dtos.md](physical-dtos.md); strict agent candidates contain no trusted metadata. Cross-execution reuse receipts and authored entry guards are in [rework.md](rework.md), with terminal-source-only recommended for the first activation.
 
 These are architectural contracts, not claims that executable schemas exist. Render consumes `FramePlanV1`, `MotionPlanV1`, or the later `MusicPlanV1` through deterministic adapters; no redundant universal `render_requests` artifact is needed. `SeasonPlanV1`, `SeasonMemoryDraftV1`, episode extensions, and audio-analysis fields have planned domain boundaries before the build; their executable implementations do not block the three-agent runtime test.

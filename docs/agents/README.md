@@ -38,7 +38,7 @@ Pipeline, project initialization, finalization, indexing, ALM analysis, provider
 
 Before the first backend build, define the input/output meaning, ownership, context, revision scope, and quality checks for **every catalog capability**, not only Producer, Storytell, and Critic. Cinematic is the complete reference chain. Muse/Season/Episode have architectural contracts now; their pipeline activation remains later.
 
-`foundation.v0` activates three capabilities to test runtime safety. It is not a three-agent backend architecture. Use the same invocation, validation, context, and revision boundaries for all capabilities; do not add a generic agent framework, stub agents, or live render dependencies just to register names. Contract design, executable schemas, packaged instructions, and passing model/runtime tests are separate readiness levels. These pages establish design, not the latter three.
+The internal text milestone activates Producer, Storytell and Critic to test runtime safety. The deployable `foundation.v0` [build gate](../roadmap.md#current-build-gate) additionally needs Wardrobe and Storyboard main-frame mode plus Render service, including visual-plan and candidate reviews. Use the same invocation, validation, context, and revision boundaries for all capabilities; do not add a generic agent framework or stub agents just to register names. Contract design, executable schemas, packaged instructions, and passing model/runtime tests are separate readiness levels. These pages establish design, not the latter three.
 
 ### Prepared Input
 
@@ -50,6 +50,10 @@ Every node adapter prepares:
 - stage mode, declared stable units, and provider-neutral capability constraints relevant to the task;
 - on repair, the previous exact owned output and `RevisionRequestV1`; media repair also includes the reviewed candidate set and relevant observations;
 - one declared typed output contract and its validation rules.
+
+### Attachments And `@` References
+
+The adapter resolves creator `@file`, `@@chunk`, `@@character`, and allowlisted `@prompt-engine` references before invocation. Attachments arrive as labelled typed projections with an alias, role, exact revision/digest, and authorized media handles. Agents may cite aliases, but never open paths, follow URLs, expand nested mentions, or treat attachment text as instructions. Binary files use authorized media inputs, never base64, arbitrary paths, or provider URLs. Missing/conflicting mandatory attachments block before the call. `ContextSelectionV1` stores selection/projection digests and retries reuse them exactly.
 
 The agent receives hydrated task bodies and labelled context/media, not DB handles to look up. IDs, digests, approval receipts, access decisions, and operation bookkeeping remain adapter-owned. Each mode uses its own typed input; no universal dictionary of optional fields. An empty optional context selection is valid, missing required inputs are not.
 

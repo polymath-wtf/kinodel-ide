@@ -36,6 +36,8 @@ approved source artifacts and selected assets
 
 Approval of a film or episode authorizes Craft to draft memory, but does not approve an unseen summary as future canon. The gate reviews that one candidate artifact; deterministic promotion updates its `chunk_binding`. Until then it is not available through `@@chunk` or pipeline-required context. Updating memory creates a new immutable revision; it never edits history in place.
 
+Film or memory approval does not authorize inferred global taste changes. Taste suggestions require [separate explicit user acceptance](../database/knowledge-wiki.md#lifecycle-и-приёмка); personal preferences stay private and are selected explicitly, not automatically updated or injected into every film. The `taste.md` filename/editor details remain open, not the approval requirement.
+
 Validation, freshness, approval, selection/promotion, and publication remain independent. Craft may inspect exact validated plans/timing analysis as supporting provenance, but result approval does not independently approve those artifacts or make planned intent a completed fact. The memory gate reviews new reusable claims. Promotion rechecks subject/activation/dependency closure, source approvals, rights, and expected chunk-binding revisions; it publishes only the reviewed bodies, never another model-generated summary.
 
 Memory revision follows Critic -> Craft -> the same gate. Critic `needs_input`/`out_of_scope` returns a new request for the unchanged candidate without calling Craft; rewriting approved production sources requires a new execution outside this repair path. A historical approval cannot authorize publication after source validity or rights fail.

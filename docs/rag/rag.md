@@ -51,6 +51,8 @@ Retain the useful LLM Wiki pattern:
 
 At modest scale, direct links, index navigation, and text search may answer many queries without vectors.
 
+Accepted scope: the public wiki is published through GitHub releases only by the Kinodel owner; selections pin exact release snapshot/revision/digest. Personal wiki/RAG and taste remain private and explicitly selected across authorized projects. Local data/indexes stay local even after registration; hosted data stays server-side. Restrict the corpus by ACL before retrieval, then reauthorize hydration/citation/media access, including caches. Public updates never replace pins. Compute endpoints receive only selected authorized payload, not whole-wiki access. CinemaChunk publication and taste suggestions require explicit user approval; film approval is neither. See [wiki lifecycle](../database/knowledge-wiki.md) and [retrieval permissions](../database/retrieval-context.md).
+
 ## Source Manifest
 
 Every source revision records stable source ID, revision ID, path/URI, MIME type, content hash, observed date, available author/date metadata, rights/sensitivity, superseded revision, status, and extractor version.
@@ -130,11 +132,11 @@ explicit user-selected refs
 -> consumer projection and context budget
 
 optional discovery branch:
-FTS -> optional vector search
+authorized corpus / current ACL filter -> FTS -> optional vector search
 -> reciprocal-rank merge
 -> deduplicate/group/diversify
 -> optional top-K rerank
--> same projection and context budget
+-> reauthorize exact sources on hydration -> same projection and context budget
 ```
 
 Do not use a universal cosine threshold as truth. Rank and evaluate against domain queries.

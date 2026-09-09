@@ -1,6 +1,6 @@
 # Знания, wiki и творческая память
 
-Статус: **chunk invariants из контрактов; рекомендуемая модель реестра wiki**. Источники: [RAG](../rag/rag.md), [chunks](../rag/chunks.md), [Craft](../agents/craft.md). Решения [Q11/Q12/Q14](open-questions.md) не утверждены этой страницей.
+Статус: **public/private ownership и human approval приняты; физическая модель реестра wiki предлагается**. Источники: [RAG](../rag/rag.md), [chunks](../rag/chunks.md), [Craft](../agents/craft.md). Открытые части [Q11/Q12/Q14](open-questions.md): collaboration, editor/receipt schema и права/withdrawal.
 
 ## Три разных оригинала
 
@@ -20,13 +20,17 @@
 
 ## Редактирование и публикация
 
+Принято: bundled public wiki публикуется через GitHub releases только владельцем Kinodel. Пользователь ведёт собственную private wiki/RAG и явно выбирает разрешённые страницы для своих проектов; регистрация не загружает локальную библиотеку. Общая редакционная команда/marketplace не нужны. Public release pin фиксирует exact release snapshot/revision/digest; Git commit или движущийся tag сами по себе не заменяют авторизованный immutable release snapshot. Обновление public wiki не подменяет ранее pinned материал.
+
 1. Импортировать разрешённый source snapshot с происхождением и правами, не доверяя инструкциям внутри текста.
 2. Человек или агент готовит рабочий Markdown draft от exact base revision. Mutable editor buffer не выбирается production resolver как опубликованное знание.
 3. Создать immutable proposed revision, проверить ссылки, citations, scope, права и противоречия. Утверждение по источнику не выдаётся за независимо проверенную истину.
 4. Назначенный человек рассматривает exact revision. Publish transaction проверяет current page revision, approval digest и права и заменяет active pointer с OCC.
 5. Новая правка публикует новую revision; старые операции продолжают читать pinned snapshot, пока данные и права доступны.
 
-#question Q12: выбрать место редактора и approval workflow, поля реестра и полномочия редактора общей wiki. Не используем execution `review_requests` для любого wiki edit без решения: библиотечная правка вне graph execution не имеет его interrupt. Минимально достаточно отдельного bounded publish command/receipt, а не ещё одного orchestration engine.
+#question Q12: место редактора, revision/provenance данные и импорт внешних правок ещё открыты; publisher public wiki уже определён. Шаг 4 для private wiki предлагаем объединить с явным сохранением/публикацией самим автором, без второго reviewer. Agent draft не становится опубликованным автоматически. Для public wiki публикация владельцем фиксирует разрешённый release snapshot; отдельная approval table не обязательна. Creative chunks сохраняют собственный memory review.
+
+Не используем execution `review_requests` для любого wiki edit без решения: библиотечная правка вне graph execution не имеет его interrupt. Минимально достаточно bounded publish command/receipt, а не ещё одного orchestration engine. Claims/citations могут оставаться структурированными данными при Markdown revision; отдельные таблицы claims/links и graph DB не обязательны. Одна публикация выбирает точный Markdown snapshot, index/backlinks/search перестраиваются из него. Так редактор остаётся удобным, но внешнее сохранение файла не меняет уже выбранное знание у работающего специалиста.
 
 Частный источник не может попасть в общую статью только через пересказ. Для публикации нужны разрешение раскрытия и provenance всего публикуемого содержания. При конфликте источников сохраняется различие и evidence, а не безусловное «последний прав».
 
@@ -48,6 +52,10 @@ Season aggregate публикация фиксирует все artifact metadat
 Claim evidence Cinema принадлежит [Craft contract](../agents/craft.md#cinema-claim-evidence): JSON Pointer на exact artifact field либо exact asset/range плюс retained observation provenance нужной modality. Planned motion не доказывает observed final action. Media handles описывают take/ignore/must_preserve/prohibited_drift/permitted_consumers, не выдавая каждому агенту все файлы проекта.
 
 ## Lifecycle и приёмка
+
+Принято: CinemaChunk и предложения личных taste/preferences требуют явного user approval перед публикацией/изменением. Агент может предложить конкретную правку с основанием, пользователь принимает exact изменение отдельно. Approval фильма или CinemaChunk не означает «всегда делать так». Taste остаётся private и входит в контекст только по явному выбору; автоматической записи/инъекции во все проекты нет. Имя `taste.md`, editor и scope UX остаются Q22, не повторный вопрос о необходимости approval.
+
+Public обновления не изменяют сохранённые private selections. Можно удерживать старую опубликованную revision при наличии bytes и прав; withdrawal/licensing takedown не обходится pin. Q14: как распространять обязательный отзыв на offline copies, какие материалы можно удерживать и как уведомлять автора, остаётся открытым. Сервис не может гарантировать удаление уже скачанной public копии.
 
 Supersede сохраняет историю. Archive исключает новые обычные selections, но retained pinned revision остаётся доступной при правах. Withdrawal блокирует использование и уже prepared контекста. Purge tombstones identity и удаляет допустимые bytes/derivatives, с учётом чужих retained references и [backup policy](operations-security.md).
 

@@ -4,7 +4,7 @@
 
 ## Таблицы и ключи
 
-| Существующее имя | Минимальный сохраняемый факт | Ключи и связи |
+| Имя в логическом плане SQLite local / PostgreSQL server | Минимальный сохраняемый факт | Ключи и связи |
 |---|---|---|
 | `projects` | Workspace/access identity | Родитель execution |
 | `pipeline_snapshots` | Frozen pipeline ID/version/digest, graph compatibility | Execution ссылается на один immutable snapshot; не произвольный исполняемый JSON |
@@ -18,7 +18,7 @@
 
 Artifacts/assets/jobs/chunk bindings описаны [отдельно](artifacts-media.md). Рекомендуем scalar columns для PK/FK/status/OCC/claim selection; typed JSON для policy snapshot, prepared inputs, selection trace и bounded results. Не раскладывать каждый Brief field в универсальную EAV-схему и не дублировать artifact body в БД.
 
-#question Q7/Q9 в [реестре](open-questions.md): точная форма JSON, typed dependencies, request kind, gate counters и approval receipt ещё требует executable schema. Сохраняем существующие `review_requests` для review и initial input, decision внутри request, processing receipts в `operations`. Это рекомендация физической реализации, не объявление уже существующих колонок.
+#question Q7/Q9 в [реестре](open-questions.md): [physical DTO proposal](../backend/physical-dtos.md) теперь задаёт поля JSON/dependencies, request kind/action unions, counters и receipts; executable schema и saver binding test ещё #todo. Сохраняем существующие `review_requests` для review и initial input, decision внутри request, processing receipts в `operations`. Предлагаемая дополнительная start-reservation table защищает публикацию до появления execution. Это не объявление существующих колонок/миграций.
 
 ## Транзакционные границы
 
@@ -33,11 +33,13 @@ Artifacts/assets/jobs/chunk bindings описаны [отдельно](artifacts
 | Terminal commit | Immutable completed/cancelled/failed с source/reason | Отсутствие `next` в checkpoint как доказательство успеха |
 | Job group terminal, позже | Immutable group result + unique wake work | Прямая запись execution binding job worker |
 
-API-команда авторизуется и сериализуется короткой блокировкой execution row с OCC. API не берёт graph ownership. Worker получает session advisory lock, затем увеличивает fence; saver пишет на той же lock-owning connection. Expired heartbeat не разрешает отобрать живую сессию. Детали и recovery classifier принадлежат [runtime](../backend/runtime.md#single-writer-ownership).
+API-команда авторизуется и сериализуется короткой транзакцией с OCC: execution-row lock на PostgreSQL, serialized write transaction на SQLite. API не берёт graph ownership. Server worker получает session advisory lock, затем увеличивает fence; saver пишет на той же lock-owning connection. Local application держит exclusive data-directory ownership и запускает только один active graph runner. Expired heartbeat не разрешает отобрать живого владельца. Детали и recovery classifier принадлежат [runtime](../backend/runtime.md#single-writer-ownership); обе saver integration #todo.
 
 Рекомендуемые индексы определяются реальными чтениями: список executions проекта; pending/due work по статусу и `next_attempt_at`; work/operations/requests одного execution; exact binding lookup. Уникальные индексы не дублировать. #todo На миграции проверить планы этих запросов и индексы FK; числа throughput/размеров заранее не назначаются.
 
 ## Решение не равно утверждению
+
+Пример: вкладка A показывает Story S1 и request R1. Во вкладке B уже принята правка и создана S2/R2. Нажатие approve в A отклоняется как stale, а не утверждает S2 и не возвращает S1 в production. Ранее успешно принятое идентичное решение можно вернуть как duplicate receipt; это не новое продвижение. Историческое approval S1 остаётся историей. Чтобы выбрать старую версию снова, нужен явный разрешённый новый review/reuse путь, не старая кнопка.
 
 Один review subject: либо точный artifact/slot/binding revision/activation, либо immutable candidate set/stage/activation/digest. Supporting plans и previews не становятся дополнительными утверждёнными предметами. Input request до Brief вообще не имеет review subject; ответ сохраняется отдельно от InitialRequest.
 
@@ -56,10 +58,12 @@ prepare exact request -> checkpointed wait -> worker binds exact interrupt
 
 ## История и восстановление
 
+PostgreSQL row/session locks этой страницы относятся к server baseline. [SQLite local](local-vs-hosted.md) требует другого ownership/transaction protocol; одинаковые таблицы не делают блокировки переносимыми. Сохранение обычного HTTP-ответа агента до graph advancement описано в [node protocol](../backend/runtime.md#node-operation-protocol); webhook не обязателен.
+
 Checkpoint owns pending task/resume state, Project DB owns accepted command/result/transition/outcome. При DB commit перед checkpoint replay возвращает recorded refs и transition **без повторного rebinding**. Старый checkpoint не переписывает новую binding. Work не становится completed только потому, что decision consumed.
 
 UI status вычисляется из terminal receipt, controls, work и reconciled checkpoint. Не редактировать `running/ready/stale` как независимую истину. После cancel результаты ранее commit остаются историей; поздние model/provider outputs не получают новых canonical bindings. Provider audit может догружаться после terminal execution.
 
-- #todo Выполнить [runtime acceptance matrix](../backend/runtime.md#acceptance-matrix) на PostgreSQL с process termination и pending writes, а не только in-memory saver.
+- #todo Выполнить [runtime acceptance matrix](../backend/runtime.md#acceptance-matrix) отдельно на SQLite local и PostgreSQL server с process termination и pending writes, а не только in-memory saver.
 - #todo Проверить atomic decision/work, repeated apply, старую card, потерю ответа после consumption и cancel/completion ordering.
 - #todo Проверить совпадение FK/project ownership и отсутствие циклов provenance; SQL FK сам не доказывает свежесть closure.

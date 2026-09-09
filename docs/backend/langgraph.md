@@ -8,7 +8,7 @@ Use Python LangGraph `StateGraph` for deterministic production routing, persiste
 
 Author `build_foundation_v0_graph()` first and `build_cinematic_v1_graph()` later. Keep stage declarations next to their factory; validate read/write owners, finite routes, required approvals and gate policy before registration. A registry maps the frozen pipeline ID/version/digest to tested code and schema versions. Existing threads do not silently run a changed factory.
 
-Build/compile with `AsyncPostgresSaver` bound to the invocation's dedicated lock-owning connection. Graph topology builders may be reused, but a cached compiled graph must not capture another invocation's saver or context. Use `InMemorySaver` only for unit tests. Saver setup is a deployment migration, not an operation on every startup.
+Server builds/compiles with `AsyncPostgresSaver` bound to the invocation's dedicated lock-owning connection. Local uses a SQLite saver under exclusive application/data-directory ownership and one active graph runner. Both checkpointer integrations remain #todo under the [runtime ownership contract](runtime.md#single-writer-ownership). Graph topology builders may be reused, but a cached compiled graph must not capture another invocation's saver or context. Use `InMemorySaver` only for unit tests. Schema upgrades have separate deployment migration ownership, not per-call application migrations. Upstream SQLite saver automatically invokes idempotent setup, including DDL; this is allowed after [startup preflight](local-startup.md#first-launch) validates existing-store integrity/tables and pinned-version compatibility before the first saver read/write. Missing tables must fail before auto-setup can recreate them. No custom saver or invented SQLite migration journal is implied.
 
 All invoke, state inspection and history calls use `thread_id = execution_id`. The worker supplies runtime repositories, provider adapters, authorization scope and current fence via `Runtime[Context]`. Only compact references enter the [checkpoint schema](state-machine.md).
 
@@ -22,7 +22,7 @@ All invoke, state inspection and history calls use `thread_id = execution_id`. T
 
 Use async APIs and `durability="sync"` so the next super-step waits for checkpoint persistence. Default asynchronous durability and exit-only persistence are not the foundation recovery contract. The worker classifies pending resume writes before sending a response again; see [runtime recovery](runtime.md#recovery-decision-table).
 
-The browser never supplies checkpoint IDs, internal interrupt IDs, or `Command`. Never use an initial-state dictionary, `Command(update=...)`, `goto`, or `update_state()` as a substitute for review resume. Debug time travel is not user revision: business side effects are not rolled back by a checkpoint fork. A public rerun uses a new execution with explicit source refs.
+The browser never supplies checkpoint IDs, internal interrupt IDs, or `Command`. Never use an initial-state dictionary, `Command(update=...)`, `goto`, or `update_state()` as a substitute for review resume. Debug time travel is not user revision: business side effects are not rolled back by a checkpoint fork. A public rerun uses a new execution with explicit source refs and [validated prefix receipts](rework.md). Current official time-travel docs were rechecked 2026-09-09: downstream calls and interrupts execute again; a fork is not application approval inheritance.
 
 ## Node Granularity
 
@@ -39,7 +39,7 @@ One node performs one bounded semantic step. Do not put generation, approval, Cr
 | completion | validate required outputs/approvals, commit terminal receipt, then `END` |
 | external submit/wait/join | separate nodes; no provider submission inside the wait node |
 
-Logical review routes are defined once in [reviews.md](reviews.md#foundation-routes). Each logical gate expands into `prepare -> wait -> apply`; no separate graph compiler is required. Foundation uses explicit brief/story instances of these ordinary node functions, not stateful agent subgraphs.
+Logical review routes are defined once in [reviews.md](reviews.md#foundation-routes). Each logical gate expands into `prepare -> wait -> apply`; no separate graph compiler is required. Foundation uses explicit brief/story/visual/main-frame instances of these ordinary node functions, not stateful agent subgraphs. The text-only milestone tests the first two gates before enabling the single-image suffix.
 
 ## Replay Rules
 
@@ -63,7 +63,7 @@ Product loop counters live in durable gate/operation policy. LangGraph recursion
 
 ## Fan-Out And Subgraphs
 
-No `Send` in foundation. With rendering, plan stable group/unit IDs and submit idempotent unit jobs. Workers return only keyed refs; the reducer accepts identical duplicates and rejects conflicts. The deterministic join checks every expected unit and plan order, then alone publishes the aggregate manifest/binding. Reset group state before a new activation so old results cannot satisfy a new generation.
+No `Send` in foundation: its one `main` image unit needs durable submit/wait/join, not parallel graph tasks or a reducer. With later multi-unit rendering, plan stable group/unit IDs and submit idempotent unit jobs. Workers return only keyed refs; the reducer accepts identical duplicates and rejects conflicts. The deterministic join checks every expected unit and plan order, then alone publishes the aggregate manifest; promotion owns the binding. Reset group state before a new activation so old results cannot satisfy a new generation.
 
 Provider duration belongs to durable jobs, not blocked Python tasks or one human interrupt per fan-out child. The parent waits once for the declared job group. Successful unit jobs survive a sibling's technical failure; a changed creative plan starts a new aggregate activation initially.
 
@@ -79,9 +79,11 @@ Read locally: `skills/LangGraph/langgraph-fundamentals/SKILL.md`, `langgraph-hum
 
 Official sources checked on 2026-09-07:
 
+Rechecked through official LangGraph documentation via Context7 on 2026-09-09: sync durability, exact interrupt-ID resume and time-travel replay. This documentation check selected no package version and executed no saver integration. CLI/local skill examples are reference mechanisms, not Kinodel startup or recovery acceptance.
+
 - [Durable execution](https://docs.langchain.com/oss/python/langgraph/durable-execution): replay and synchronous durability.
 - [Interrupts](https://docs.langchain.com/oss/python/langgraph/interrupts): same-thread resume, per-task resume values, one-interrupt node pattern.
 - [Persistence](https://docs.langchain.com/oss/python/langgraph/persistence): checkpoints and pending writes.
 - [AsyncPostgresSaver source](https://github.com/langchain-ai/langgraph/blob/main/libs/checkpoint-postgres/langgraph/checkpoint/postgres/aio.py): accepts a direct async connection, not only a pool.
 
-These sources support the design; they do not pin a deployed dependency or prove our wrapper. Before implementation acceptance, pin concrete packages and exercise the [runtime acceptance matrix](runtime.md#acceptance-matrix) against PostgreSQL, including connection loss, pending resume writes, cancellation, and process death. Do not introduce newer streaming/fault-handling APIs merely because the current docs advertise them.
+These sources support the design; they do not pin a deployed dependency or prove our wrapper. #todo Pin concrete packages and exercise the [runtime acceptance matrix](runtime.md#acceptance-matrix) separately against SQLite local and PostgreSQL server, including profile-specific ownership loss, pending resume writes, cancellation and process death. Backup/restore operations are #future production; manual transfer is a separate feature check. Do not introduce newer streaming/fault-handling APIs merely because the current docs advertise them.

@@ -21,7 +21,10 @@ This directory is the source of truth for the rebuild. It records decisions, con
 - LangGraph rules: [`backend/langgraph.md`](backend/langgraph.md)
 - ComfyUI boundary: [`backend/comfyui.md`](backend/comfyui.md)
 - Frontend: [`frontend/webui.md`](frontend/webui.md)
-- Database logical architecture: [`database/README.md`](database/README.md), [`database/open-questions.md`](database/open-questions.md), [`database/source-coverage.md`](database/source-coverage.md) (Russian; entities, transaction boundaries, lifecycle and source coverage; hosting/auth choices remain open, not SQL or a replacement for domain contracts).
+- Local bootstrap and process ownership: [`backend/local-startup.md`](backend/local-startup.md).
+- Physical candidate/body/review/service DTO proposal: [`backend/physical-dtos.md`](backend/physical-dtos.md).
+- Earlier-stage execution reuse: [`backend/rework.md`](backend/rework.md).
+- Database logical architecture: [`database/README.md`](database/README.md), [`database/local-vs-hosted.md`](database/local-vs-hosted.md), [`database/open-questions.md`](database/open-questions.md), [`database/source-coverage.md`](database/source-coverage.md) (Russian; Windows/Linux local SQLite / PostgreSQL server, Supabase email/password with login display label, private hosted GCS and MVP placeholder credits/signup 100 accepted; product daily limits deferred to final release; no SQL implementation).
 - Roadmap: [`roadmap.md`](roadmap.md)
 - Migration brief: [`refactoring.md`](refactoring.md)
 - Deferred feature notes: [`features/`](features/)
