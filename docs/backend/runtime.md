@@ -149,7 +149,7 @@ Each deployed stage declares timeout, max technical attempts, structured repair 
 
 ## Cancellation And Terminal Outcomes
 
-Cancellation acceptance is a short execution-row transaction independent of the invocation advisory lock. It records a deduplicated control and cancel work, and rejects further new decisions. The UI says `cancelling`, not `cancelled`. Every commit checks this same row; therefore a result committed before cancellation remains history, and a later business commit cannot pass the cancellation check.
+Cancellation acceptance is a short execution-row transaction independent of the invocation advisory lock. It records a deduplicated control and cancel work, and rejects further new decisions. The UI says `cancelling`, not `cancelled`. Every creative commit checks this same row; therefore a result committed before cancellation remains history, and a later creative artifact, approval, promotion, output binding or downstream activation cannot pass the cancellation check. Cancellation finalization, work settlement and restricted provider audit remain allowed.
 
 The active worker observes controls between bounded calls and before commits, stops scheduling effects, cancels local tasks, and best-effort cancels/reconciles provider jobs. Once it has stopped local production commits, it finalizes `cancelled` under execution ownership. A crashed worker's successor performs the same finalization. A hung invocation must release ownership through timeout/supervision first.
 
@@ -167,12 +167,14 @@ planner commits exact plan
 -> workers submit/reconcile units using job ownership
 -> one graph wait for the group, not an interrupt per unit
 -> group terminal result + unique wake work committed atomically
--> graph validates/join manifests -> candidate review -> promotion
+-> graph validates/join manifests -> candidate review (apply saves approved selection)
 ```
 
-The wait token is `{wait_id, stage_id, activation_id, request_digest}`. It is not an expected mutable provider job version. A fast result arriving before the wait checkpoint stays pending until recovery reaches that exact wait. A group with unfinished required units cannot publish a complete candidate set. Same-request technical retries preserve successful units; a creative aggregate revision starts new jobs under a new activation. Partial creative reuse is deferred.
+The wait token is `{wait_id, stage_id, activation_id, request_digest}`. It is not a mutable provider job version. A fast result before the wait checkpoint stays pending until recovery reaches that wait. Unfinished required units cannot publish a complete set. Technical retries preserve successful units. Anchor regeneration starts a new group activation for changed units and dependents, explicitly retaining unrelated unchanged candidates by their original request lineage; see [cinematic](../pipelines/cinematic.md#anchor-regeneration). Other creative aggregates initially rebuild in full.
 
-Provider submission cannot be guaranteed exactly once without provider support. Unknown acceptance remains blocked/reconciling; a new charged attempt requires an explicit policy/creator authorization. Cancellation of external work is best effort, while prohibition of its downstream promotion is enforced locally.
+For dependent anchors, persist portrait completion and the child's exact candidate input/seed before sheet submission; recovery resumes the sequence without another portrait or intermediate human pause. Queue order is not dependency: location remains independent. Saving the approved selection (called promotion in older storage terminology) is an idempotent service operation in gate apply, not a separate user-visible stage.
+
+Provider submission cannot be guaranteed exactly once without provider support. Unknown acceptance remains blocked/reconciling; a new charged attempt requires an explicit policy/creator authorization. A known terminal failure with no valid candidate must produce a durable failed/blocked group result and an explicit retry or cancel path, never an indefinite `waiting_job`. Cancellation of external work is best effort, while prohibition of its downstream promotion is enforced locally.
 
 ## Context, Events And Deployment
 
@@ -202,6 +204,9 @@ These are required runnable integration tests for implementation, not claims tha
 | cancel during generation or racing approval/completion | deterministic accepted ordering, no post-cancel promotion |
 | after terminal DB commit, before END checkpoint | retain terminal outcome and outputs; no restart of production |
 | fast job completion, duplicate callback, cancelled late result | one wake source; correct wait only; no cancelled promotion |
+| crash after portrait completion or sheet input preparation | same exact parent/seed on resume, no duplicate portrait or intermediate human gate |
+| regenerate portrait / location at anchor review | portrait also regenerates sheet, retains unchanged location / only location changes; complete new review required |
+| select portrait B with sheet A, or approve superseded set | reject mismatched dependency or stale card, no downstream frame planning |
 | context reindex/supersede/rights withdrawal during a pause | unchanged pinned input for first two; blocked use for withdrawal |
 
 Run the common cases separately on real SQLite and PostgreSQL with process termination; an in-memory saver cannot prove these guarantees. PostgreSQL additionally tests session loss/live-lock takeover and concurrent workers. SQLite additionally tests second-app refusal, one active runner, busy/error handling and saver flush/process death. Compatible manual transfer is tested when shipped; automated backup/disk-loss restore is #future production. Test file publication on each supported filesystem before claiming power-loss durability. All checks remain #todo.

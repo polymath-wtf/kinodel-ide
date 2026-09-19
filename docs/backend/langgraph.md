@@ -39,7 +39,7 @@ One node performs one bounded semantic step. Do not put generation, approval, Cr
 | completion | validate required outputs/approvals, commit terminal receipt, then `END` |
 | external submit/wait/join | separate nodes; no provider submission inside the wait node |
 
-Logical review routes are defined once in [reviews.md](reviews.md#foundation-routes). Each logical gate expands into `prepare -> wait -> apply`; no separate graph compiler is required. Foundation uses explicit brief/story/visual/main-frame instances of these ordinary node functions, not stateful agent subgraphs. The text-only milestone tests the first two gates before enabling the single-image suffix.
+Logical review routes are defined in [reviews.md](reviews.md#foundation-routes). Each gate expands into `prepare -> wait -> apply`; no compiler is required. Foundation uses Brief, Story, complete anchor-set and shot-frame reviews, not stateful agent subgraphs. Media apply invokes Render's idempotent approved-selection save before advancing. Text-only tests exercise the first two gates under a separate graph identity.
 
 ## Replay Rules
 
@@ -63,7 +63,7 @@ Product loop counters live in durable gate/operation policy. LangGraph recursion
 
 ## Fan-Out And Subgraphs
 
-No `Send` in foundation: its one `main` image unit needs durable submit/wait/join, not parallel graph tasks or a reducer. With later multi-unit rendering, plan stable group/unit IDs and submit idempotent unit jobs. Workers return only keyed refs; the reducer accepts identical duplicates and rejects conflicts. The deterministic join checks every expected unit and plan order, then alone publishes the aggregate manifest; promotion owns the binding. Reset group state before a new activation so old results cannot satisfy a new generation.
+No `Send` is needed in foundation: sequential anchor/shot jobs use durable service submit/wait/join. Portrait-to-sheet dependence is resolved and persisted by Render without a human interrupt per unit. Later parallel jobs return keyed refs; reducers accept identical duplicates and reject conflicts. Join publishes only the complete manifest; the gate's Render save operation owns the selected-result binding. A new anchor generation explicitly records retained unchanged candidates and rejects stale dependent ones; it never inherits an old accumulator or approval implicitly.
 
 Provider duration belongs to durable jobs, not blocked Python tasks or one human interrupt per fan-out child. The parent waits once for the declared job group. Successful unit jobs survive a sibling's technical failure; a changed creative plan starts a new aggregate activation initially.
 

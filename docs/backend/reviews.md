@@ -10,10 +10,12 @@ One `ReviewRequest` reviews one immutable subject:
 
 | Kind | Exact identity | Examples |
 |---|---|---|
-| `artifact` | slot, ArtifactRef, binding revision, producing activation | Brief, Story, visual plan, final result, memory draft |
-| `candidate_set` | stage, activation, candidate-set ID and digest, request digest | one stage-level manifest of frame, clip, or song candidates |
+| `artifact` | slot, ArtifactRef, binding revision, producing activation | Brief, Story, final result, memory draft |
+| `candidate_set` | stage, activation, candidate-set ID and digest, request digest | one complete manifest of anchor, frame, clip, or song candidates |
 
 The card can show supporting plans and previews. They are evidence, not additional approval subjects. Two independently approved artifacts require two gates. A selected render result can inherit approval through its exact selection/promotion receipt, not through its filename.
+
+For media, **save approved selection** names the storage operation previously called **promotion**. It runs inside the gate's apply path through Render, not as an extra visible pipeline node or human decision. It records the selected assets/result and receipt before authorizing the next stage. Button acceptance alone is not a completed save; crash replay finishes the same idempotent operation. Cinematic's VisualAnchorPlan is supporting evidence, not its own approval subject.
 
 `GateSpec` declares subject kind, fixed `revision_stage_id`, criteria version, selection policy, approve destination, repair path, and loop limits. A repair path includes execution services and any required intermediate reapprovals, not merely an agent call. No model supplies a graph destination.
 
@@ -21,12 +23,15 @@ The card can show supporting plans and previews. They are evidence, not addition
 
 | Action | Accepted input | Durable meaning and route |
 |---|---|---|
-| `approve` | exact unit-to-candidate selection for media; no creative changes | approve this subject/selection, then promotion or authored next stage |
+| `approve` | exact unit-to-candidate selection for media; no creative changes | save this approved selection/result, then authored next stage |
 | `revise` | non-empty feedback; optional typed proposed field changes with the same base digest | create a revision case, then Critic, then the fixed owner |
+| `regenerate` | anchor unit keys on a gate explicitly enabling this action | same prompts, new frozen seeds where supported; Render regenerates these units and dependents, then a new complete-set review |
 | `clarify` | one question about the displayed subject | Producer explanation, then a new request for the same subject |
 | `cancel` | optional reason | request cancellation; never approval or deletion |
 
 `Edit` is the UI label for `revise`. A field editor submits a proposal to Critic; it never overwrites the artifact or bypasses its owner. Chat phrases such as `ok` are not approval. Proposed changes cannot contain paths, owner IDs, graph destinations, or runtime controls.
+
+`Regenerate` differs from technical Retry: it authorizes new generation, is bound to the current review digest and deduplicated command, and never edits prompts. No intermediate portrait/sheet/location review is introduced. Reused unrelated candidates and parent/child compatibility follow [anchor regeneration](../pipelines/cinematic.md#anchor-regeneration). Unsupported seed controls cannot be silently ignored. Other gates do not acquire this action implicitly.
 
 ## Revision Contract
 
@@ -89,10 +94,10 @@ The request digest covers the subject, producing activation, dependency/selectio
 2. return an identical previously accepted decision; reject a conflicting duplicate;
 3. for a new decision require a nonterminal execution, no accepted cancellation, and this actionable pending request;
 4. verify active producing activation, exact current binding or candidate manifest, transitive execution dependencies, and current access/rights;
-5. for candidate approval require exactly one allowed candidate for every required unit, no extras, and policy-defined order;
+5. for candidate approval require exactly one allowed candidate for every required unit, no extras, policy-defined order, and matching parent candidate IDs/digests for dependent anchors;
 6. atomically save the decision and one `execution_work` resume intent, unique by source request across all work states.
 
-The apply operation rechecks these preconditions. If rights or required inputs became invalid after submission, retain the submitted decision as history but do not create usable approval or promote output. Block with a reason. Cancellation and terminal outcomes never erase past approvals.
+The apply operation checks the submitted decision against the current subject, rights, dependencies, cancellation and terminal state; it does not require `pending` again. If inputs became invalid, retain the submitted decision as history and leave the operation blocked for an authorized same-input retry. A committed apply receipt is immutable and replay returns it without applying the decision again. Cancellation and terminal outcomes never erase past approvals.
 
 Current revision means the exact current request, producing activation and binding/manifest, not merely an existing artifact revision. If another accepted edit produces S2/R2, approval from S1/R1 conflicts and the UI refreshes the current card; it neither approves S2 nor reselects S1. An identical previously accepted command may return its receipt without advancing again. Historical approval and comparison remain available, but choosing an old result again requires an explicit authorized review/reuse path.
 
@@ -101,6 +106,8 @@ Current revision means the exact current request, producing activation and bindi
 Producer answers about the exact subject without changing it. Its bounded `ReviewClarificationAnswer` is a durable operation result linked to the next card, not a creative artifact or unbounded conversation. If the question contains a new requirement, the answer explains that `revise` is needed; it does not apply it.
 
 The initial design default is **five accepted revisions and five accepted clarifications per gate per execution**, frozen in the pipeline policy. These are chosen product limits, not LangGraph limits. Counts increment once on accepted decisions, including feedback that Critic cannot apply. Retries, duplicate delivery, and process restarts do not increment them. At a limit, the next card removes the exhausted action and explains why; when both are exhausted only approve/cancel remain. Approval remains unavailable for an invalid/stale subject. Never reset limits by creating a new request or use LangGraph's recursion limit as the product counter.
+
+Where enabled, `regenerate` uses the same frozen revision budget; it does not reset limits or consume a clarification. Technical retries remain separate. This configurable gate limit does not create dependencies: rerendering location never forces character rerenders.
 
 An owner's `needs_input` while repairing an existing subject follows the same unchanged-subject feedback path. Before any Brief exists, Producer may instead ask one focused input question: an `input` request with `answer`/`cancel`, not a review approval. The answer is stored separately from immutable `InitialRequestV1` and starts a new Brief activation. A second unresolved input request blocks the execution rather than looping without a bound.
 
@@ -116,24 +123,26 @@ Each logical gate consists of prepare, wait, and apply nodes. Names below are lo
 | `brief_review` | approve | `story_propose -> story_review` |
 | `brief_review` | revise | `brief_critic -> brief_propose -> brief_review` |
 | `brief_review` | clarify | `brief_explain -> brief_review`, same subject |
-| `story_review` | approve | `visual_anchor_plan -> visual_anchor_review` |
+| `story_review` | approve | `visual_anchor_plan -> render_anchor_candidates` |
 | `story_review` | revise | `story_critic -> story_propose -> story_review` |
 | `story_review` | clarify | `story_explain -> story_review`, same subject |
-| `visual_anchor_review` | approve | `main_frame_plan -> render_main_frame_candidates` |
-| `visual_anchor_review` | revise | visual-anchor Critic -> Wardrobe `visual_anchor_plan` -> same gate |
-| `render_main_frame_candidates` | durable group intent | separate submit/wait/join nodes; verified imported candidates -> `main_frame_review` |
-| `main_frame_review` | approve exact selection | `promote_main_frame -> complete -> END` |
-| `main_frame_review` | revise | rendered-frame Critic -> Storyboard `main_frame_plan` -> render/wait/join -> same gate |
-| visual/main-frame gate | clarify | Producer explanation -> same-subject new request |
+| `render_anchor_candidates` | durable group intent | sequential portrait -> conditioned sheet -> independent location; verified complete manifest -> `main_frames_review` |
+| `main_frames_review` | approve exact compatible selection | save `main_frames` in apply path -> `frame_plan -> render_frame_candidates` |
+| `main_frames_review` | revise | anchor-media Critic -> Wardrobe `visual_anchor_plan` -> changed/dependent renders -> same complete-set gate |
+| `main_frames_review` | regenerate | Render selected units and dependents with new frozen seeds -> same complete-set gate; no Critic |
+| `render_frame_candidates` | durable group intent | submit/wait/join -> verified complete manifest -> `frame_review` |
+| `frame_review` | approve exact selection | save `story_frames` in apply path -> `complete -> END` |
+| `frame_review` | revise | rendered-frame Critic -> Storyboard `frame_plan` -> render/wait/join -> same gate |
+| anchor/frame gate | clarify | Producer explanation -> same-subject new request |
 | any Critic / repair owner | needs input or out of scope | original gate, unchanged subject, reason attached |
 | first-generation owner without a subject | non-ready result other than the bounded pre-Brief question | block with reason; do not fabricate a review subject |
 | any active stage/request | cancellation accepted | stop effects, finalize cancelled under worker ownership |
 | any operation | recoverable infrastructure failure | retain activation, block/retry work under runtime policy |
 | any operation | integrity/programming failure | durable failed outcome; no creative route around it |
 
-An approve transition alone authorizes the next stage. A revise transition alone authorizes a new creative activation. No successor is inferred from the displayed status, a file, or the agent's report text.
+An approve transition authorizes the next stage only after saving its required result. Revise authorizes an owner activation through Critic; regenerate authorizes only the declared Render path. No successor is inferred from status, a file, or agent report text.
 
-This table follows the current rendered [build gate](../roadmap.md#current-build-gate). The earlier text-only `story_review -> complete` is an internal test milestone, not the deployable `foundation.v0` route. Visual/main-frame inputs, units and fixed repair owners follow [cinematic dependencies](../pipelines/cinematic.md#exact-dependencies). Completion requires current approved Brief, Story and VisualAnchorPlan plus the current promoted main-frame result's exact selection receipt. Main-frame plan is validation-only. There is one required `main` unit, no graph fan-out. Exact Python node declarations and per-node deltas still require executable fixtures.
+This table follows the rendered [build gate](../roadmap.md#current-build-gate). Text-only `story_review -> complete` remains a separately identified internal test. Completion requires current approved Brief/Story, saved approved `main_frames` and `story_frames`, exact validated supporting plans and fresh dependencies. The one-shot acceptance fixture exercises the three example anchors together; schemas do not hardcode these counts. Sequential service jobs need no graph fan-out. Exact Python node declarations and per-node deltas still require executable fixtures.
 
 ## Required Checks
 

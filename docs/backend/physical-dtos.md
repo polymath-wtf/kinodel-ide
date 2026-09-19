@@ -10,7 +10,7 @@ Use concrete Pydantic v2 models at HTTP/model/storage boundaries, with `extra="f
 |---|---|
 | Entity ID | Server-allocated canonical lowercase UUID string; SQLite TEXT, PostgreSQL UUID. Applies to project/execution/artifact/asset/request/job/selection IDs |
 | Derived operation/activation identity | `sha256:` plus 64 lowercase hex, over a tagged canonical identity tuple; preserve the existing [operation formula](artifacts.md#operation-identity) |
-| Unit key | Opaque non-empty string, at most 128 characters, unique in its exact plan; never used as a path. `main` and `visual` remain declared cinematic keys |
+| Unit key | Opaque non-empty string, at most 128 characters, unique in its exact plan; never used as a path. Wardrobe declares anchor keys, validated/frozen at plan commit; shot keys come from Story |
 | Digest | `sha256:` plus 64 lowercase hex. Hash exact immutable body bytes; metadata, input, request and closure hashes have distinct tagged coverage |
 | Revision / count / duration / byte size | Strict nonnegative integer, positive where required; durations in milliseconds. Boolean is not integer. Maxima from frozen release policy |
 | Timestamp | UTC RFC3339 string with `Z`, adapter-generated; never ordering authority by itself |
@@ -125,13 +125,14 @@ Candidate manifests are immutable once published; the subject's `digest` hashes 
 |---|---|
 | `approve` | `selection:[{unit_key,candidate_id}]` only for a candidate gate, ordered, complete and unique; absent for artifact approval |
 | `revise` | `feedback:string` non-empty; `proposed_changes` optional complete typed proposal for allowlisted editable fields, `base_subject_digest` required with changes; no arbitrary JSON Patch |
+| `regenerate` | `unit_keys:UnitKey[]`, non-empty unique subset of current anchors; gate policy must enable it. Service derives dependent units and resolves new seeds; no client prompts/workflow/routing fields |
 | `clarify` | `question:string` non-empty |
 | `cancel` | `reason:string or null`; stores cancellation control/work, never an approval resume |
 | `answer` | `answer:string` non-empty; only initial input kind |
 
-Return `{schema_version:"1", request_id, work_id, receipt_ref}` after acceptance transaction; this is command receipt only, not apply success. Apply returns explicit `applied` or `blocked` with exact kind/subject/result references. Duplicate same key/digest returns the same identity; conflicting payload gives 409. Revise/clarify counters can initially be counted from accepted requests per execution/gate under execution serialization.
+Return `{schema_version:"1", request_id, work_id, receipt_ref}` after acceptance transaction; this is command receipt only, not apply success. Apply returns explicit `applied` or `blocked` with exact kind/subject/result references. `blocked` is not a successful committed apply: no approval, next activation or promotion is created, and an authorized unchanged-input retry may reuse the same operation. A successful apply receipt is immutable and replayable. Duplicate same key/digest returns the same identity; conflicting payload gives 409. Revise/clarify counters can initially be counted from accepted requests per execution/gate under execution serialization.
 
-`ApplyDecisionResultV1={request_id, decision_digest, effect:"applied" or "blocked", result_kind, subject_kind, subject_digest:Digest or null, selection:array or null, promotion_receipt_ref:OperationResultRef or null, next_activation_ref}` is adapter-owned. Candidate approval is usable downstream only through successful promotion of the exact candidate-set subject into `RenderResultV1`. Cancellation uses a control/terminal receipt under runtime rules.
+`ApplyDecisionResultV1={request_id, decision_digest, effect:"applied" or "blocked", result_kind, subject_kind, subject_digest:Digest or null, selection:array or null, selection_receipt_ref:OperationResultRef or null, next_activation_ref:ActivationRef or null, block_reason:string or null}` is adapter-owned. A blocked result has no next activation or saved-selection receipt. Candidate approval is usable downstream only after saving the exact selected result as `RenderResultV1` in the gate's apply path. `selection_receipt_ref` replaces the former unshipped `promotion_receipt_ref`; no compatibility field is needed. Cancellation uses a control/terminal receipt under runtime rules.
 
 ## Commits And Start Pins
 
@@ -147,16 +148,21 @@ These are minimum physical handoff fields, implemented with their stages and com
 
 | Body / record | Minimum fields and validator |
 |---|---|
-| `VisualAnchorPlanV1` | `units:[{unit_key, subject_ids, appearance, wardrobe, environment, lighting, palette:string[], must_preserve:string[], prohibited_drift:string[]}]`; first mode exactly `visual` |
-| `FramePlanV1` | `mode:"main" or "shots"`, exact `story_ref`, `units:[{unit_key,source_shot_id,representative_moment,composition,image_prompt,negative_prompt:string or null,anchor:SelectedMedia or null,preserve:string[],change:string[]}]`; main exactly one `main`, source shot exists; shot mode exact Story coverage/order |
+| `VisualAnchorPlanV1` | exact narrative ref, shared `direction:{appearance,wardrobe,environment,lighting,palette:string[],must_preserve:string[],prohibited_drift:string[]}`, ordered non-empty `units:[{unit_key,subject_ids,role,purpose,framing,drawable_content,image_prompt,references:AnchorReference[],preserve:string[],ignore:string[]}]`; no fixed count or `visual`/`main` key |
+| `AnchorReference` | `{source:{kind:"input",ref:<exact supplied reference>} or {kind:"anchor_unit",unit_key:UnitKey},role,take:string[],ignore:string[]}`; tagged source, required role; same-plan source names an earlier unit. Validate unique keys, acyclic dependencies and workflow capabilities before jobs |
+| `FramePlanV1` | exact `story_ref`, ordered `units:[{unit_key,source_shot_id,representative_moment,composition,image_prompt,negative_prompt:string or null,references:[{source:SelectedMedia,role,take:string[],ignore:string[]}],preserve:string[],change:string[]}]`; exact declared Story shot coverage/order, no anchor-design `main` mode or singular anchor field |
 | `SelectedMedia` | `{render_result_ref:ArtifactRef,unit_key:UnitKey}`; resolve to the one promoted asset with required approval |
 | `MotionPlanV1` | Exact `story_ref`, `units:[{unit_key,start_frame:SelectedMedia,end_frame:SelectedMedia or null,duration_ms,action,motion,camera,video_prompt,preserve:string[]}]`; first i2v start key equals shot, end null, duration equals Brief |
-| Candidate manifest | `{candidate_set_id,stage_id,activation_id,request_digest,dependencies,required_units:UnitKey[],candidates:[{candidate_id,job_id,unit_key,digest,mime_type,bytes,uri,width,height,duration_ms}]}`; image duration null, video measured duration; complete required coverage before review |
-| `RenderResultV1` | `{entries:[{unit_key,asset_ref:AssetRef,source_candidate_id}]}` exact selected order/coverage; promotion operation stores source manifest and approval receipt |
+| Candidate manifest | `{candidate_set_id,stage_id,activation_id,request_digest,dependencies,required_units:UnitKey[],candidates:[{candidate_id,job_id,unit_key,unit_input_digest,input_candidates:[{unit_key,candidate_id,digest}],digest,mime_type,bytes,uri,width,height,duration_ms}]}`; dependencies include exact supporting plan; complete coverage and parent/child consistency before approval. Retained candidates keep original job/input lineage; current manifest explicitly authorizes their reuse |
+| `RenderResultV1` | `{entries:[{unit_key,asset_ref:AssetRef,source_candidate_id}]}` exact selected order/coverage; selection-save operation stores source manifest, supporting plan and approval receipt; cinematic anchor slot is `main_frames` |
 | `MontagePlanV1` | `{entries:[{shot_id,source:SelectedMedia,source_in_ms,source_out_ms,timeline_start_ms,transition:{kind:"cut" or "crossfade",duration_ms}}],audio_policy:"silent",output_duration_ms}`; source bounds, coverage/order, overlap math, supported transitions, Brief limits |
 | `MontageResultV1` | `{asset_ref:AssetRef,plan_ref:ArtifactRef,duration_ms,width,height,audio_stream_count:int}`; measured by executor; silent requires zero audio streams |
 
 Agent-generated refs above are input aliases resolved/injected into stored bodies by adapters. Candidate/media identities and measurements are service-owned. For fixed shot-count revisions keep corresponding shot keys, but a changed Story invalidates all downstream outputs regardless of equal keys. Rework receives its own declared units, preserving only explicitly corresponding source keys for comparison; matching strings are not selective reuse authorization. `flf2v`, audio, serial/chunk executable bodies retain their domain contracts and activation gates, not guessed optional fields in foundation.
+
+Anchor keys are proposed by Wardrobe and validated/frozen at plan commit, not allocated as a hardcoded triple. Roles describe purpose (face identity, anatomy/clothing, environment); each required role needs a supported adapter mapping. Initially one candidate per unit is generated; a child uses the exact persisted parent candidate without intermediate human selection. Anchor-local changed-unit/dependency reuse follows [cinematic](../pipelines/cinematic.md#anchor-regeneration), not future cross-execution rework.
+
+Render's runtime input/output shape is declared by the pinned workflow's named ports and schemas, not this list of cinematic artifacts. Stage mappings bind exact source values/media to ports; multiple outputs retain their names/types and destination validators. These DTOs do not prohibit other configured text/image/video/audio workflows or authorize unchecked payloads. See [Render](../agents/render.md).
 
 ## Endpoint Wire
 
@@ -189,6 +195,10 @@ Documentation fixtures to turn into executable checks before enabling schemas:
 | JSON numeric string, bool as count, NaN, duplicate key | Reject at boundary |
 | Same semantic validated JSON, shuffled object keys | Same canonical body digest; shuffled shot list changes digest |
 | Old request digest, incomplete candidate mapping, wrong unit/job | Conflict/reject; no approval/promotion |
+| Face B selected with sheet generated from face A | Reject even when every required unit is present |
+| Regenerate face / regenerate location | Face also regenerates sheet, retaining unchanged location / only location rerenders; new complete-set review in both cases |
+| Restart after portrait or sheet input freeze | Reuse exact saved portrait/seed/request; no new portrait or intermediate human choice |
+| Three required shot references but workflow accepts fewer | Reject before submission; no dropped reference |
 | Response persisted but apply/next stage interrupted | Recover exact decision once under runtime classifier |
 | Cross-project ref or E1 ref without E2 reuse receipt | Reject even if schema/hash valid |
 | Changed order key payload, duplicate settle, expired download, corrupt bytes | Conflict/deduplicate/renew or unavailable/reject respectively |

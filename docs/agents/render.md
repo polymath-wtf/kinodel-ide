@@ -1,47 +1,46 @@
 # Render Service
 
 Class: deterministic/asynchronous service  
-Status: **Active design**
+Status: **Accepted design; adapters and execution checks pending**
 
-Render is not an LLM agent.
+Render executes a configured generation workflow. It is not an LLM agent and does not depend on which agent produced its inputs.
 
-## Responsibility
+## Input And Output Contract
 
-Validate generation jobs, bind them to a frozen provider profile, submit and reconcile external work, preserve candidate attempts, and promote only the creator's exact selection into managed assets and a compact result artifact.
+- A pinned provider/workflow version declares named input and output ports, their value schemas or media kinds, roles, required cardinality and constraints.
+- Inputs are validated text/structured values and exact authorized media references. Text, images, video and audio may be combined as the workflow supports; outputs may likewise be text, structured data or one or more media kinds. A new supported combination changes the adapter's declaration, not a central list of planner types.
+- A deterministic stage mapping binds source fields/references to those ports. Sources may be VisualAnchorPlan, FramePlan, MotionPlan, another validated artifact or explicitly connected user input. No fabricated FramePlan and no duplicate universal request artifact are needed.
+- Missing mappings, unsupported types/counts/roles or unknown fields fail before submission. Extensibility does not mean accepting arbitrary unchecked payloads or executing user-supplied code.
+- Provider payloads, effective parameters/seeds and exact input digests are frozen in durable job storage. Workflow outputs are imported and validated against their declared schemas; downstream ports cannot silently reinterpret their meaning.
 
-## Input
+For cinematic media, jobs produce candidates; a complete immutable manifest is the review subject. Approval saves the exact selection as `RenderResultV1` with managed `AssetRef`s. Text/structured outputs use their declared result schema and gate policy, not a forced image/media wrapper. Multiple named outputs retain their keys and provenance. First implementation enables only the workflows needed by the local build; it does not implement hypothetical adapters.
 
-- exact `FramePlanV1`, `MotionPlanV1`, or proposed `MusicPlanV1` revision and declared unit/asset mappings;
-- stage and expected job kinds;
-- runtime-owned provider profile;
-- stable stage activation/operation identity and frozen effective request digest.
+## Execution And Dependencies
 
-Deterministic adapters consume those plans directly and own provider payload construction; no redundant universal `render_requests` artifact is created. MusicPlan has its own upstream gate; frame/motion plans require validation, not implied independent approval. Validate the complete dependency closure and required approvals before submission and promotion.
+Render owns submission, reconciliation, verified import and bounded technical retries. A group exposes one immutable wait token `{wait_id, request_digest}` and one complete review manifest. Unit jobs have their own exact request digests; output port/item mappings are declared before submission.
 
-## Output
+For the first anchor example, execute portrait, then sheet using that portrait, then character-free location, with no intermediate human choice. Each unit initially yields one candidate. Before sheet submission, persist the exact portrait candidate ID/digest and resolved input. Internal candidate-to-candidate use is permitted only within this declared render dependency; it is not an approved output for Storyboard. Queue order alone does not make the location depend on the portrait.
 
-- immutable group wait token `{wait_id, request_digest}` while running, with unit jobs in durable worker storage;
-- one immutable stage-level candidate-set manifest from join when all required units have valid candidates;
-- validated `RenderResultV1` with ordered promoted `AssetRef`s after selection.
+## Retry And Regeneration
 
-## Invariants
+- **Technical retry:** same request, same seed and exact inputs; retain successful work and reconcile uncertain submission before retrying. Never randomly generate a new seed during replay.
+- **Regenerate:** explicit creator command on an anchor review; same prompt, new frozen seed where supported, new generation identity. Regenerate selected units and transitive dependents, then review the complete set again.
+- **Creative revise:** Critic -> Wardrobe -> validated replacement plan. Compare each unit's effective inputs, including shared direction; regenerate changed units and dependents. Retain an unrelated candidate only when its effective input digest is unchanged and its exact source lineage is recorded in the new manifest.
 
-- Logical unit operations use the stage activation and stable unit/task ID. The effective request digest covers the exact plan revision, prompts, input asset digests, parameters, provider/workflow version, and mappings. Provider submission attempts are separate audit records.
-- Same-request technical retry preserves successful units and the immutable group wait identity; changed creative inputs create a new activation and initially rebuild every unit. Selective cross-revision reuse is deferred.
-- Unknown provider timeout is not a definite failure and is not blindly retried.
-- Partial progress remains inspectable; join/promotion cannot omit required units. Join rejects missing, extra, duplicate, or wrong-request units and preserves declared order across jobs.
-- One gate reviews the exact stage manifest, activation, and dependency closure. Selection must cover every required unit exactly once. A matching old manifest digest alone cannot authorize stale promotion.
-- Promotion stages/syncs/publishes immutable bytes first, then commits metadata, selected assets, binding, operation result, and next activation in one DB transaction. This is not cross-store atomicity; see the Artifact Store protocol.
-- Generation completion does not imply selection, promotion, artifact creation, or approval.
+Thus replacing `hero_face` also replaces `hero_sheet`; replacing `hero_sheet` or `location` does not replace the portrait. A retained location is evidence in the new set, not inherited approval of that set. This bounded within-anchor reuse is required now; generic cross-execution reuse and selective shot/video repair remain separate features. Full rules: [cinematic anchor regeneration](../pipelines/cinematic.md#anchor-regeneration).
 
-## Contract Checks
+## Saving The Approved Selection
 
-Before activation, provide representative FramePlan/MotionPlan-to-request fixtures, rejection of wrong/missing unit mappings, ambiguous-submission recovery, and exact-selection promotion tests. In the first cinematic profile use explicit image-to-video units and silent output; alternative workflows and audio remain separate capability activations. No prompt repair or candidate ranking model is hidden inside this service. Technical validity permits review, never automatic selection of the "best" take.
+The media gate's apply path calls an idempotent Render service operation to verify the selection/dependencies, ensure durable managed bytes, and commit selected assets, result binding, review receipt and next transition. This is **saving the approved selection**, not an extra user-visible node or another human gate. Older storage documentation calls it **promotion**; the term means this same persistence operation, not advancement or increased importance.
 
-## Boundaries
+Submission completion never selects or approves a result. Workers cannot change canonical bindings. A crash while saving must resume the exact accepted selection, not rerender or choose the newest candidate. Existing publication, optimistic concurrency and cancellation checks remain mandatory; no extra copying of already durable bytes is required solely to change their status.
 
-- No prompt invention, story decisions, gate approval, RAG, or user conversation.
-- Provider payloads and attempts stay in restricted job storage.
-- Provider adapters never become planner-artifact schema.
-- Workers reconcile mutable job versions internally; graph wait identity never uses a mutable job version. API commands and provider callbacks do not invoke the graph.
-- Missing committed bytes are an integrity failure, not a request to regenerate under the same identity.
+## Required Checks
+
+- Reject unsupported ports, missing references, wrong output types and incomplete coverage.
+- Verify portrait-to-sheet delivery and role-preserving multi-image shot input on the actual workflow.
+- Reject `portrait_B + sheet_A` when sheet A used portrait A; retain unchanged location explicitly.
+- Recover after portrait completion, after child input preparation, and after selection commit without duplicate generation or selection.
+- Unknown provider acceptance blocks/reconciles; duplicate or cancelled late results cannot become current outputs.
+
+No prompt invention, candidate ranking, human approval, RAG or graph routing is hidden inside Render.

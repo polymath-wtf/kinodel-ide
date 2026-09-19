@@ -10,12 +10,12 @@ Kinodel agents are narrow creative capabilities invoked inside LangGraph nodes. 
 |---|---|---|---|
 | [Producer](producer.md) | user-facing agent | active design | brief draft or clarification answer |
 | [Storytell](storytell.md) | creative agent | active design | story |
-| [Wardrobe](wardrobe.md) | creative agent | active design | visual-anchor plan |
+| [Wardrobe](wardrobe.md) | creative agent | active design | visual-anchor direction, prompts, roles and dependencies |
 | [Storyboard](storyboard.md) | creative agent | active design | frame plan |
 | [Filmmaker](filmmaker.md) | creative agent | active design | motion plan |
 | [Critic](critic.md) | review agent | active design | bounded `RevisionRequestV1`, including non-ready outcomes |
 | [Craft](craft.md) | memory agent | active design | reusable creative chunk |
-| [Render](render.md) | service, not agent | active design | candidates and promoted selected media |
+| [Render](render.md) | service, not agent | active design | declared workflow outputs; media candidates and saved approved selections |
 | [Montage](montage.md) | creative agent | active design | montage plan |
 | [Montage executor](montage.md) | service | active design | final assembled media |
 | [Muse](muse.md) | creative agent | planned | music concept and request |
@@ -38,7 +38,7 @@ Pipeline, project initialization, finalization, indexing, ALM analysis, provider
 
 Before the first backend build, define the input/output meaning, ownership, context, revision scope, and quality checks for **every catalog capability**, not only Producer, Storytell, and Critic. Cinematic is the complete reference chain. Muse/Season/Episode have architectural contracts now; their pipeline activation remains later.
 
-The internal text milestone activates Producer, Storytell and Critic to test runtime safety. The deployable `foundation.v0` [build gate](../roadmap.md#current-build-gate) additionally needs Wardrobe and Storyboard main-frame mode plus Render service, including visual-plan and candidate reviews. Use the same invocation, validation, context, and revision boundaries for all capabilities; do not add a generic agent framework or stub agents just to register names. Contract design, executable schemas, packaged instructions, and passing model/runtime tests are separate readiness levels. These pages establish design, not the latter three.
+The internal text milestone activates Producer, Storytell and Critic. The deployable `foundation.v0` [build gate](../roadmap.md#current-build-gate) adds Wardrobe anchor prompts, Render's sequential anchor generation, complete-set review/save, then Storyboard shot planning and frame generation/review. Plans are validated supporting evidence. Use common invocation/validation/context boundaries, not a generic framework or agent-name runtime branches. Contract design is not executable schemas, packaged instructions or passed runtime tests.
 
 ### Prepared Input
 
@@ -83,9 +83,9 @@ A static versioned capability record declares `capability_id/version`, supported
 |---|---|---|
 | Producer | raw request, allowed defaults/constraints, selected mandatory character canon; exact subject for explanation | explicitly selected inspiration |
 | Storytell | approved Brief and selected mandatory narrative canon | story lessons, not image prompts |
-| Wardrobe | approved spine, character identity/current physical state | palette, materials, environment references with take/ignore |
-| Storyboard | approved visual direction/spine, exact anchors for later frames, profile-required image guidance and selected mandatory appearance canon | permitted composition inspiration |
-| Filmmaker | approved spine/visual direction, selected frames, unit mapping/timing, required motion/voice canon and profile-required video guidance | permitted motion inspiration |
+| Wardrobe | approved spine, character/environment projections, required anchor prompt/reference guidance | palette, materials, environment references with take/ignore |
+| Storyboard | approved spine, validated visual plan, complete approved `main_frames`, multi-image guidance and mandatory appearance canon | permitted composition inspiration |
+| Filmmaker | approved spine, validated visual direction, approved selected frames, mapping/timing, required motion/voice canon and video guidance | permitted motion inspiration |
 | Montage | approved narrative spine when applicable, approved clips/audio, measured metadata, Brief and edit constraints | editing lessons; no search for alternative takes |
 | Critic | exact subject, feedback, supporting owner plan, gate scope/criteria and approved constraints | only relevant supplied evidence |
 | Craft | exact approved sources/media, labelled supporting plans, rights and consumer policy | none through discovery |

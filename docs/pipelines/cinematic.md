@@ -1,138 +1,116 @@
 # Cinematic Pipeline
 
-Status: **First full production pipeline, after `foundation.v0`**
+Status: **Accepted design; executable graph, schemas and provider checks pending**
 
-`cinematic.v1` is the reference graph. Build it explicitly before extracting a generic compiler.
+`cinematic.v1` is the full reference route. Build its reduced `foundation.v0` image-only slice first. Both use Wardrobe-owned anchor prompts and reviewed `main_frames`; there is no separate Storyboard main-anchor mode or mandatory visual-plan approval.
 
 ```text
-brief_draft
--> brief_review                 [human]
--> story
--> story_review                 [human]
--> visual_anchor_plan
--> visual_anchor_review         [human]
--> main_frame_plan
--> render_main_frame_candidates
--> main_frame_review            [human: select]
--> promote_main_frame
--> frame_plan
+brief_draft -> brief_review                         [human]
+-> story -> story_review                           [human]
+-> visual_anchor_plan                              [Wardrobe]
+-> render_anchor_candidates                        [Render: sequential units]
+-> main_frames_review                              [human: complete anchor set]
+-> frame_plan                                      [Storyboard]
 -> render_frame_candidates
--> frame_review                 [human: select]
--> promote_frames
--> motion_plan
--> render_clip_candidates
--> clip_review                  [human: select]
--> promote_clips
--> montage_plan
--> montage_execute
--> final_review                 [human]
--> craft_cinema_memory
--> cinema_memory_review         [human]
--> promote_cinema_memory
--> complete
+-> frame_review                                    [human: shot frames]
+-> motion_plan -> render_clip_candidates
+-> clip_review                                     [human: clips]
+-> montage_plan -> montage_execute
+-> final_review                                    [human: final film]
+-> craft_cinema_memory -> cinema_memory_review      [human: reusable memory]
+-> promote_cinema_memory -> complete
 ```
+
+Every media review saves its approved selection before advancing. This persistence work is part of the gate's apply path, not a visible `promotion` node. Memory publication has separate library semantics and is not changed by this media naming decision.
 
 ## Stage Ownership
 
 | Stage | Owner | Output |
 |---|---|---|
-| brief draft | Producer | `BriefV1` candidate |
-| brief review | human gate | `ReviewDecision` |
-| story | Storytell | `StoryV1` |
-| story review | human gate | exact `StoryV1` decision |
-| visual anchor | Wardrobe | `VisualAnchorPlanV1` |
-| visual-anchor review | human gate | exact `VisualAnchorPlanV1` decision |
-| main-frame image plan | Storyboard | `FramePlanV1` for the continuity anchor |
-| candidate rendering | Render service | durable candidate set, no artifact binding |
-| media review | human gate | exact candidate selection |
-| media promotion | Render service | `RenderResultV1` with approved `AssetRef`s |
-| frame plan | Storyboard | `FramePlanV1` |
+| brief / story | Producer / Storytell | `BriefV1` / `StoryV1`, each with its own review |
+| visual-anchor plan | Wardrobe | `VisualAnchorPlanV1`: shared direction and named anchor prompts, roles and dependencies |
+| anchor generation | Render | candidate images for every declared anchor |
+| anchor review and save | human decision + deterministic Render save | `main_frames`: approved `RenderResultV1` |
+| shot-frame plan | Storyboard | `FramePlanV1`, using exact approved anchor images |
+| shot generation / review and save | Render / human + Render save | `story_frames`: approved `RenderResultV1` |
 | motion plan | Filmmaker | `MotionPlanV1` |
-| montage plan | Montage agent | `MontagePlanV1` |
-| assembly | Montage execution service | `MontageResultV1` |
-| reusable memory | Craft | `CinemaChunkV1` |
-| memory review | human gate | exact reusable-memory decision |
-| memory promotion | deterministic service | approved active `CinemaChunkV1` revision |
+| clip generation / review and save | Render / human + Render save | `clips`: approved `RenderResultV1` |
+| montage plan / execution | Montage agent / executor | `MontagePlanV1` / `MontageResultV1` |
+| memory draft / review / publication | Craft / human / service | approved active `CinemaChunkV1` |
 
 ## Revision Routes
 
-- brief edits return through Critic to Producer;
-- story edits return through Critic to Storytell and make every downstream binding stale;
-- visual-direction edits return through Critic to Wardrobe's `visual_anchor_plan` and its own review;
-- main-frame candidate edits return through Critic to Storyboard's `main_frame_plan`;
-- storyboard-frame candidate edits return through Critic to Storyboard's `frame_plan`;
-- clip candidate edits return through Critic to Filmmaker's `motion_plan`;
-- final edits return through Critic to Montage, which creates a new plan for the execution service;
-- cinema-memory edits return through Critic to Craft;
-- every revised output returns to the same gate as a new exact subject revision.
+| Gate | Creative revise through Critic | Return path |
+|---|---|---|
+| Brief | Producer | new Brief -> same gate |
+| Story | Storytell | new Story -> same gate |
+| `main_frames_review` | Wardrobe | new anchor plan -> affected renders -> complete-set review |
+| `frame_review` | Storyboard | new frame plan -> shot render aggregate -> same gate |
+| `clip_review` | Filmmaker | new motion plan -> clip render aggregate -> same gate |
+| final | Montage | new montage plan -> execution -> same gate |
+| memory | Craft | new memory draft -> same gate |
 
-Each gate has one graph-declared revision stage. Critic refines feedback but never chooses a target. Stale bindings remain visible for history and preview but cannot satisfy a downstream precondition. Staleness is derived from input digests, not manually toggled file statuses.
-
-These routes run only for Critic `ready`. `needs_input`/`out_of_scope` creates a new request for the same subject with an explanation, without calling its owner. An anchor-media gate cannot rewrite Wardrobe's approved direction; a clip gate cannot replace approved frames; final review cannot regenerate clips. Such upstream changes require a new execution with adjusted Brief/context, not automatic rewind. Limits and clarification semantics follow [`../backend/pipeline.md`](../backend/pipeline.md#activation-and-repair).
+Only Critic `ready` invokes the fixed owner. `needs_input`/`out_of_scope` opens a new request for the unchanged subject with an explanation. Anchor feedback may change Wardrobe's supporting plan, which has no separate approval; it cannot change approved Brief/Story/canon. Shot feedback cannot secretly redesign approved anchors. An already approved upstream change starts a new execution under [rework](../backend/rework.md), not a backward jump.
 
 ## Exact Dependencies
 
-The following slots and stage contracts describe production dependencies, not completed executable schemas or registered `StageSpec`s. All local production dependencies use `current_execution`; external selected canon/resources use `pinned_revision`. Every read requires validation and transitive freshness. In the table, `approved` applies to each explicitly listed Brief, Story, and VisualAnchorPlan; selected render results require the exact selection/promotion receipt. Supporting plans require validation only.
+Production refs use `current_execution`; selected external canon/resources use `pinned_revision`. All require validation and transitive freshness. Brief/Story need exact human approval; plans below are validated supporting evidence; selected media need the exact saved-selection receipt.
 
-| Owner stage | Reads | Writes / approval requirement |
+| Owner stage | Reads | Writes |
 |---|---|---|
-| `brief_draft` | `initial_request`, separate input answer if present, selected refs, fixed pipeline and pinned product defaults/allowed settings | `brief`: `BriefV1`, brief gate freezes effective production settings |
-| `story` | approved `brief`, prepared narrative context | `story`: `StoryV1`, story gate |
-| `visual_anchor_plan` | approved `brief`, `story`, selected visual canon | `visual_anchor_plan`: `VisualAnchorPlanV1`, visual gate |
-| `main_frame_plan` | approved `brief`, approved `story`, approved `visual_anchor_plan` | `main_frame_plan`: validated `FramePlanV1` |
-| `promote_main_frame` | current main-frame plan, joined candidates, exact selection approval | `main_frame`: `RenderResultV1` |
-| `frame_plan` | approved `brief`, approved `story`, approved `visual_anchor_plan`, exact validated `main_frame_plan`, promoted approved `main_frame` | `frame_plan`: validated `FramePlanV1` |
-| `promote_frames` | current frame plan, joined candidates, exact selection approval | `story_frames`: `RenderResultV1` |
-| `motion_plan` | approved `brief`, `story`, relevant approved `visual_anchor_plan`, promoted approved `story_frames` | `motion_plan`: validated `MotionPlanV1` |
-| `promote_clips` | current motion plan, joined candidates, exact selection approval | `clips`: `RenderResultV1` |
-| `montage_plan` | approved `brief`, approved `story`, promoted approved `clips`, measured metadata and temporal observations, supported edit bounds; no audio inputs in the first silent profile | `montage_plan`: validated `MontagePlanV1` |
-| `montage_execute` | current montage plan and its exact clip/audio inputs | `final_video`: `MontageResultV1`, final gate |
-| `craft_cinema_memory` | approved `brief`, `story`, `visual_anchor_plan`; promoted approved `main_frame` (anchor), `story_frames` (ordered frames), `clips` (ordered clips); approved `final_video` (final film); exact supporting plans, measured metadata/observations, rights and consumer policy | `cinema_memory_draft`: `CinemaChunkV1` candidate, memory gate |
-| `promote_cinema_memory` | exact memory approval, valid sources/rights, expected chunk-binding revision | active approved Cinema chunk binding |
+| `brief_draft` | initial request, separate answer if present, selected context, pinned defaults/constraints | `brief`, own gate |
+| `story` | approved Brief, prepared narrative context | `story`, own gate |
+| `visual_anchor_plan` | approved Brief/Story, character/environment context, prompt guidance and supported reference constraints | `visual_anchor_plan`, validation only |
+| `render_anchor_candidates` | exact visual plan and frozen profile; prepared parent candidate refs for dependent units | immutable complete anchor manifest, no canonical slot |
+| anchor selection save | exact manifest, supporting plan, accepted complete selection | `main_frames` |
+| `frame_plan` | approved Brief/Story, validated visual plan, complete approved `main_frames`, guidance | `frame_plan`, validation only |
+| `render_frame_candidates` / selection save | exact frame plan, its anchor selectors and profile; then exact selection | candidate manifest / `story_frames` |
+| `motion_plan` | approved Brief/Story, validated visual direction, approved `story_frames` | `motion_plan`, validation only |
+| `render_clip_candidates` / selection save | exact motion plan, selected frames and profile; then exact selection | candidate manifest / `clips` |
+| `montage_plan` | approved Brief/Story/clips, measured metadata, temporal observations and edit bounds | `montage_plan`, validation only |
+| `montage_execute` | exact plan and approved clip closure | `final_video`, own gate |
+| `craft_cinema_memory` | approved Brief/Story/main_frames/story_frames/clips/final_video, labelled supporting plans, observations and rights | `cinema_memory_draft`, own gate |
+| `promote_cinema_memory` | exact draft approval, valid sources/rights and expected chunk-binding revision | active Cinema chunk binding |
 
-Each `render_*_candidates` stage deterministically adapts its corresponding plan, fans out unit jobs, and joins one immutable stage-level manifest. It writes no artifact slot. Repairs traverse that render/join path before revisiting the selection gate. Main/frame/motion/montage plans are validated supporting inputs, not independently human-approved artifacts. Promotion transfers the exact selection approval to its recorded selected result, not to all upstream plans.
-
-### Service And Gate Inputs
-
-| Service stage | Exact prepared inputs / policy | Runtime output |
-|---|---|---|
-| `render_main_frame_candidates` | validated `main_frame_plan`, approved Brief/profile binding and plan dependency closure; declared `main` key | durable group wait, then joined main-frame manifest |
-| `render_frame_candidates` | validated `frame_plan`, approved Brief/profile binding, exact promoted `main_frame` selectors and plan dependency closure; ordered Story keys | durable group wait, then joined frame manifest |
-| `render_clip_candidates` | validated `motion_plan`, approved Brief/profile binding, exact promoted `story_frames` selectors and plan dependency closure; ordered Story keys | durable group wait, then joined clip manifest |
-
-Render prepares operation/activation identity, request digest and frozen resolved provider inputs under [ComfyUI submission](../backend/comfyui.md#workflow-submission). Join checks complete ordered coverage and exact provenance; no LLM context policy or new creative binding is needed. `montage_execute` hydrates only its validated plan's exact selected clips, metadata and output settings, rechecking the approved Brief/Story/clip closure before execution and commit. In silent mode it takes no audio assets. Promotion stages read the exact manifest/result and decision, never "latest selection".
-
-| Gate | Exact subject | Supporting owner output | Approve destination / fixed revision stage |
-|---|---|---|---|
-| `brief_review` | `brief` | same Brief | `story` / `brief_draft` |
-| `story_review` | `story` | same Story | `visual_anchor_plan` / `story` |
-| `visual_anchor_review` | `visual_anchor_plan` | same visual plan | `main_frame_plan` / `visual_anchor_plan` |
-| `main_frame_review` | joined main-frame manifest | `main_frame_plan` | `promote_main_frame` / `main_frame_plan` |
-| `frame_review` | joined frame manifest | `frame_plan` | `promote_frames` / `frame_plan` |
-| `clip_review` | joined clip manifest | `motion_plan` | `promote_clips` / `motion_plan` |
-| `final_review` | `final_video` | `montage_plan` | `craft_cinema_memory` / `montage_plan` |
-| `cinema_memory_review` | `cinema_memory_draft` | same memory draft | `promote_cinema_memory` / `craft_cinema_memory` |
-
-Each gate freezes the subject's producing activation, dependency closure, criteria and permitted actions under [reviews.md](../backend/reviews.md). Candidate gates select exactly one valid candidate per required unit; artifact gates approve only their named subject. Subject approval is not a prerequisite to opening its own gate. Supporting plans/media are labelled evidence, not extra approval subjects. Final review must expose the exact final asset for temporal inspection; memory review exposes exact source roles and claim citations.
-
-On accepted `revise`, the gate's Critic operation receives that subject, exact supporting owner output, original feedback, fixed editable scope, and the owner's prepared constraints/dependencies. Brief Critic uses raw input/defaults, not an approved Brief. Media Critic receives actual authorized image/video evidence; memory Critic receives the draft's exact supplied source roles and evidence. `ready` repairs through the declared owner and all render/join or montage execution steps above; non-ready results return to the unchanged gate. Clarification uses Producer with that unchanged subject and bounded supporting evidence. Cancel and operational blocks follow runtime policy. These operations write no creative slots. Executable per-mode schemas, projection/criteria versions and graph registration remain activation requirements, not facts established by these tables.
+Review cards freeze the exact candidate manifest, supporting plan revision, producing activation, dependency closure, criteria and permitted actions. Approving images does not independently approve their plan. Media Critic receives the actual images/video and exact owner plan; clarification uses Producer on that same subject. Final review exposes temporal media; memory review exposes claim sources.
 
 ## Unit Contracts
 
-The authored `cinematic.v1` stage declarations supply Wardrobe mode `single` with one stable visual unit key `visual`, and Storyboard main-frame mode with one stable anchor key `main`. These keys are local to their plans, not artifact IDs or extra Story shots. The node adapter persists mode, declared keys/order, exact Story ref, and supported constraints in the prepared operation before calling the owner; technical retry reuses them.
+Wardrobe proposes the required stable anchor keys from narrative needs; the adapter validates and freezes them in the plan before any job. They are neither Story shot IDs nor a hardcoded single `visual`/`main` key. Repairs preserve keys of corresponding units. Each anchor declares its role, prompt and reference bindings; a binding to an earlier unit creates a generation dependency. Reject missing keys, cycles and unsupported image-role mappings before submission.
 
-Storyboard chooses an existing Story shot as the main anchor's source and records `source_shot_id` and the representative moment in its `FramePlanV1` entry for `main`. This is a creative plan decision, not runtime routing or a separately stored mapping. It need not choose shot one. Promotion keeps unit `main`; later Storyboard input includes the exact supporting main-frame plan and promoted result, so the source relationship is recoverable rather than guessed from the image.
+First acceptance example:
 
-For the first `i2v` profile, approved Story shot IDs and order are also the frame and clip unit IDs and order: one story frame and one clip per shot. Adapters copy this declaration from exact Story into prepared operations; downstream owners do not allocate new IDs or a separate mapping object. Each MotionPlan clip's start-frame selector is `{render_result_ref: story_frames_ref, unit_key: shot_id}` as defined in [selected media references](../backend/artifacts.md#selected-media-references). Later frames reference `{render_result_ref: main_frame_ref, unit_key: "main"}` and declare preserve/change. The anchor is an additional continuity reference, not an automatically reused story frame or permission to omit one.
+| Order | Unit | Role | Generation input |
+|---|---|---|---|
+| 1 | `hero_face` | high-quality face identity | portrait prompt + explicitly supplied identity references, if any |
+| 2 | `hero_sheet` | anatomy, proportions and clothing | sheet prompt + exact generated `hero_face` candidate |
+| 3 | `location` | consistent environment | location prompt, no character image and no characters |
 
-Alternative `flf2v` activation requires an authored explicit start/end mapping for every clip, including any additional terminal frame unit declared before rendering. It is not enabled by this first-profile decision. Do not infer adjacency, wrap the final clip to the first frame, or silently reduce clip count. Counts, durations, aspect ratio, and timing must satisfy Brief and registered workflow capabilities or block before provider submission.
+Generate in this order without intermediate human choices. One candidate per unit per generation is sufficient initially; the child uses that exact parent, not an automatically ranked winner. Persist parent candidate ID/digest before submitting the child. Location follows sheet in the queue but has no character dependency. Review all three images together at the end. The general plan may contain more/fewer anchors; these roles/keys are an acceptance example, not a universal schema limit.
 
-Montage retains those same shot IDs in timeline source selectors against exact `clips_ref`; the exact Story ref supplies each shot's action and narrative function without new beat IDs. Temporal validation checks coverage/order, source bounds, placement, overlaps, and final duration. Whether trims preserve the action/payoff requires clip/final-media inspection and final human review, not merely passing those machine checks. See [Montage](../agents/montage.md).
+Storyboard receives the complete approved set and binds relevant images per shot by role. For example, three bindings refer to `{render_result_ref: main_frames_ref, unit_key: "hero_face"}`, `hero_sheet` and `location`, with take/ignore and preserve/change constraints. The frozen workflow must support their simultaneous delivery and role mapping; never drop an image or replace the set with a single main frame.
 
-Same-request technical retry retains successful units and reconciles uncertain jobs. A creative plan revision creates new downstream activations and rebuilds the whole render aggregate initially. Join/promotion require complete ordered coverage. Selective cross-revision reuse is deferred.
+For first full `i2v`, Story shot IDs/order are frame and clip IDs/order: one frame and clip per shot. Anchors do not count as shot frames or omit a shot implicitly. MotionPlan selects `{render_result_ref: story_frames_ref, unit_key: shot_id}`. `flf2v` later requires declared start/end mappings including any terminal frame before rendering. Montage selects the same shot IDs against `clips_ref`; measured bounds/order/duration are machine checks, preservation of action/payoff requires temporal inspection.
+
+## Anchor Regeneration
+
+At `main_frames_review`:
+
+- **Regenerate** selects anchor unit keys and requests new generation with the same prompts and new seeds where supported. Render resolves and freezes seeds once; it does not call Critic or Wardrobe.
+- **Revise** sends creative feedback through Critic to Wardrobe. The owner returns a complete new plan. The service compares effective per-unit inputs, including shared direction, exact source refs, workflow and parameters.
+- In either case, regenerate changed/requested units plus their transitive dependents. A new face invalidates its sheet immediately. Sheet-only regeneration keeps its face; location-only regeneration keeps both character images.
+- Retain an unrelated candidate only with unchanged effective inputs, intact bytes/rights and explicit source candidate/job/input-digest lineage in the new manifest. No loose copying from history or transfer of old set approval. A shared style change affecting all prompts invalidates all affected units.
+- Each change creates a new immutable manifest/review revision and supersedes the old actionable card. Approval is unavailable until all required units are ready. Validate that every selected child actually used the selected parent: `portrait_B + sheet_A` is rejected.
+- Technical recovery is different: same operation, same seeds and inputs, preserve completed units. Unknown submission is reconciled, never treated as permission for another paid generation.
+
+This is bounded reuse within the current anchor-review stage. Selective shot/clip creative repair and arbitrary cross-execution reuse are deferred. After proceeding to Storyboard, changing anchors requires a new execution; existing dependent plans/results remain historical, not current.
 
 ## First Slice
 
-Define all [agent contracts](../agents/README.md), including this full cinematic chain and its repair owners, before the first backend build. The first `foundation.v0` rendered slice stops after one Wardrobe plan, one main-frame plan, one ComfyUI image job, and verified local promotion. Story revision invalidates Wardrobe and all main-frame descendants; Wardrobe revision invalidates main-frame descendants. Implement the remaining full visual/render topology only after restart, stale-review, idempotency, provider reconciliation, and local import tests pass.
+`foundation.v0` follows Brief and Story review, Wardrobe, sequential anchor generation and complete `main_frames` review/save, then Storyboard, shot-frame generation and frame review/save, then completes. Use a one-shot Story fixture for the first end-to-end proof, not a universal one-shot constraint. This tests three example anchors and their actual use together in a shot; anchor-only generation is an intermediate test, not build completion.
 
-The first rendered profile uses explicit `i2v` mappings and no audio. Approved Brief must explicitly record this silent policy: no requested generated sound, soundtrack or voiceover; MontagePlan mutes native clip audio and the executor emits a final file with no audio stream, verified during output inspection. Supplied audio cannot override this profile; an audio requirement needs a separately enabled profile/new execution. Before paying for generation, validate the complete Story -> FramePlan -> selected frames -> MotionPlan -> selected clips -> MontagePlan mapping with representative contract fixtures. Check anchor-not-shot-one, complete unit coverage, identity preservation, temporal direction, silent assembly, and memory claims tied to approved evidence. This contract check does not replace provider integration or human craft review.
+Completion requires current approved Brief/Story plus saved current `main_frames` and `story_frames` selections, with exact validated supporting plans and fresh dependency closure. No mandatory plan-text gate, video, Montage, Craft, graph `Send` or node-editor implementation is needed for this slice. Sequential unit jobs use the existing service wait/recovery mechanism.
+
+Acceptance: restart between portrait and sheet; regenerate face and verify sheet replacement with location retained; regenerate location without touching character images; reject mixed parent/child selection and stale review; verify all required anchor roles reach shot generation; preserve approved images after provider unavailability. Existing cancellation, idempotency, verified import and ambiguous-submit tests still apply.
+
+The full cinematic's first video profile remains silent `i2v`: no requested soundtrack/voiceover, Montage mutes native clip audio, and output inspection verifies no audio stream. This video requirement does not apply to image-only foundation. Historical [cinematic.v1.json](cinematic.v1.json) and earlier dry runs are migration evidence, not current route declarations or passing acceptance tests.

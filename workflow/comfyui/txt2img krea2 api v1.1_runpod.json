@@ -1,0 +1,206 @@
+{
+  "668": {
+    "inputs": {
+      "samples": [
+        "856",
+        0
+      ],
+      "vae": [
+        "803",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "669": {
+    "inputs": {
+      "conditioning": [
+        "864",
+        0
+      ]
+    },
+    "class_type": "ConditioningZeroOut",
+    "_meta": {
+      "title": "ConditioningZeroOut"
+    }
+  },
+  "803": {
+    "inputs": {
+      "vae_name": "qwen_image_vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "817": {
+    "inputs": {
+      "clip_name": "qwen3vl_4b_fp8_scaled.safetensors",
+      "type": "krea2",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Load CLIP"
+    }
+  },
+  "819": {
+    "inputs": {
+      "PowerLoraLoaderHeaderWidget": {
+        "type": "PowerLoraLoaderHeaderWidget"
+      },
+      "lora_1": {
+        "on": true,
+        "lora": "krea 2/style/lenovo_krea2.safetensors",
+        "strength": 0.42
+      },
+      "lora_2": {
+        "on": false,
+        "lora": "krea 2/style/IMPERFECTA_c1-st4000.safetensors",
+        "strength": 0.42
+      },
+      "lora_3": {
+        "on": false,
+        "lora": "krea 2/edit/krea2_identity_edit_v1_2.safetensors",
+        "strength": 1
+      },
+      "➕ Add Lora": "",
+      "model": [
+        "844",
+        0
+      ],
+      "clip": [
+        "817",
+        0
+      ]
+    },
+    "class_type": "Power Lora Loader (rgthree)",
+    "_meta": {
+      "title": "Power Lora Loader (rgthree)"
+    }
+  },
+  "844": {
+    "inputs": {
+      "model_name": "krea2_turbo_nvfp4.safetensors",
+      "weight_dtype": "default",
+      "compute_dtype": "default",
+      "patch_cublaslinear": false,
+      "sage_attention": "disabled",
+      "enable_fp16_accumulation": false
+    },
+    "class_type": "DiffusionModelLoaderKJ",
+    "_meta": {
+      "title": "Diffusion Model Loader KJ"
+    }
+  },
+  "851": {
+    "inputs": {
+      "filename_prefix": "fill_refill/test/test_txt2img",
+      "quality": 100,
+      "images": [
+        "668",
+        0
+      ]
+    },
+    "class_type": "FL_SaveWebPImage(SaveImage)",
+    "_meta": {
+      "title": "FL Save WebP Image"
+    }
+  },
+  "853": {
+    "inputs": {
+      "filename_prefix": "fill_refill/test/test_txt2img",
+      "with_workflow": false,
+      "metadata_extra": "{\n  \"CreateDate\": \"2026:07:03 15:42:18\",\n  \"ModifyDate\": \"2026:07:03 15:42:18\"\n}",
+      "image": [
+        "851",
+        0
+      ]
+    },
+    "class_type": "Save image with extra metadata [Crystools]",
+    "_meta": {
+      "title": "🪛 Save image with extra metadata"
+    }
+  },
+  "854": {
+    "inputs": {
+      "width": [
+        "865",
+        0
+      ],
+      "height": [
+        "866",
+        0
+      ],
+      "batch_size": 1
+    },
+    "class_type": "EmptyLatentImage",
+    "_meta": {
+      "title": "Empty Latent Image"
+    }
+  },
+  "856": {
+    "inputs": {
+      "seed": 494318664905105,
+      "steps": 8,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "819",
+        0
+      ],
+      "positive": [
+        "864",
+        0
+      ],
+      "negative": [
+        "669",
+        0
+      ],
+      "latent_image": [
+        "854",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "864": {
+    "inputs": {
+      "text": "prompt here",
+      "clip": [
+        "819",
+        1
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Positive Prompt)"
+    }
+  },
+  "865": {
+    "inputs": {
+      "value": 1024
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "height base"
+    }
+  },
+  "866": {
+    "inputs": {
+      "value": 1024
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "width base"
+    }
+  }
+}

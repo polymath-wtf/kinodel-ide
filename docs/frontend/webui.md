@@ -2,6 +2,8 @@
 
 Status: **Product foundation**
 
+The node interface is now the target product: see [minimal architecture](../pipelines/node-architecture.md), [node catalog](../pipelines/node-list.md), and [phased roadmap](../pipelines/node-roadmap.md). Introduce graph inspection first, then configurable nodes, then validated user composition. Each node exposes inputs, instructions, discussion, output and attempts; draft editing and execution inspection are distinct modes.
+
 The UI is a projection and control surface for runtime state. It never becomes a second state machine.
 
 ## Primary Surfaces
@@ -49,4 +51,4 @@ Only build:
 5. reconnect to an interrupted execution;
 6. show typed failures.
 
-Kanban, node editor, Obsidian-like graph, and manual timeline editing are later surfaces.
+The node editor follows the explicit phased roadmap above. Kanban, Obsidian-like knowledge graph and manual montage timeline editing remain later surfaces. A node-local chat is an interaction view, not the source of production state or an implicit context transfer to downstream nodes.

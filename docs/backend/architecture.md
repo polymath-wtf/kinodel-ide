@@ -2,6 +2,8 @@
 
 Status: **Decided system boundaries; implementation and profile verification pending**
 
+The [node interface](../pipelines/node-architecture.md) is a phased product goal, with a [catalog](../pipelines/node-list.md) and [roadmap](../pipelines/node-roadmap.md). The authored route already uses compatible boundaries: Wardrobe anchor prompts -> Render -> complete anchor review/save -> Storyboard shot planning. Named typed service inputs/outputs support later node composition; this does not implement the editor/compiler.
+
 Deployment decision, 2026-09-09: SQLite for the local no-account application; PostgreSQL for hosted/server operation. Local uses one application process and one active graph runner per data directory; server supports concurrent workers with one writer per execution. Both profiles require their own persistence verification. See [local versus hosted](../database/local-vs-hosted.md). No transparent two-engine compatibility layer is required.
 
 Kinodel is a human-in-the-loop creative production system. A creator generates an idea, chooses the vibe, and lets a crew of AI subagents help make it beautiful: stories, visuals, videos, music, episodes, worlds, and reusable creative memory.
@@ -112,7 +114,7 @@ Therefore:
 ### Project DB And Artifact Store
 
 - immutable revisions and content hashes;
-- canonical execution slot bindings such as `story` or `main_frame`;
+- canonical execution slot bindings such as `story` or `main_frames`;
 - schema and semantic validation;
 - optimistic concurrency and idempotent commits;
 - SQLite local / PostgreSQL server identity plus managed immutable JSON/media storage;
@@ -173,7 +175,7 @@ Local projects, chats, personal wiki and indexes remain local without a Kinodel 
 
 This is a deliberately reduced `foundation.v0` test graph, not the final `cinematic.v1` topology.
 
-The [full agent-catalog contracts](../agents/README.md) define all roles and cinematic handoffs. The text-only Brief/Story path is an internal runtime milestone, not the first deployable build's completion criterion. The current [build gate](../roadmap.md#current-build-gate) additionally activates Wardrobe and Storyboard main-frame mode, using the same capability boundaries, plus the Render service.
+The [agent catalog](../agents/README.md) defines all cinematic handoffs. The text-only Brief/Story path is an internal runtime milestone. The deployable [build gate](../roadmap.md#current-build-gate) additionally proves Wardrobe anchors, their dependency-aware generation/review, and Storyboard's use of the approved images in shot generation.
 
 ```text
 create brief draft
@@ -182,14 +184,15 @@ create brief draft
 -> create story
 -> interrupt for review
 -> approve / revise through Critic / clarify through Producer / cancel
--> Wardrobe visual-anchor plan -> visual-anchor review
--> Storyboard main-frame plan (validated supporting plan)
--> durable ComfyUI job -> external wait -> verified candidate import/join
--> main-frame selection review -> exact selected-media promotion
+-> Wardrobe anchor plan (validated supporting plan)
+-> Render: portrait -> portrait-conditioned sheet -> independent location
+-> complete main_frames review (apply saves approved selection)
+-> Storyboard shot-frame plan (validated supporting plan)
+-> Render shot frames -> complete frame review (apply saves approved selection)
 -> complete
 ```
 
-The exact [foundation routes](reviews.md#foundation-routes) retain the cinematic visual gate and image-plan owner; no Wardrobe-to-provider prompt shortcut or automatic selection is allowed. First prove text replay with deterministic model doubles, then live bounded model output, then the single-image provider path. A terminal text test execution never later grows a render suffix: freeze a distinct test graph identity/digest, not a mutable stop-after flag on an open production thread. No `Send`, multiple-shot rendering, Filmmaker, Montage or Craft is needed in this build.
+The [foundation routes](reviews.md#foundation-routes) review generated anchors rather than mandatory plan text. Wardrobe owns anchor prompts; Render owns provider execution; Storyboard receives only the complete approved set. First prove text replay, then bounded live model output, then the three-anchor/one-shot acceptance fixture. The count is a fixture, not a universal schema constraint. Keep text tests under a separate frozen graph identity. Sequential jobs need no `Send`; video, Filmmaker, Montage and Craft remain later.
 
 ## Implementation Gates
 
@@ -200,18 +203,18 @@ P0 means required for the named enabled path, not a prohibition on writing an is
 | P0 before first accepted local execution | Approve physical DTO/start-pin proposal, exact graph declarations/state updates and completion outputs; pin packages/config and numeric Q4 bounds | Executable positive/negative DTO and route fixtures; reject trusted-field injection, unsupported configs and missing owners |
 | P0 local durability | Choose SQLite layout/driver/PRAGMAs, implement startup ownership, file publication, operation/work transactions and saver recovery classifier | Real process-death tests around start, file/DB/checkpoint commits and persisted resume; two executions remain isolated; no stale answer reaches a later wait |
 | P0 local access/cancel | Concrete session bootstrap, authorized reads/media, Host/Origin/CSRF, secret handling and bounded shutdown | Cross-project/stale command rejection; cancel-versus-commit/completion tests; no writer survives ownership release |
-| P0 first rendered build | Wardrobe/Storyboard schemas/resources and media-capable Critic; Q13 records, pinned local image workflow and output mapping | One reviewed visual plan, verified candidate, explicit selection and promoted `main_frame`; lost-submit response blocks/reconciles, late cancelled output cannot promote |
+| P0 first rendered build | Wardrobe/Storyboard schemas/resources, image-capable Critic, Q13 records and pinned workflow mappings | Complete approved `main_frames`, portrait-to-sheet identity, dependency-aware regeneration and a reviewed shot using all required reference roles; restart/lost-submit/cancel checks |
 | P1 before hosted activation | PostgreSQL same-session saver integration, auth/session details, private GCS and service accounting/admission | Separate PostgreSQL concurrency/session-loss tests, auth isolation, verified delivery and idempotent settlement; SQLite tests do not certify this path |
 | P1 before respective features | Rework entry, streaming, chat persistence and wiki publication | Their own receipt/reconnect/rights tests; no arbitrary rewind or implicit context injection |
 
 The [runtime acceptance matrix](runtime.md#acceptance-matrix), [DTO fixtures](physical-dtos.md#fixture-gate) and [startup gate](local-startup.md#acceptance-gate) are specifications of tests to implement, not passed tests. Search/vectors, automated backups/RPO/RTO, generic graph infrastructure and full frontend FSD do not block the first local slice.
 
-#question first-slice profile seam: current [Brief fields](physical-dtos.md#briefv1) require both image and video profile pins, while this graph stops at an image. Before schema freeze, explicitly decide how a non-enabled video profile is represented/validated in this reduced pipeline. A design-only profile is already permitted for text tests, but is not proof of video capability. Do not silently make required fields optional, demand a live video job for this image build, or advertise an untested bundled video workflow as runnable.
+First-slice profile rule: required runnable profile pins are determined by the enabled stage roles of the frozen graph. Image-only `foundation.v0` requires an image profile and represents video as explicitly inactive; a graph enabling video roles requires a runnable video profile. A design-only profile is permitted for text tests, but is not proof of provider capability.
 
 ## Non-Goals For V1
 
 - no arbitrary code in pipeline specs;
-- no generic graph compiler before two real graph factories exist;
+- no unrestricted graph compiler; a constrained known-node compiler is enabled only at the node-roadmap composition stage after the fixed route and editable-node behavior are verified;
 - no direct filesystem access from production agents;
 - no broad long-term memory injected by default;
 - no service mesh, agent swarm, or event-sourcing framework;

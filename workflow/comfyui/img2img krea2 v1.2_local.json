@@ -38,7 +38,7 @@
   },
   "814": {
     "inputs": {
-      "value": 1024
+      "value": 1280
     },
     "class_type": "easy int",
     "_meta": {
@@ -47,7 +47,7 @@
   },
   "815": {
     "inputs": {
-      "value": 1024
+      "value": 1280
     },
     "class_type": "easy int",
     "_meta": {
@@ -73,11 +73,11 @@
       "lora_1": {
         "on": true,
         "lora": "krea 2\\style\\lenovo_krea2.safetensors",
-        "strength": 0.8
+        "strength": 0.42
       },
       "lora_2": {
         "on": false,
-        "lora": "krea 2\\style\\ultra_real_krea2_v1.safetensors",
+        "lora": "krea 2\\style\\IMPERFECTA_c1-st4000.safetensors",
         "strength": 0.42
       },
       "lora_3": {
@@ -134,7 +134,7 @@
   "856": {
     "inputs": {
       "seed": 1075435488559069,
-      "steps": 15,
+      "steps": 8,
       "cfg": 1,
       "sampler_name": "euler_ancestral",
       "scheduler": "simple",
@@ -202,7 +202,7 @@
   },
   "873": {
     "inputs": {
-      "filename_prefix": "kinodel/test_img2img",
+      "filename_prefix": "fill_refill/test/test_img2img",
       "quality": 100,
       "images": [
         "668",
@@ -216,7 +216,7 @@
   },
   "874": {
     "inputs": {
-      "filename_prefix": "kinodel/test_img2img",
+      "filename_prefix": "fill_refill/test/test_img2img",
       "with_workflow": false,
       "metadata_extra": "{\n  \"CreateDate\": \"2026:07:03 15:42:18\",\n  \"ModifyDate\": \"2026:07:03 15:42:18\"\n}",
       "image": [

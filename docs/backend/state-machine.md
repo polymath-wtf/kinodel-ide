@@ -59,7 +59,7 @@ Compact artifact refs contain ID, schema/version, URI, digest and media type. Hy
 
 Sequential nodes return partial updates. A gate clears completed decision/wait references as part of its recorded transition. An operation replay returns the same projected references; it does not choose the latest request or silently replace its input with newer canon.
 
-For fan-out, only `task_results` has a keyed merge reducer. Its key includes group activation and stable unit/task identity. An identical duplicate is harmless; a conflicting duplicate is an integrity error. The join verifies the exact expected set and plan order, is the sole aggregate binding owner, and resets the accumulator before the next group. No append-only list across creative revisions, no shared binding writes by workers, and no parallel human interrupts.
+For fan-out, only `task_results` has a keyed merge reducer. Its key includes group activation and stable unit/task identity. Identical duplicates are harmless; conflicts are integrity errors. Join verifies exact coverage/order and owns the candidate manifest; the gate's Render save operation owns the approved-result binding. Reset the accumulator per group; retained anchor candidates require explicit unchanged-input lineage, never an append-only list across revisions. Workers do not write bindings; no parallel human interrupts.
 
 ## Execution View
 

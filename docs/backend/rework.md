@@ -10,6 +10,8 @@ Keep ordinary recovery on the same `thread_id = execution_id`, latest matching c
 
 ## Source Stability
 
+Regenerating an unapproved anchor at its current review is not earlier-stage rework: it follows [anchor-local regeneration](../pipelines/cinematic.md#anchor-regeneration), keeping unchanged independent candidates and rerendering dependents in the same execution. The new-execution rules below apply when changing already approved ancestors after moving downstream. Media "promotion" here means saving the approved selection, not a separate visible stage.
+
 Proposed minimal release rule: **terminal source execution only**. If E1 is still paused/running, the creator explicitly confirms cancellation of E1 through the existing control protocol; wait until worker finalizes cancellation and local graph/saver writes stop. Do not cancel silently on preview or roll cancellation and E2 start into an imaginary distributed transaction. If E2 validation later fails, E1 remains cancelled and its outputs remain history. Previously completed/failed/cancelled sources need no rewritten outcome.
 
 This deliberately narrows the previously allowed stable-pause alternative. A pause alone can race another review or wake work; supporting two live branches safely is unnecessary for the first rework feature. No project-wide ban on unrelated executions is introduced. Late remote job audit/settlement may still occur for E1, but cannot bind/promote or wake E2. Historical approvals and rights are checked independently of terminal outcome: cancellation never revokes already committed approvals by itself.

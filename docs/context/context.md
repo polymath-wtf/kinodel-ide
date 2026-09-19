@@ -61,7 +61,7 @@ stage + modality + frozen generation profile
 
 Prompt guidance may describe model-family syntax, composition/motion grammar, reference-image behavior, and known prompt constraints. API payload schemas, secrets, endpoints, queue fields, workflow paths, and runtime activation syntax remain inside provider adapters.
 
-Storyboard, Filmmaker, and Muse may use prompt guidance to produce model-targeted prompt text inside typed creative plans. Wardrobe supplies semantic visual direction rather than image syntax. Their artifacts remain provider-payload neutral: changing the generation profile requires new plan activations, while adapters still own the actual request payload. Once Brief is approved, a downstream gate cannot change its frozen profile; foundation/V1 uses a new execution for that change.
+Wardrobe, Storyboard, Filmmaker, and Muse use the required frozen prompt guidance for their own outputs: anchor images, shot images, video, and music respectively. Wardrobe receives reference-conditioning guidance for portrait-to-sheet generation; Storyboard receives multi-image role guidance. Their artifacts remain provider-payload neutral: changing the generation profile requires new plan activations, while adapters own the actual request payload. Once Brief is approved, a downstream gate cannot change its frozen profile; foundation/V1 uses a new execution for that change.
 
 ## `ContextSelectionV1`
 

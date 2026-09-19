@@ -13,8 +13,8 @@ Inspect one bounded review subject and turn creator feedback into an actionable 
 |---|---|---|
 | `brief_qc` | creator intent versus extraction, explicit/default assumptions, supported settings; no invented plot | Producer |
 | `story_qc` | hook, causal/emotional arc, atomic playable actions, count, canon, payoff | Storytell; Episode for the serial story gate |
-| `visual_anchor_qc` | identity, silhouette, wardrobe/environment/light coherence and usable continuity rules | Wardrobe |
-| `rendered_frames_qc` | exact main/style/act anchor or frame candidates against their plan; visible identity, composition, preserve/change, coverage | corresponding Storyboard stage |
+| `visual_anchor_qc` | complete anchor candidate set and supporting VisualAnchorPlan; face/sheet identity, anatomy/clothing, character-free environment, reference roles and dependency consistency | Wardrobe |
+| `rendered_frames_qc` | exact shot-frame candidates against FramePlan and approved anchors; composition, visible action, preserve/change, coverage | corresponding Storyboard stage |
 | `video_clips_qc` | exact clip candidates against MotionPlan; start/end continuity, motion stability, action readability and allowed audio | Filmmaker |
 | `final_qc` | final assembly, pacing, trims, joins, audio policy and output constraints using approved clips | Montage |
 | `memory_qc` | chunk/aggregate claims, source evidence, plan versus fact, semantic handles, reuse constraints and consumer usefulness | Craft |
@@ -27,7 +27,7 @@ Music and serial modes have design contracts now; enable them with their pipelin
 
 - exact current review subject and its inspection evidence, with the gate's criteria and editable scope;
 - original creator feedback and typed proposed changes, not a summary replacing them;
-- previous exact owner output: FramePlan for image candidates, MotionPlan for clip candidates, MusicPlan for song candidates, MontagePlan for final review, plus relevant selected inputs;
+- previous exact owner output: VisualAnchorPlan for anchor candidates, FramePlan for shot candidates, MotionPlan for clip candidates, MusicPlan for song candidates, MontagePlan for final review, plus relevant selected inputs;
 - approved Brief/canon and other constraints relevant to the requested change; at `brief_qc`, the subject is the unapproved Brief and its authority is the raw request, separate input answer, fixed pipeline, and supplied defaults/allowed constraints, not a nonexistent approved Brief;
 - frozen context selection and mode, supplied by the adapter.
 
@@ -54,7 +54,7 @@ A report preserves the creator's original feedback and never rewrites the target
 
 - Do not invent defects to justify a revision. Tie observations to supplied content and distinguish creator preference, observed defect, and unverified suspicion.
 - Missing technical evidence, corrupt media, or invalid dependencies block at the adapter/service boundary; Critic cannot fix them through prose or infer quality from filenames/prompts.
-- Main-anchor feedback is checked for usefulness as a continuity reference, not resemblance to shot one. Clip review needs temporal evidence; audio claims need audio evidence.
+- Anchor feedback is checked against each reference role and the exact portrait used by its sheet, not resemblance to a story shot. Seed-only regeneration is a Render action, not a Critic pass. Clip review needs temporal evidence; audio claims need audio evidence.
 - Memory review cannot certify a completed action solely because MotionPlan requested it. Rights checks remain deterministic policy validation; Critic does not grant licenses.
 
 Acceptance examples: "make shot two more hesitant" yields a bounded action edit at story review; "change the approved character" at clip review is out of scope; "make it better" needs a focused question rather than an invented rewrite. A memory claim contradicted by supplied final media is flagged with that evidence.

@@ -2,6 +2,8 @@
 
 Status: **Decided foundation**
 
+Product amendment: [node architecture](../pipelines/node-architecture.md) defines the target user-authored editor and new anchor flow; [node roadmap](../pipelines/node-roadmap.md) lists required synchronization. The declarations below remain the authored-runtime baseline, not an implemented visual schema/compiler. User composition is introduced in a later verified phase rather than enabled by arbitrary `/goal` routing.
+
 A pipeline is a versioned graph definition that binds stage IDs to capabilities, declared artifact slots, validators, routes, and human gates. It is configuration plus code, not an agent.
 
 ## Stage Kinds
@@ -47,8 +49,9 @@ Review identity includes the exact subject, attempt, and dependency closure. Eac
 
 | Action/outcome | Authored route |
 |---|---|
-| `approve` | Validate exact subject/selection and dependencies; promote or advance |
+| `approve` | Validate exact subject/selection and dependencies; save approved result in apply path, then advance |
 | `revise` / Critic `ready` | Critic -> fixed owner -> declared repair path -> same gate with new subject |
+| `regenerate` at anchor review | Render selected units and dependents with new frozen seeds -> new complete-set review; no prompt edit or Critic |
 | `revise` / Critic `needs_input` or `out_of_scope` | New request for the same subject plus explanation; no owner call |
 | `clarify` | Producer explanation -> new request for the same unchanged subject |
 | `cancel` | Terminal cancellation path |
@@ -105,13 +108,13 @@ type AgentHandoff = {
 
 This older `AgentHandoff` sketch is not a universal executable envelope. Concrete mode inputs follow [physical DTOs](physical-dtos.md); Critic feedback uses an `OperationResultRef`, not the sketch's `feedback_ref: ArtifactRef`. The operation stores one frozen [`ContextSelectionV1`](../context/context.md), including projection versions/digests, before the model call; retries reuse it. Graph state and handoffs carry only the reference, not the full trace or bodies. At the agent boundary the adapter hydrates typed artifact bodies and consumer-specific context content from those prepared refs. A selection trace alone is not prompt content. Missing mandatory context blocks the stage. Do not pass writable paths, cache choreography, provider payloads, or duplicated selected media in each handoff.
 
-A successful creative production stage owns one aggregate output artifact. Critic, Producer explanation/question modes, and non-ready outcomes instead store typed operation results without creative bindings. `StageSpec.writes` remains an array because deterministic service/join stages may commit more than one declared output atomically. Graph-factory validation builds a `slot -> owner stage` index within each pipeline version and rejects duplicate owners, except a declared revision loop back to that same owner. Gates write no artifact slots. Capability/mode, prepared inputs, outcome semantics, and enabling checks follow the [agent catalog](../agents/README.md#common-contract).
+A successful creative production stage owns one aggregate output artifact. Critic, Producer explanations and non-ready outcomes store operation results without creative bindings. `StageSpec.writes` remains an array because services may commit multiple declared outputs atomically. Graph validation rejects competing slot owners. A media gate's apply path invokes its declared Render save operation, the sole owner of the selected-result slot; the human decision itself does not write creative content. No separate visible promotion node is required. Other capability rules follow the [agent catalog](../agents/README.md#common-contract).
 
 ## Production Joins
 
-Plans declare stable ordered unit IDs and exact inputs. Render adapters map the existing frame/motion/music plan to unit jobs, not to another universal request artifact. Parallel jobs write job-scoped results, never a shared canonical output slot. One deterministic join owns the immutable stage-level candidate manifest; one sequential human gate selects the complete required unit set; one promotion stage owns its `RenderResultV1` slot. Candidate manifests are runtime records, not creative artifact bindings.
+Plans declare stable units and exact references; workflow declarations specify named typed inputs/outputs. Stage mappings bind these directly to Render jobs, without a universal request artifact or a closed list of agent plans. Unit jobs write candidates, never a shared canonical binding. One join records a complete manifest; one human gate selects the full set, and its apply path saves `RenderResultV1` through Render. Sequential dependent jobs use the same mechanism as independent jobs, without requiring graph fan-out.
 
-Group waits carry immutable `wait_id` and `request_digest`. Same-request technical retries keep successes; creative aggregate revisions rebuild all units in the first renderer. Missing units block join/promotion rather than silently shortening production. Selective creative reuse and parallel human gates are deferred. A result gate approves its subject only; validated supporting plans do not acquire independent human approval by association.
+Group waits carry immutable `wait_id` and `request_digest`. Technical retries keep successes. Anchors use [changed-unit plus descendant regeneration](../pipelines/cinematic.md#anchor-regeneration) and exact retained-candidate lineage; other creative aggregates initially rebuild all units. Missing units or mismatched parent/child candidates block approval. General cross-execution selective reuse and parallel human gates remain deferred. Result approval does not separately approve supporting plans.
 
 ## Versioning
 
@@ -119,11 +122,13 @@ Group waits carry immutable `wait_id` and `request_digest`. Same-request technic
 - Existing executions always resume against the same graph version.
 - Start with explicit graph factories such as `cinematicV1Graph()`.
 - Add a registry mapping ID/version to graph factory.
-- Consider a compiler only after at least two working pipelines expose stable repetition.
+- Enable a constrained known-node compiler at the node-roadmap composition stage, after the fixed route and configurable node contracts work. General-purpose compilation remains deferred.
 
 ## Pipeline Creation
 
 `create-pipeline` is initially a design assistant, not a live runtime mutation feature. It may propose stages using the known capability registry, but a human must review, validate, test, version, and register the resulting graph before execution.
+
+The later visual editor replaces manual graph authoring for its supported node types through server-side validation and versioned compilation. It edits a draft for a new execution, not the graph of an in-flight thread; cross-version partial reuse requires separate verification.
 
 ## Pipeline Pages
 

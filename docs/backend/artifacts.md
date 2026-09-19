@@ -74,7 +74,7 @@ type ExecutionBinding = {
 };
 ```
 
-Examples: `brief`, `story`, `visual_anchor_plan`, `main_frame_plan`, `main_frame`, `frame_plan`, `story_frames`, `motion_plan`, `clips`, `montage_plan`, `final_video`, `cinema_memory_draft`.
+Examples: `brief`, `story`, `visual_anchor_plan`, `main_frames`, `frame_plan`, `story_frames`, `motion_plan`, `clips`, `montage_plan`, `final_video`, `cinema_memory_draft`. `main_frames` is the complete approved Wardrobe anchor-image set; VisualAnchorPlan and FramePlan are validated supporting plans, not independently approved outputs.
 
 A revision creates a new artifact and atomically changes the canonical `execution_bindings` row. It never overwrites history. The LangGraph `bindings` map is a replayable projection of these rows, not another source of truth.
 
@@ -133,13 +133,15 @@ Ordered selected assets are explicit in result artifacts. No downstream stage sc
 
 ### Candidates And Promotion
 
-Provider outputs first enter job-scoped storage as `CandidateMediaRef`s. A candidate has a stable ID, job/unit identity, managed URI, digest, MIME type, and technical metadata. It is inspectable in a review gate but is not an `AssetRef`, artifact, or execution binding.
+**Terminology:** for generated media, promotion means **saving the approved selection**. It is a Render persistence operation in the review gate's apply path, not a separate user-visible node, creative pass or second approval. References to promotion in storage/recovery documents retain this meaning. Memory publication is a separate domain action.
+
+Provider outputs first enter job-scoped storage as `CandidateMediaRef`s. A candidate has a stable ID, job/unit identity, managed URI, digest, MIME type, and technical metadata. It is inspectable in a review gate but is not an approved `AssetRef`, artifact, or execution binding. Within a declared render dependency, a candidate may feed another unit before approval: freeze its exact ID/digest in the child request. This internal dependency does not authorize Storyboard to consume unapproved anchors.
 
 ```text
 unit jobs complete for one stage activation
 -> join validates all required units and records one immutable stage-level candidate-set manifest
 -> human reviews the exact set and selects acceptable candidates
--> promotion verifies candidate IDs, digests, request provenance, and expected revisions
+-> gate apply verifies candidate IDs, digests, dependency-compatible selection, and expected revisions
 -> stage, sync, and publish selected media and RenderResultV1 JSON
 -> commit asset/artifact metadata, selection, binding, operation result, and next activation in one DB transaction
 ```
@@ -150,15 +152,15 @@ Rejected candidates remain job history under retention policy and never become c
 
 ### Selected Media References
 
-Within a downstream plan, a selected rendered input is `{render_result_ref: ArtifactRef, unit_key: string}`. The ref identifies the exact immutable `RenderResultV1`; the key selects exactly one entry and resolves its `AssetRef`. This is an inline selector, not a new artifact, frame identity, or mapping registry. Adapters hydrate the selected asset and validate result type, unit existence, media kind, required approval, freshness, and digest. Any materialized asset ID in a projection/provider request must match that resolved entry; it is not an independent selection. Candidate IDs remain promotion provenance, never downstream input selectors.
+Within a downstream creative plan, a selected rendered input is `{render_result_ref: ArtifactRef, unit_key: string}`. The ref identifies the exact immutable `RenderResultV1`; the key selects one entry and resolves its `AssetRef`. Adapters validate type, unit existence, required approval, freshness and digest. Any materialized asset ID must match that entry. Candidate IDs are provenance, not downstream creative selectors; their sole pre-approval input use is the explicit internal render dependency above.
 
 FramePlan uses this selector for promoted anchors; MotionPlan uses it for start/end frames; MontagePlan uses it for selected clips. Other explicitly supplied assets retain their exact `AssetRef`. Unit ownership and the first cinematic identity mapping are defined in [cinematic.md](../pipelines/cinematic.md#unit-contracts).
 
 ### Render Group Integrity
 
-The manifest freezes stage/activation identity, request digest, ordered required unit IDs, candidate IDs/digests, source jobs, and exact dependency provenance. It may span many jobs but is one review subject, not one subject per job. Join rejects missing, duplicate, extra, or wrong-request units; each required unit must have at least one technically valid candidate. Approval selects exactly one candidate per required unit in the declared order. Review acceptance and promotion both verify the active attempt and dependency closure, not merely an unchanged manifest digest.
+The manifest freezes stage/activation identity, group request digest, ordered required units, candidate IDs/digests, source jobs, per-unit effective input digests and exact parent candidate references. It is one review subject, not one per job. Join rejects missing/extra units, duplicate identities and unauthorized source requests. For anchor repair, a retained candidate from the preceding set is allowed only with explicitly recorded unchanged-input lineage; its original job identity is never rewritten. Approval selects one candidate per unit and checks parent/child compatibility, not just coverage. Review acceptance and save both check current activation and dependency closure.
 
-The render group uses an immutable wait token `{wait_id, request_digest}`. Mutable unit-job versions are worker reconciliation details, not graph wait identity. Same-request technical retry retains successful units and reconciles uncertain jobs before resubmission. The first renderer rebuilds all units for a creatively revised aggregate; selective cross-revision reuse is deferred. Partial progress is inspectable but cannot become a complete manifest or promoted result.
+The render group uses an immutable wait token `{wait_id, request_digest}`. Mutable job versions are worker details. Technical retry retains successes and reconciles uncertain jobs. Anchor regeneration/revision rebuilds changed units and transitive dependents, retaining only unrelated unchanged candidates under [cinematic rules](../pipelines/cinematic.md#anchor-regeneration); the whole new set requires review. Other creative render aggregates initially rebuild all units. Partial progress cannot become a complete manifest or approved result.
 
 ## Managed Project Storage
 
@@ -222,4 +224,4 @@ Design the semantic contracts for the entire agent catalog before the first back
 
 Do not build one universal artifact envelope that attempts to model every domain field. Field-level proposed candidate/body/ref/commit contracts are in [physical-dtos.md](physical-dtos.md); strict agent candidates contain no trusted metadata. Cross-execution reuse receipts and authored entry guards are in [rework.md](rework.md), with terminal-source-only recommended for the first activation.
 
-These are architectural contracts, not claims that executable schemas exist. Render consumes `FramePlanV1`, `MotionPlanV1`, or the later `MusicPlanV1` through deterministic adapters; no redundant universal `render_requests` artifact is needed. `SeasonPlanV1`, `SeasonMemoryDraftV1`, episode extensions, and audio-analysis fields have planned domain boundaries before the build; their executable implementations do not block the three-agent runtime test.
+These are architectural contracts, not executable schemas. Render binds validated source values and media to a pinned workflow's typed named ports. VisualAnchorPlan, FramePlan, MotionPlan and MusicPlan are examples, not a closed input list; no redundant universal `render_requests` artifact is needed. Non-media outputs use their declared result schemas. SeasonPlan, SeasonMemoryDraft, episode extensions and audio-analysis implementations do not block the text runtime test.

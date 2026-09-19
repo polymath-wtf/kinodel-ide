@@ -24,7 +24,7 @@
 - `pinned_revision`: exact внешняя/shared revision, не latest binding. Supersede/archive при сохранённых данных не меняет вход старого execution; rights withdrawal/purge блокирует.
 - Provenance не может иметь циклов. Право читать artifact не автоматически разрешает использовать все его закрытые sources/media.
 
-Не превращать каждый shot/frame/beat в таблицу только ради ER-модели. Первый `i2v` использует Story shot keys и порядок в frame/clip plans/results. `main` является отдельным anchor unit; выбранный `source_shot_id` принадлежит FramePlan. Downstream selector `{render_result_ref, unit_key}` разрешает точный AssetRef; новая независимая frame identity не нужна.
+Не превращать каждый shot/frame/beat в таблицу только ради ER-модели. Первый `i2v` использует Story shot keys и порядок в frame/clip plans/results. Единицы якорей объявляет Wardrobe отдельно от shots; утверждённый набор сохраняется в `main_frames`. Downstream selector `{render_result_ref, unit_key}` разрешает точный AssetRef; новая независимая frame identity не нужна.
 
 ## Managed storage
 

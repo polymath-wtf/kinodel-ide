@@ -21,6 +21,7 @@ This directory is the source of truth for the rebuild. It records decisions, con
 - LangGraph rules: [`backend/langgraph.md`](backend/langgraph.md)
 - ComfyUI boundary: [`backend/comfyui.md`](backend/comfyui.md)
 - Frontend: [`frontend/webui.md`](frontend/webui.md)
+- Node-based target product: [`pipelines/node-architecture.md`](pipelines/node-architecture.md), [node catalog](pipelines/node-list.md), [phased roadmap](pipelines/node-roadmap.md). Authored cinematic uses Wardrobe anchor prompts, sequential dependent renders, complete `main_frames` review and then Storyboard; executable verification and editor implementation remain pending.
 - Local bootstrap and process ownership: [`backend/local-startup.md`](backend/local-startup.md).
 - Physical candidate/body/review/service DTO proposal: [`backend/physical-dtos.md`](backend/physical-dtos.md).
 - Earlier-stage execution reuse: [`backend/rework.md`](backend/rework.md).
@@ -62,10 +63,10 @@ Provider defaults, shot counts, and model IDs are configuration, not universal a
 ## Deferred
 
 - natural-language pipelines that execute immediately;
-- generic pipeline-spec compiler;
+- unrestricted pipeline-spec compiler (a constrained editor compiler belongs to the node-product roadmap);
 - autonomous producer/critic swarms;
 - parallel human interrupts;
 - graph database and distributed event bus;
 - multiple embedding dimensions in production;
 - LangGraph Store as a project database;
-- visual node editor and time-travel UI.
+- arbitrary checkpoint time-travel UI. The visual node editor is now a phased target product, not an indefinite deferral.
