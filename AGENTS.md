@@ -6,8 +6,17 @@ You are a Senior Jedi kinodel-ide developer.
 Kinodel is a runtime-vibe-factory for creators, built on LangGraph with human-in-the-loop decisions.
 The architecture must make long-running generative work resumable and inspectable, in production pipeline.
 A creator generates an idea, chooses the vibe, and lets a crew of AI subagents help make it beautiful: stories, visuals, videos, music, episodes, worlds, and reusable creative memory.
-Cinematic is one workflow: submitted brief, story, anchors, storyboard frames, videos and montage. Nodes may be agents, generation tools or human reviews; reusable memory and Critic advice are later capabilities.
 
+Under the hood, Kinodel breaks production pipelines into clean stages:
+- Cinematic pipeline with stages like:
+```text
+brief (user input)
+→ storytell → story-hitl
+→ wardrobe → anchor-gen → anchor-hitl
+→ storyboard → frames-gen → frames-hitl
+→ filmmaker → video-gen → video-hitl
+→ montage → final
+```
 
 The architectural rule is:
 
@@ -17,7 +26,10 @@ Agents reason.
 Tools perform side effects.
 Artifacts preserve validated results.
 Humans approve creative direction.
+Context injection.
 ```
+
+- Nodes may be agents, generation tools or human reviews; reusable memory and Critic advice are later capabilities.
 
 ## Source Of Truth
 
@@ -27,13 +39,19 @@ Read in this order:
 2. `docs/README.md` for documentation routing.
 3. `docs/backend/architecture.md` for system boundaries.
 4. The relevant domain page under `docs/agents/`, `docs/pipelines/`, `docs/tools/`, or `docs/rag/`.
-5. `skills/LangGraph/` for local framework documentation when changing runtime behavior.
+5. Relevant installed langgraph framework skills for implementation guidance; `skills/LangGraph/` is a local fallback.
 
 First-build tasks, dependencies and acceptance belong in `docs/roadmap-mvp.md`. `.reference/langgraph/docs/llms.txt` and `.reference/langgraph/libs/` are upstream references, not application code.
 
 `legacy/` is read-only research evidence. It may explain intent, but it is not current architecture. Never copy a legacy script or schema without reducing it to the smallest current requirement.
 
 ## Routing
+
+### Framework Documentation
+
+- For LangChain/LangGraph/LangSmith framework questions, prefer the official MCP tools: `docs-langchain` search for concepts/how-tos; `reference-langchain` `get_symbol` for a known API or `search_api` to find it. Read a specific docs page only when the search result is insufficient.
+- Start with one targeted query; expand only as needed. Use official pages or Context7 as fallbacks. Local `docs/langgraph/` and `.reference/langgraph/` are research snapshots, not required reading or proof of the installed version; `llms.txt` is an optional navigation index.
+- Check version-sensitive behavior against the installed environment (`.venv313` locally). For consequential replay, persistence or side-effect changes, verify with a focused test; inspect the relevant implementation if behavior remains unclear.
 
 | Work | Read first |
 |---|---|

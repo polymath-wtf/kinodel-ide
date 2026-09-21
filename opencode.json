@@ -12,6 +12,16 @@
           "command": ["codegraph", "serve", "--mcp"],
           "enabled": true
       },
+      "docs-langchain": {
+          "type": "remote",
+          "url": "https://docs.langchain.com/mcp",
+          "enabled": true
+      },
+      "reference-langchain": {
+          "type": "remote",
+          "url": "https://reference.langchain.com/mcp",
+          "enabled": true
+      },
       "context7": {
           "type": "remote",
           "url": "https://mcp.context7.com/mcp",
