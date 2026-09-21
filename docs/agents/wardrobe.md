@@ -3,7 +3,7 @@
 Class: creative agent  
 Status: **Accepted design; implementation and provider verification pending**
 
-Wardrobe owns anchor direction and prompts. The [cinematic route](../pipelines/cinematic.md) renders and reviews the resulting `main_frames` before Storyboard. These are contracts for implementation, compatible with the [node architecture](../pipelines/node-architecture.md).
+Wardrobe owns anchor direction and prompts. Its `anchor-gen` tool creates the generated Wardrobe result `anchor_frames`, reviewed before Storyboard in the [cinematic route](../pipelines/cinematic.md).
 
 ## Responsibility
 
@@ -11,7 +11,7 @@ Design approvable visual direction and provider-neutral anchor image prompts for
 
 ## Input
 
-- approved `BriefV1` and exact approved narrative spine: `StoryV1` for cinematic/episode, proposed `SeasonPlanV1` for per-episode anchors, or proposed `MusicPlanV1` plus selected song and validated timing projection for music-video;
+- submitted `BriefV1` and exact approved narrative spine: `StoryV1` for cinematic/episode, proposed `SeasonPlanV1` for per-episode anchors, or proposed `MusicPlanV1` plus selected song and validated timing projection for music-video;
 - mode `single`, `per_episode`, `per_act`, or `timed_style`, with the approved narrative scope and any existing anchor identities to preserve;
 - hydrated character and environment chunks, visual/canon projections, and labelled reference images with exact revisions and semantic roles; the operation's frozen context-selection reference is not a substitute for content;
 - provider-neutral image/reference capability constraints and any required frozen prompt guidance;
@@ -23,11 +23,11 @@ Anchor units are stable named visual references, not Story shots. For example, `
 
 ## Output
 
-A provider-neutral `VisualAnchorPlanV1` containing shared visual direction and an ordered list of anchor units: stable key, purpose/reference role, subject identity, framing, drawable content, image prompt, reference bindings, and preserve/ignore constraints. A binding can name an exact supplied reference or an earlier anchor unit whose generated image must be used. Provider payload mapping belongs to the Render adapter; physical fields are in [DTOs](../backend/physical-dtos.md#cinematic-extension).
+A provider-neutral `VisualAnchorPlanV1` in `wardrobe_plan`, containing shared visual direction and an ordered list of anchor units: stable key, purpose/reference role, subject identity, framing, drawable content, image prompt, reference bindings, and preserve/ignore constraints. A binding can name an exact supplied reference or an earlier anchor unit whose generated image must be used. `anchor-gen` consumes this saved plan; provider payload mapping belongs to its adapter. Physical fields are in [DTOs](../backend/physical-dtos.md#cinematic-extension).
 
 One aggregate declares the required anchor units before rendering and preserves existing IDs on repair. In the minimal new route, the plan is validated supporting evidence, not a separate mandatory human gate. Render generates candidates from that exact validated plan; a human selects exactly one candidate for every required anchor unit and approves that exact complete set, bound to its supporting plan revision. This does not independently approve the plan. Only promoted approved assets, with the exact plan and selection provenance, pass to Storyboard. An optional separate plan gate would require an explicit template declaration.
 
-Creative revision goes through Critic to Wardrobe within the anchor-design scope. Wardrobe returns a complete replacement plan, preserving unchanged unit IDs/content. Render regenerates changed units and their transitive dependents; unrelated unchanged candidates may remain in the new reviewed set under [anchor regeneration](../pipelines/cinematic.md#anchor-regeneration). A seed-only regenerate command goes directly to Render without inventing a prompt edit. Both require a new complete-set review. Approved Brief/Story/canon remain outside this repair scope; changing already approved anchors after proceeding downstream requires a new execution, not an automatic rewind.
+At `anchor-hitl`, the user writes directly to Wardrobe. It returns a complete replacement plan, preserving unchanged unit IDs/content; `anchor-gen` regenerates affected units and dependents. Unrelated unchanged attempts may remain under [anchor regeneration](../pipelines/cinematic.md#anchor-regeneration). Seed-only regeneration calls the tool without a prompt edit. Both require a new complete-set review. Submitted Brief and approved Story/canon remain outside repair scope; changing anchors after proceeding downstream requires a new execution.
 
 ## Dependent Generation
 
@@ -46,7 +46,7 @@ Acceptance example: a rainy-city palette can vary wet surfaces and local lightin
 
 ## Boundaries
 
-- Writes anchor image prompts only; does not call image providers, execute rendering, or change the frozen generation profile.
+- Writes anchor prompts and supplies its declared generation tool inputs; does not access raw provider endpoints, wait for rendering, or change the frozen profile.
 - Does not select/approve rendered anchors or route the pipeline; service execution, human decisions, and graph transitions remain separate owners.
 - Does not rewrite story or continuity.
 - Does not create the whole storyboard.
@@ -54,10 +54,10 @@ Acceptance example: a rainy-city palette can vary wet surfaces and local lightin
 
 ## Tools
 
-None. The adapter supplies authorized image/character projections and bounded observations; visual-capable input is required where judging reference appearance is necessary.
+`anchor-gen`, dispatched after the complete plan is validated and saved. It returns a durable job ref, not an image within the model turn. The adapter supplies authorized image/character projections; visual-capable input is required where judging appearance matters. See [tool calls](../tools/tools.md).
 
 ## Minimal System Prompt
 
 ```text
-You are Wardrobe, Kinodel's visual-anchor designer. Use the supplied approved Brief and narrative or musical spine, character/environment chunks, references, and narrative scope to create visual direction and anchor image prompts. Declare stable anchor units, their roles, framing, reference bindings and preserve/ignore constraints. Bind a character sheet to its generated portrait when face identity must be preserved; environment anchors contain no characters. Preserve unchanged identities and content on repair. Return VisualAnchorPlanV1 when ready, otherwise the declared needs_input or out_of_scope result. Do not design Storyboard shots, render or approve assets, encode provider payloads, rewrite the spine, or route the pipeline.
+You are Wardrobe, Kinodel's visual-anchor designer. Use the submitted Brief, approved spine and supplied references to create visual direction and anchor prompts. Declare stable units, roles, framing, reference bindings and preserve/ignore constraints. Bind a character sheet to its portrait for identity; environment anchors contain no characters. Apply direct user feedback while preserving unrelated content. Return VisualAnchorPlanV1 for the anchor-gen tool when ready, otherwise needs_input or out_of_scope. Do not design Storyboard shots, wait for rendering, approve assets, encode provider payloads, rewrite the spine or route the graph.
 ```

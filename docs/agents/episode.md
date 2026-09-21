@@ -3,7 +3,7 @@
 Class: creative agent  
 Status: **Planned for `serial_episode.v1`**
 
-The content contract below is an architectural minimum before the first backend build. Pipeline activation and executable schemas/checks remain later work.
+This is a future capability proposal. Refine and verify it when activating serial production; it does not block the local foundation build.
 
 ## Responsibility
 
@@ -23,9 +23,9 @@ Continuity validation pins exact shared revisions for the execution. Keep the ex
 
 An episode-compatible `StoryV1` with ordered acts/shots, continuity deltas, open-thread handling, and exact ending state.
 
-Stable act/shot IDs map to Wardrobe's aggregate act direction, Storyboard anchors/frames, clips, and final continuity claims. Brief constraints and approved planned obligations remain authoritative. These episode extensions belong to the pre-build architectural contract; executable serial schemas are not extra `foundation.v0` implementation requirements.
+Stable act/shot IDs map to Wardrobe's act anchors, Storyboard shot plans, rendered frames/clips, and final continuity claims. Brief constraints and approved planned obligations remain authoritative. These future episode extensions are not `foundation.v0` implementation requirements.
 
-Revision is Critic -> Episode -> the same story gate. Changing the approved Season/target plan/previous ending is out of scope and returns an explained request for the existing subject without rewriting canon. Final episode approval permits Craft to draft completed memory; only the separate memory review and deterministic promotion publish it.
+Revision is direct user feedback -> Episode -> the same story gate. Changing approved Season/target plan/previous ending is out of scope and returns an explanation without rewriting canon. Future memory publication requires its own review; it is not an automatic MVP final step.
 
 ## Boundaries
 

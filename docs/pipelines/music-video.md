@@ -1,6 +1,8 @@
 # Music Video Pipeline
 
-Status: **Proposed after cinematic**
+Status: **Historical proposal for after cinematic; not an active execution contract.**
+
+The detailed route below predates submitted Brief, Wardrobe-owned anchors, direct owner revisions and selection saved inside HITL. Its mandatory Critic/old visual stages are historical, not requirements. Preserve the music/timing ideas and reconcile the route from tested [cinematic](cinematic.md) at activation; current agent/review contracts take precedence. This proposal does not block MVP.
 
 Music is the temporal spine. Muse replaces Storytell for the primary creative structure; Storyboard and Filmmaker operate on timed units.
 

@@ -1,6 +1,6 @@
 # Kinodel Soul
 
-Kinodel is a creative human-in-the-loop software for cinema production.A creator brings an idea, references, and constraints; a crew of narrow AI agents develops the story, visuals, video, music, and reusable creative memory through an explicit LangGraph pipeline.
+Kinodel is a runtime-vibe-factory for creators. A creator follows a pipeline from an idea through story, characters, storyboard and video, or another creative production scheme, inspecting each result and deciding what to approve or revise through human-in-the-loop interaction.
 
 The human holds taste, intent, and the final cut. Agents bring focused craft. The graph keeps the crew in sync without turning creativity into bureaucracy.
 

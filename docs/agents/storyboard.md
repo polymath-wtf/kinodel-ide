@@ -3,7 +3,7 @@
 Class: creative agent  
 Status: **Accepted design; implementation and provider verification pending**
 
-Wardrobe designs anchor prompts; Render generates the images; the human approves the complete `main_frames` set before this agent runs. The [cinematic route](../pipelines/cinematic.md) and [node architecture](../pipelines/node-architecture.md) use the same handoff. Implementation and executable checks remain pending.
+Wardrobe designs anchors; `anchor-gen` generates them; the human approves `anchor_frames` before this agent runs. The [cinematic route](../pipelines/cinematic.md) owns this handoff.
 
 ## Responsibility
 
@@ -11,7 +11,7 @@ Translate approved story units, visual direction, and approved anchor assets int
 
 ## Input
 
-- exact approved Brief and validated Wardrobe VisualAnchorPlan bound to the approved anchor set, including the stable named anchor units and their reference roles; the plan has no separate mandatory approval in the minimal new route;
+- exact submitted Brief and validated Wardrobe plan bound to approved `anchor_frames`, including stable anchor keys and reference roles; the plan has no separate mandatory approval;
 - exact approved spine and its declared units: Story shots/acts, proposed Season episode blueprints, or proposed MusicPlan plus selected song and validated timing projection;
 - exact promoted approved assets for the complete required anchor set, with selection/approval provenance; generation completion or plan approval alone is insufficient;
 - hydrated appearance/continuity/reference projections and frozen prompt guidance, with the operation's context-selection reference;
@@ -26,11 +26,11 @@ The frozen provider profile must explicitly support the required multi-image inp
 
 ## Output
 
-`FramePlanV1`: one ordered shot-frame specification per declared unit, with a list of exact selected-media references and their semantic roles, explicit preserve/change constraints, semantic intent, image prompt from the frozen `@prompt-engine` guidance, and optional timing window. These are creative units, not provider jobs. API payload mapping remains outside the artifact; fields follow [physical DTOs](../backend/physical-dtos.md#cinematic-extension).
+`FramePlanV1` in `storyboard_plan`: one ordered shot-frame specification per declared unit, with exact selected-media references/roles, preserve/change constraints, semantic intent and image prompt from frozen guidance. These are creative units, not jobs. The following `frames-gen` tool consumes the saved plan; fields follow [physical DTOs](../backend/physical-dtos.md#cinematic-extension).
 
 This is one aggregate validated plan, not an independently approved result. Render reads it through a deterministic adapter without a second universal request artifact. Unit IDs/order must map explicitly to the narrative/timed units; any additional terminal frame required by `flf2v` must be declared by the pipeline before rendering. Anchor units are separate from shot units: anchor existence never supplies or omits a shot frame implicitly.
 
-Shot candidate-media revision is Critic -> Storyboard -> full shot render aggregate/join -> same selection gate. It cannot rewrite the anchor set's supporting VisualAnchorPlan, approved narrative, or selected anchors. Out-of-scope feedback returns a new request for the same subject, not a hidden Wardrobe call. Changing already approved anchors requires a new execution with Wardrobe-owned repair and new anchor review; dependent shot plans/results cannot remain current. Same-request technical retry belongs to Render. Selective reuse is currently specified only inside the anchor set, not across shot-plan revisions.
+At `frames-hitl`, direct feedback invokes Storyboard with the previous plan, reviewed frames and relevant discussion. A validated new plan runs through `frames-gen` and returns for review. It cannot rewrite the Wardrobe plan, approved story or anchors; out-of-scope feedback explains the boundary without a hidden Wardrobe call. Changed ancestors require a new run. Technical retry belongs to the tool; selective shot repair is deferred.
 
 ## Content And Quality Contract
 
@@ -47,17 +47,17 @@ Acceptance example: a hero shot preserves face identity from the approved portra
 
 - Does not design anchors or write anchor-generation prompts; consumes the exact complete approved anchor set and its validated supporting plan and preserves the selected design.
 - Does not change declared narrative/timed unit count or order; additional endpoint frame units require an explicit pipeline mapping.
-- Does not render, change the frozen generation profile, or plan motion.
+- Supplies its declared generation tool inputs; does not wait for rendering, change the frozen profile or plan motion.
 - Does not infer selected media by scanning outputs.
 - Uses only explicit approved anchors and context.
 - Does not drop required references or replace multi-image roles with the earlier single-main-frame fallback.
 
 ## Tools
 
-None. Authorized reference images and any bounded observations are prepared by the adapter; no provider, retrieval, or filesystem tools.
+`frames-gen`, dispatched after the complete plan is saved; no LLM wait for rendered images. Authorized references are prepared by the adapter; no arbitrary provider, retrieval or filesystem access.
 
 ## Minimal System Prompt
 
 ```text
-You are Storyboard, Kinodel's shot-frame planner. Use the supplied approved Brief, story/context, Wardrobe plan, and complete approved anchor set to compose each declared shot or timed unit as one drawable instant. Write shot image prompts with purposeful composition and visible action, binding exact anchor assets by face-identity, body/wardrobe, environment, or other declared roles and explicit preserve/change constraints. Preserve approved identity, style, order, and timing; never drop required references or replace them with a single-frame fallback. Return FramePlanV1 when ready, otherwise the declared needs_input or out_of_scope result. Do not design anchors, alter the narrative, render images, plan motion, change provider settings, or route the pipeline.
+You are Storyboard, Kinodel's shot-frame planner. Use the submitted Brief, approved story and anchor_frames, Wardrobe plan and supplied context to compose each shot as one drawable instant. Write image prompts binding exact references by role with preserve/change constraints. Apply direct user feedback; preserve approved identity, style and story order. Return FramePlanV1 for frames-gen when ready, otherwise needs_input or out_of_scope. Do not design anchors, alter the story, wait for rendering, plan motion, change provider settings or route the graph.
 ```

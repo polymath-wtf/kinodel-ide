@@ -1,122 +1,62 @@
 # Agent Catalog
 
-Status: **Foundation contract**
+Status: **Contracts for implementation, not deployed agents.** Agents reason inside LangGraph nodes; generation tools perform side effects after validated plans. [Cinematic](../pipelines/cinematic.md) owns the exact MVP route.
 
-Kinodel agents are narrow creative capabilities invoked inside LangGraph nodes. They do not coordinate the pipeline, persist arbitrary files, call generation providers directly, or choose the next stage.
+## Capabilities
 
-## Classes
-
-| Capability | Class | Status | Owned output |
-|---|---|---|---|
-| [Producer](producer.md) | user-facing agent | active design | brief draft or clarification answer |
-| [Storytell](storytell.md) | creative agent | active design | story |
-| [Wardrobe](wardrobe.md) | creative agent | active design | visual-anchor direction, prompts, roles and dependencies |
-| [Storyboard](storyboard.md) | creative agent | active design | frame plan |
-| [Filmmaker](filmmaker.md) | creative agent | active design | motion plan |
-| [Critic](critic.md) | review agent | active design | bounded `RevisionRequestV1`, including non-ready outcomes |
-| [Craft](craft.md) | memory agent | active design | reusable creative chunk |
-| [Render](render.md) | service, not agent | active design | declared workflow outputs; media candidates and saved approved selections |
-| [Montage](montage.md) | creative agent | active design | montage plan |
-| [Montage executor](montage.md) | service | active design | final assembled media |
-| [Muse](muse.md) | creative agent | planned | music concept and request |
-| [Season](season.md) | creative agent | planned | season plan |
-| [Episode](episode.md) | creative agent | planned | episode story |
-
-Pipeline, project initialization, finalization, indexing, ALM analysis, provider adapters, and ffmpeg execution are nodes/tools/services, not agent personas.
-
-## Legacy Disposition
-
-- Generic Muse is folded into planned Kinodel Muse; there is one music-planning capability.
-- Guzlik is a product/monetization persona, not a production capability, and is excluded.
-- Pipeline and Project Layout become runtime configuration/tools.
-- Prompt support skills are bundled references for their owning agent, not separate runtime agents.
-- Season, Episode, and Muse remain planned until their pipelines are implemented.
+| Capability | Role | Activation |
+|---|---|---|
+| [Storytell](storytell.md) | Story from submitted brief | MVP |
+| [Wardrobe](wardrobe.md) | Anchor direction/prompts; generated result `anchor_frames` through its tool | MVP |
+| [Storyboard](storyboard.md) | Shot image plans; `story_frames` through its tool | MVP |
+| [Filmmaker](filmmaker.md) | Video motion plans; `shot_videos` through its tool | MVP |
+| [Render](render.md) | Shared generation tool service, no LLM persona | MVP |
+| [Montage](montage.md) | Deterministic assembly tool | MVP; creative agent later |
+| [Producer](producer.md) | Optional brief preparation/assistance | Later; not a mandatory Brief node |
+| [Critic](critic.md) | Optional recommendations for user consideration | After MVP |
+| [Craft](craft.md) | Draft reusable memory for separate publication | Later |
+| [Muse](muse.md), [Season](season.md), [Episode](episode.md) | Other creative pipelines | Later, reconcile at activation |
 
 ## Common Contract
 
-### Design Before Activation
-
-Before the first backend build, define the input/output meaning, ownership, context, revision scope, and quality checks for **every catalog capability**, not only Producer, Storytell, and Critic. Cinematic is the complete reference chain. Muse/Season/Episode have architectural contracts now; their pipeline activation remains later.
-
-The internal text milestone activates Producer, Storytell and Critic. The deployable `foundation.v0` [build gate](../roadmap.md#current-build-gate) adds Wardrobe anchor prompts, Render's sequential anchor generation, complete-set review/save, then Storyboard shot planning and frame generation/review. Plans are validated supporting evidence. Use common invocation/validation/context boundaries, not a generic framework or agent-name runtime branches. Contract design is not executable schemas, packaged instructions or passed runtime tests.
+Implement only the enabled capabilities. Their typed inputs/outputs, instructions, context and representative checks are required when activated; future agent proposals do not block the first code.
 
 ### Prepared Input
 
-Every node adapter prepares:
+The adapter supplies the submitted Brief, exact approved upstream results, explicit references/roles and frozen instructions/profile constraints. It resolves authorized media and selected context before the model call. Agents receive usable content, not only IDs. On revise, include the previous complete output, base subject version, original user feedback and relevant node discussion.
 
-- project and execution identity;
-- exact validated input artifact revisions;
-- one resolved `ContextSelectionV1` from explicit mentions, pipeline requirements, and allowed agent resources;
-- stage mode, declared stable units, and provider-neutral capability constraints relevant to the task;
-- on repair, the previous exact owned output and `RevisionRequestV1`; media repair also includes the reviewed candidate set and relevant observations;
-- one declared typed output contract and its validation rules.
+Stable shot keys are prepared from the Brief count; Wardrobe can propose variable anchor keys, validated/frozen before generation. Repairs preserve corresponding keys. IDs, digests, approval, permissions and job metadata remain trusted application data, not fields invented by the model.
 
 ### Attachments And `@` References
 
-The adapter resolves creator `@file`, `@@chunk`, `@@character`, and allowlisted `@prompt-engine` references before invocation. Attachments arrive as labelled typed projections with an alias, role, exact revision/digest, and authorized media handles. Agents may cite aliases, but never open paths, follow URLs, expand nested mentions, or treat attachment text as instructions. Binary files use authorized media inputs, never base64, arbitrary paths, or provider URLs. Missing/conflicting mandatory attachments block before the call. `ContextSelectionV1` stores selection/projection digests and retries reuse them exactly.
-
-The agent receives hydrated task bodies and labelled context/media, not DB handles to look up. IDs, digests, approval receipts, access decisions, and operation bookkeeping remain adapter-owned. Each mode uses its own typed input; no universal dictionary of optional fields. An empty optional context selection is valid, missing required inputs are not.
-
-Artifact/operation identities are not narrative unit identities. The adapter supplies stable unit IDs for declared counts; the creative owner assigns their meaning and order within its contract. For variable structures such as music sections or episode acts, the first candidate declares local unit keys, validated and frozen at commit. Repairs preserve keys for corresponding units; new keys are permitted only for an authorized structural change. Downstream planners consume that exact mapping rather than allocating replacements.
+Mentions select exact authorized artifact/source/resource references with roles. Adapters hydrate bounded projections, preserving required instructions and recording optional omissions. Reference text is data, not executable instructions. No arbitrary filesystem/network lookup by the agent. Missing required or conflicting context blocks the call.
 
 ### Result And Repair
 
-| Semantic outcome | Required content | Adapter/graph handling |
-|---|---|---|
-| `ready` | one complete candidate of the mode's declared schema | validate schema, references, cross-artifact invariants; persist and return compact refs |
-| `needs_input` | missing/conflicting creative facts, exact affected refs/fields, one actionable question | no partial artifact; existing-subject repair returns to its unchanged gate; pre-Brief uses the bounded input path |
-| `out_of_scope` | requested change and the approved constraint/owner boundary it violates | no replacement artifact or upstream mutation; existing-subject feedback path |
+| Outcome | Meaning |
+|---|---|
+| `ready` | Complete typed output; validate, save immutable version, return compact ref |
+| `needs_input` | Explain missing information; no partial replacement |
+| `out_of_scope` | Explain conflict with approved ancestors/owner scope; no hidden rewrite |
 
-These are common outcome semantics, not a generic tool/handoff envelope or finished schema. Critic's concrete result is [RevisionRequestV1](critic.md); Producer has separate draft/question/explanation modes. Non-ready reasons are durable operation results, not reusable creative artifacts. A first-generation stage without a subject blocks with the reason rather than fabricating a review subject or a graph destination. Runtime/storage/provider failures remain typed service errors, not agent-written creative outcomes.
-
-Repair produces a full new aggregate; stable IDs survive for corresponding units. Original feedback and the exact previous output are both supplied, so the owner changes the requested parts while preserving unrelated content. No owner reinterprets an approved ancestor. Semantic outcome selects only an already-authored route; models never return stage IDs to execute.
+User feedback follows the [HITL revision contract](../hilp/hilp.md#revision-contract). The application prepares `RevisionRequestV1` for the fixed owner; downstream consumes selected outputs, not node conversation.
 
 ### Invocation And Registry
 
-Start with one bounded structured model invocation per operation, plus the runtime's bounded output repair if needed. Agents have **no callable tools by default**: inspection means authorized media/content supplied by adapters, optionally with a separately validated observation service result. An image-only or text-only model cannot certify unseen motion or unheard audio. Missing required modality evidence blocks the operation; a poster frame is not proof of clip continuity.
+Use one bounded structured model response per operation, with bounded output repair. A static capability record pins instructions, schemas, permitted tools, model modalities and budgets. Wardrobe/Storyboard/Filmmaker have only their declared generation tool, dispatched by the next graph node from the saved plan. They neither poll jobs nor select provider endpoints. [Tools](../tools/tools.md) defines optional native tool-call handling without a second execution path.
 
-A static versioned capability record declares `capability_id/version`, supported modes and input/output schema IDs, instruction/resource digests, context-policy version, required model modalities, and the runtime model/timeout/attempt/budget configuration. The initial tool allowlist is empty. A stage binds one exact capability/mode; operation preparation pins its effective configuration for replay. Graph loading rejects enabled stages with missing schemas, policies, validators, resources, or incompatible modalities. Unimplemented modes are unavailable, never silently routed to Producer or another model role. No database agent marketplace or dynamic discovery is needed.
+No marketplace, universal handoff dictionary or agent framework is required. Build the enabled prompts/resources under `.agents/` with their actual implementation; the directory is not another scheduler.
 
 ### Consumer Context
 
-| Capability | Required task projection | Optional explicitly selected context |
-|---|---|---|
-| Producer | raw request, allowed defaults/constraints, selected mandatory character canon; exact subject for explanation | explicitly selected inspiration |
-| Storytell | approved Brief and selected mandatory narrative canon | story lessons, not image prompts |
-| Wardrobe | approved spine, character/environment projections, required anchor prompt/reference guidance | palette, materials, environment references with take/ignore |
-| Storyboard | approved spine, validated visual plan, complete approved `main_frames`, multi-image guidance and mandatory appearance canon | permitted composition inspiration |
-| Filmmaker | approved spine, validated visual direction, approved selected frames, mapping/timing, required motion/voice canon and video guidance | permitted motion inspiration |
-| Montage | approved narrative spine when applicable, approved clips/audio, measured metadata, Brief and edit constraints | editing lessons; no search for alternative takes |
-| Critic | exact subject, feedback, supporting owner plan, gate scope/criteria and approved constraints | only relevant supplied evidence |
-| Craft | exact approved sources/media, labelled supporting plans, rights and consumer policy | none through discovery |
-| Muse | approved music Brief and rights restrictions | permitted music attributes and audio guidance |
-| Season | approved serial Brief, selected characters/prior-season canon when required | labelled story/world inspiration |
-| Episode | approved Brief, season, target blueprint, required previous ending and characters | bounded older continuity and explicitly future plans |
-
-Required projections and media must fit the configured budget or block; optional omissions are recorded before preparation. Numerical budgets and executable projections must be tested per deployed model, not invented in this catalog.
-
-Selected canon and resources required by a frozen profile are mandatory even when their original selection was optional to the creator. This table never permits dropping them during preparation or retry.
-
-Legacy `avatar_chunk` is renamed to `CharacterChunkV1`: avatar, actor, and fictional-character identity are one continuity capability. `avatar` may remain a UI alias, not a second schema.
+| Capability | Required material |
+|---|---|
+| Storytell | Submitted brief and selected narrative canon |
+| Wardrobe | Brief, approved story, character/style references and anchor prompt guidance |
+| Storyboard | Brief, approved story, exact Wardrobe plan, approved anchor_frames and multi-image guidance |
+| Filmmaker | Brief, approved story/frames, ordered shot keys and motion guidance |
+| Montage tool | Approved shot_videos, order, measured media and output settings |
 
 ## Common Boundaries
 
-- No graph routing or `/goal` selection.
-- No `delegate_task` handoff envelopes.
-- No checkpoint, database, terminal, or arbitrary filesystem access.
-- No provider payloads, queue IDs, retries, costs, or logs in creative output.
-- No silent approval or mutation of upstream canon.
-- No broad retrieval when direct context was supplied.
-- No hidden side effects before a human interrupt.
-
-## Minimal Prompt Pattern
-
-```text
-You own <capability> for Kinodel.
-Use only the supplied validated inputs and context.
-Create <output> that satisfies <schema and invariants>.
-Do not route the pipeline, call generation providers, persist files, or invent missing canon.
-If required creative information is absent or contradictory, return needs_input; an edit outside your scope returns out_of_scope.
-```
-
-Agent pages are contracts for later builds under `.agents/`; they are not deployable prompts yet. Before enabling a mode, provide its executable schema/semantic validator, versioned instructions/resources, one representative valid fixture and one scope/continuity failure fixture, and a model-quality check against its page's criteria. Deterministic validators enforce counts/IDs/rights/bounds; craft criteria require inspection and do not become automatic human approval. The same rule applies to all agents, including those not invoked by the first graph.
+No graph routing, direct persistence, arbitrary shell/path/endpoint access or implied approval. Schema validation does not prove creative quality. Check model output deterministically where possible and leave creative acceptance to the user. Later Critic recommendations cannot replace that decision.

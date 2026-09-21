@@ -8,6 +8,18 @@ The first release resolves explicit references only. Search and embeddings may l
 
 Personal wiki/RAG/taste are private and enter context only through explicit selection, never automatic account-wide history injection. Local selections/indexes remain local; Kinodel signup uploads nothing. A remote endpoint receives only the selected authorized payload, not library access. Public wiki is owner-published through GitHub releases and selections pin exact snapshot/revision/digest. Future retrieval must restrict the authorized corpus before searching and recheck ACL/rights at hydration, citation and media delivery, including caches. CinemaChunk publication and taste changes require separate explicit user approval.
 
+## LangGraph Context Is Not The Prompt
+
+| Mechanism | Kinodel use | Lifetime |
+|---|---|---|
+| `Runtime[Context]` / `context_schema` | Trusted service handles, verified authority and current execution fence | Supplied again by the worker for each invocation/resume; not a durable creative-input snapshot |
+| Graph state + checkpointer | Compact execution, activation, binding and wait refs | Persisted for one execution/thread, including pauses and restarts |
+| Prepared operation + `ContextSelectionV1` | Exact material and projection versions selected for this task | Frozen across technical retries |
+| Hydrated agent input | Selected text and authorized media in the consumer's format | Temporary model-call data |
+| Library records; optional future LangGraph Store integration | Cross-execution knowledge | Outside graph state; publication and access remain application responsibilities |
+
+Runtime dependencies never enter a prompt automatically. Loading a current connection or authorization context does not permit reselecting a newer creative source. A LangGraph Store is optional: the existing artifact/library repositories already provide exact cross-thread reads. See [storage ownership](../database/README.md) and the supplied [framework context overview](../langgraph/context-langgraph.md).
+
 ## Context Sources
 
 | Origin | Selected by | Example | Trust role |
@@ -18,6 +30,8 @@ Personal wiki/RAG/taste are private and enter context only through explicit sele
 | `retrieval` | future evaluated resolver | FTS/vector suggestion | untrusted evidence or inspiration |
 
 These origins never collapse into one generic RAG result. The trace must preserve who selected each item and why.
+
+Editor source cards feed this same resolver with explicit exact text/media/chunk refs for a declared consumer `stage_id`. They need no source runtime agent, mandatory operation or separate context-pack store. Two instances of the same capability receive separate operation-scoped `ContextSelectionV1` records; selecting a source for one does not grant the other implicit global node context. Port labels resolve declared bindings and exact revisions, never latest-by-capability output.
 
 ## Typed Mentions
 
@@ -61,7 +75,7 @@ stage + modality + frozen generation profile
 
 Prompt guidance may describe model-family syntax, composition/motion grammar, reference-image behavior, and known prompt constraints. API payload schemas, secrets, endpoints, queue fields, workflow paths, and runtime activation syntax remain inside provider adapters.
 
-Wardrobe, Storyboard, Filmmaker, and Muse use the required frozen prompt guidance for their own outputs: anchor images, shot images, video, and music respectively. Wardrobe receives reference-conditioning guidance for portrait-to-sheet generation; Storyboard receives multi-image role guidance. Their artifacts remain provider-payload neutral: changing the generation profile requires new plan activations, while adapters own the actual request payload. Once Brief is approved, a downstream gate cannot change its frozen profile; foundation/V1 uses a new execution for that change.
+Wardrobe, Storyboard, Filmmaker and later Muse use frozen guidance for anchor images, shot images, video and music. Wardrobe receives portrait-to-sheet guidance; Storyboard receives multi-image role guidance. Plans remain provider-payload neutral; tool adapters own requests. A downstream review cannot change the profile frozen by submitted Brief; that requires a new execution.
 
 ## `ContextSelectionV1`
 
@@ -104,6 +118,8 @@ type ContextSelectionV1 = {
 
 The full trace belongs to the prepared Project DB operation before the model call; checkpoints carry only its compact reference. `selection_id`, exact source/resource refs, and projection versions/digests participate in the operation input digest and artifact provenance. Hydrate from immutable sources and the pinned projection version, then verify the projection digest; unavailable versions or mismatches block retry rather than silently rebuilding different context. Full projected bodies are invocation data, not graph state or reusable canon.
 
+Run freezes submitted Brief/effective profiles, declarations, resources and overrides, not future generated context. Operation preparation pins exact resources/generated refs and relevant node feedback. Discussion is stored outside graph state and never passed wholesale downstream. UI instruction overrides cannot edit the trusted contract. See [freeze layers](../backend/artifacts.md#freeze-layers).
+
 Adapters supply consumer-specific typed content beside the trace reference: narrative canon for Storytell/Season/Episode; identity/appearance for Wardrobe/Storyboard; motion/voice for Filmmaker; rights-safe music inspiration for Muse; optional editing lessons for Montage. Craft reads declared exact source projections directly; Render and Montage execution consume plans/assets, not creative-memory search. No universal prompt-content envelope is required.
 
 New context requires a new authorized activation or execution, never a changed selection under the same operation ID. Within foundation/V1, feedback cannot silently replace approved ancestor canon; if outside the current repair path, start a new execution with adjusted Brief/context. Reindexing is an administrative derived-data operation, not a graph transition, approval, or reason to rebuild a prepared selection.
@@ -139,6 +155,8 @@ Runtime safety and the agent contract always outrank injected data. Among creati
 7. future retrieved suggestions.
 
 A creator request to change canon is evaluated through the bounded review contract, not a hidden prompt override or automatic upstream rewind. Missing, unauthorized, contradictory, stale, or over-budget mandatory context blocks the stage and approval based on that context. Optional context may be omitted only with a recorded reason during preparation. Once prepared, retry cannot drop an item to make progress. Nothing required or explicitly attached disappears silently. A result's approval does not independently approve supporting plans or analysis.
+
+Custom-agent recommendations may enter only through a declared receiving role, allowed schema and editable scope, using exact refs and the same selection machinery. They cannot replace approved canon or mandatory resources, acquire trusted-guidance status from their wording, or broaden the receiving agent's contract. The proposed recommendation schema/context policy still needs activation-specific agreement. Plain chunk/source text is data, not executable instructions, even when it contains imperatives or prompt-like text.
 
 ## Prompt Assembly
 

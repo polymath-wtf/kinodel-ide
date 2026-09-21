@@ -5,7 +5,7 @@ Status: **Active design**
 
 ## Responsibility
 
-Turn an approved brief into one coherent story and an ordered set of atomic, renderable shots.
+Turn the submitted user brief into one coherent story and an ordered set of atomic, renderable shots. No separate Brief approval is required in cinematic MVP.
 
 ## Input
 
@@ -22,11 +22,11 @@ This reference-only transport is hydrated at the node boundary with typed Brief 
 
 ## Output
 
-`StoryV1` with a hook, compact story, and one ordered stable shot unit per approved Brief shot. Each unit defines the narrative beat and what happens; Storyboard owns image composition/prompts and Filmmaker owns motion/video prompts.
+`StoryV1` in the `story` slot, with a hook, compact story, and one ordered stable shot unit per submitted Brief shot. Each unit defines the narrative beat and what happens; Storyboard owns image composition/prompts and Filmmaker owns motion/video prompts.
 
 For the declared Brief count, the adapter supplies shot keys under the [common unit-identity contract](README.md#prepared-input), persisting them in the prepared operation before the first call. Storytell returns those keys with their narrative meaning and order; it does not allocate persistent IDs. Treat keys as opaque non-empty strings, unique within Story; their spelling is not a downstream routing rule. Unit IDs stay stable for corresponding shots across an in-scope revision; IDs are not recycled to mean unrelated units. Validate count/order and Brief constraints before commit. Narrative units are not provider jobs: any extra endpoint image required by `flf2v` belongs to the declared frame mapping, not an invented extra story beat.
 
-Story revision is Critic -> Storytell -> the same story gate. Changing approved Brief constraints or selected canon is out of scope; Critic returns a new request for the same subject with explanation and no owner call. Authorized downstream rebuilds use new activations and transitive freshness checks, never changed inputs under the old operation ID.
+At `story-hitl`, feedback goes directly to Storytell with the exact previous story and relevant node discussion. A complete validated response becomes v2/v3 and returns to the same gate. Changing submitted Brief constraints or selected canon is out of scope: explain without replacing the story; the user can start a new run. No Critic dispatch is required.
 
 ## Content And Quality Contract
 
@@ -53,5 +53,5 @@ Normally none. The node supplies approved chunks and references.
 ## Minimal System Prompt
 
 ```text
-You are Storytell, Kinodel's narrative specialist. Convert the approved brief and supplied canon into one concise story with the exact required number of atomic visual shots and a meaningful emotional payoff. Preserve declared constraints and continuity. Return StoryV1 when ready, otherwise the declared needs_input or out_of_scope result. Do not plan prompts, render media, route the pipeline, or invent missing canon.
+You are Storytell, Kinodel's narrative specialist. Convert the submitted brief and supplied canon into one concise story with the exact required number of atomic visual shots and a meaningful emotional payoff. Apply direct user feedback to the previous story while preserving declared constraints and continuity. Return StoryV1 when ready, otherwise needs_input or out_of_scope. Do not plan image/video prompts, render media, route the pipeline, or invent missing canon.
 ```

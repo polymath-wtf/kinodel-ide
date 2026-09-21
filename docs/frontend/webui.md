@@ -1,54 +1,34 @@
 # Web UI
 
-Status: **Product foundation**
-
-The node interface is now the target product: see [minimal architecture](../pipelines/node-architecture.md), [node catalog](../pipelines/node-list.md), and [phased roadmap](../pipelines/node-roadmap.md). Introduce graph inspection first, then configurable nodes, then validated user composition. Each node exposes inputs, instructions, discussion, output and attempts; draft editing and execution inspection are distinct modes.
-
-The UI is a projection and control surface for runtime state. It never becomes a second state machine.
-
-## Primary Surfaces
-
-- **Project workspace**: current artifact, references, feedback, and preview.
-- **Pipeline timeline**: completed, running, waiting, blocked, failed, and future stages.
-- **Review gate**: one exact current-stage subject, previews, approve/edit/clarify/cancel actions.
-- **Artifact board**: briefs, stories, frames, clips, audio, final outputs, and revision lineage.
-- **Context explorer**: wiki/chunk search, provenance, rights, and explicit agent assignment.
-- **Render monitor**: job progress and actionable failures without raw provider sludge.
-- **Montage timeline**: later manual editing of explicit clip/audio selections.
-
-Chat is one interface, not the application shell. A creator should be able to inspect and change production without reconstructing state from conversation.
-
-Local app projects/messages stay in local SQLite/files, including after login for service credits; registration uploads nothing. Browser-hosted projects/messages are server-owned user history in PostgreSQL/managed storage. First local use does not require a Kinodel account. Earlier-stage rework is an accepted [new-execution prefix-reuse contract](../database/artifacts-media.md#возврат-к-раннему-этапу): same project, exact prefix, immutable old outputs for comparison and new approvals for changed outputs. Entry implementation remains #todo; do not expose free-form timeline rewind. Installation and persistence scope: [local versus hosted](../database/local-vs-hosted.md).
-
-## Runtime Rules
-
-- Every action sends an expected state/artifact revision.
-- Review cards show which single subject revision and digest are being approved.
-- Reconnect derives truth from runtime/artifact queries, not missed events.
-- Output existence never changes a gate to approved.
-- Event delivery may duplicate; UI deduplicates by event ID.
-- Provider logs and secrets are operator diagnostics, not normal creator UI.
-
-## Context UX
-
-- `@file` may reference a project artifact or source.
-- `@@chunk` may explicitly attach approved creative memory.
-- The UI shows the compact projection that will be supplied to each agent.
-- Users can inspect provenance and `take`/`ignore` rights constraints.
-- Removing context changes the next invocation, not historical artifacts.
-- Semantic suggestions remain suggestions until explicitly selected or allowed by pipeline policy.
+Status: **Accepted product boundary; implementation pending.** UI is an inspection/control surface, not another production state machine.
 
 ## First UI Slice
 
-Accepted behavior before visual design: welcome offers register/login/local-without-login only in the local install. Hosted browser requires login. Registration takes email/login/password: Supabase email credential, mutable login display label without required uniqueness, as specified in [identity](../database/projects-identity-chat.md#вход-mvp). Windows/Linux setup reports progress/failures. Downloads distinguish managed files at the project-owning backend from expiring remote GCS availability; browser-hosted files stay server-side until an explicit user download. MVP credits show server-owned integer amounts/signup 100; product daily free limits are final-release #todo, not MVP, and paid generated downloads have no arbitrary quota. Detailed welcome/editor/branch comparison UX is #future, not permission to defer authorization, stale-review rejection or error semantics.
+The main surface is the fixed [cinematic node workflow](../pipelines/cinematic.md). Each node shows name, status and output preview. Selecting it opens exact inputs, instructions, output versions, relevant discussion, tool progress and errors. “Card” is only a visual treatment of a node; grouping is deferred.
 
-Only build:
+Human actions follow the [HITL contract](../hilp/hilp.md#creator-actions): show approval separately from node chat, distinguish a question from an edit, and display the exact version concerned. Keep old outputs and feedback inspectable.
 
-1. create/open execution;
-2. show current stage and artifact;
-3. render typed brief/story forms and previews;
-4. approve, edit with notes, ask for clarification, or cancel;
-5. reconnect to an interrupted execution;
-6. show typed failures.
+Local first launch needs no account. Show unavailable providers and retain access to saved projects. Login/credits/hosted services are separate later activation. [Local MVP](../roadmap-mvp.md) owns tasks and acceptance, [startup](../backend/local-startup.md) owns process lifetime.
 
-The node editor follows the explicit phased roadmap above. Kanban, Obsidian-like knowledge graph and manual montage timeline editing remain later surfaces. A node-local chat is an interaction view, not the source of production state or an implicit context transfer to downstream nodes.
+## Runtime Rules
+
+Node identity, types, connections and composition scope belong to the [node contract](../backend/node.md).
+
+- Commands include expected result/request revision and a deduplication key; stale views refresh rather than overwrite.
+- Accepted commands show “applying”; only committed approval/save unlocks downstream.
+- Poll authoritative reads for jobs/results/reviews; reconnect does not depend on missed events.
+- Browser close does not cancel accepted work. Cancellation is an explicit command.
+- Node discussion persists feedback/questions and responses with result references; no separate global chat system is required for MVP.
+- Keep credentials, raw provider payloads and internal checkpoint IDs out of normal UI.
+
+## Context And Later Editing
+
+Creator-selected character/wiki/text/media references enter only the chosen node's declared context. Show supplied inputs and their roles. Preserve exact versions for replay; removing a draft attachment does not rewrite active prepared inputs. A larger library picker/search and richer node chat can follow actual use.
+
+After the fixed route works: configurable known nodes, then sequential composition, then optional UI groups. Editing graph/instructions for a new run does not mutate the current execution. Future [Fork](../hilp/fork.md) tries another continuation from a selected stage in a child run. Fork controls and a tree of runs are outside MVP; they do not require a branching pipeline definition.
+
+## Mini-FSD
+
+Use lightweight Feature-Sliced Design for frontend code as it appears, not pre-created scaffolding: `app` composes/routs the application, `pages` assembles the workspace, `widgets` contains canvas/inspector/viewer, `features` implements user actions, `entities` represents project/execution/node/artifact, and `shared` contains UI primitives and HTTP utilities. Dependencies flow downward; peer slices communicate through composition/public interfaces, not hidden cross-imports. No framework/bundler choice is implied.
+
+Frontend entities are read projections, not competing production state. Backend modules retain their Python responsibilities; FSD does not introduce `widgets/features/entities` into runtime code. Create only slices needed by a working screen.

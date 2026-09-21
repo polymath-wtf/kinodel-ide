@@ -1,146 +1,104 @@
 # Подключения и кредиты
 
-Решение 9 сентября: продуктовые суточные free limits не входят в MVP; placeholder credits и signup grant 100 остаются в MVP. #todo финального релиза: бесплатный LLM 5 000 000 input + 1 000 000 output tokens на account в день, reset в следующую civil midnight `Europe/Chisinau` с DST, без фиксированного UTC offset. Технические validation, timeout, admission/concurrency bounds и paid reservations остаются safety bounds, не продуктовыми квотами.
+**Будущий hosted/service этап, не текущий локальный cinematic MVP.** Сохранены принятые 9 сентября цены, signup grant, GCS и privacy boundaries. Физическая схема и сервис не реализованы. Реальные платежи и подписки вводятся ещё позднее. План первого билда — [Local MVP](../roadmap-mvp.md), provider execution — [runtime](../backend/runtime.md#rendering-extension).
 
-Статус: **GCS, год outputs и placeholder-кредиты MVP приняты 9 сентября; физические расчёты/transport предложены, не реализованы**. Provider/runtime boundaries находятся в [ComfyUI](../backend/comfyui.md) и [runtime](../backend/runtime.md#rendering-extension). Незакрытые детали находятся в [Q16-Q19](open-questions.md); реальные платежи и подписки только #future production.
+## Бесплатный И Платный Путь
 
-## Бесплатный и платный путь
-
-Kinodel по умолчанию бесплатен. Пользователь может запускать собственный ComfyUI локально либо подключать свои provider API keys, например OpenRouter, fal.ai или Replicate. Это продуктовые сценарии, не заявление о реализованных adapters или одинаковых возможностях этих сервисов. Kinodel предлагает свои мощности с MVP-кредитами; покупка кредитов, карты, пополнения и подписки отложены до production.
-
-| Режим | Кто оплачивает вычисление | Что учитывает Kinodel |
+| Режим | Кто оплачивает | Что хранит Kinodel |
 |---|---|---|
-| Собственный ComfyUI | Пользователь обеспечивает машину | Connection ownership, jobs/attempts, usage; нет hosted order/bucket требования или автоматического списания Kinodel credits |
-| Пользовательский API key (BYOK) | Provider взимает плату по пользовательскому аккаунту | Authorized connection, bounded attempts, usage/provenance; не является вторым счётом Kinodel за ту же генерацию по умолчанию |
-| Бесплатный LLM proxy Kinodel после регистрации | Сервис предоставляет доступные бесплатные модели | Technical anti-abuse bounds и usage metadata; продуктовая daily quota только #todo финального релиза, bodies не сохраняются по умолчанию |
-| Предоставленный Kinodel endpoint | Kinodel несёт cost; пользователь оплачивает по выбранному тарифу | Плательщик, quote/pricing snapshot, reserve/capture/release, usage и reconciliation |
+| Собственный ComfyUI | Владелец машины | Local jobs/attempts и результаты; без service bucket/credits |
+| BYOK — собственный ключ провайдера | Пользователь через provider account | Authorized connection, usage и provenance; без второго счёта Kinodel за ту же генерацию по умолчанию |
+| Бесплатный LLM proxy после регистрации | Kinodel предоставляет доступные модели | Минимальные request/usage metadata, technical anti-abuse bounds |
+| Kinodel endpoint | Пользователь расходует сервисные кредиты | Order, quote, reserve/settlement, usage, retained outputs |
 
-Бесплатный путь не означает бесплатную себестоимость внешнего API или неограниченные server-side calls. Текстовые вызовы также требуют budgets и явного владельца credential. Продаваемый wallet не является зависимостью foundation.
+Локальный BYOK не требует аккаунта Kinodel и центрального proxy. Регистрация не загружает проекты/разговоры/wiki. Бесплатное приложение не обещает бесплатные GPU или безлимитный внешний API. Конкретные provider adapters выбираются и проверяются при подключении.
 
-## Подключение не является creative profile
+## Текстовый Proxy И Конфиденциальность
 
-Локальный прямой BYOK не требует аккаунта Kinodel и не проходит через центральный proxy. Вход локального пользователя для бесплатного сервисного доступа и MVP credits не включает загрузку чатов/проектов; покупка credits только #future. Hosted chat хранится на сервере как явная функция браузерного приложения.
+Принято: proxy обрабатывает только выбранный payload и **не сохраняет prompt/response bodies по умолчанию**, включая reverse-proxy/error/APM/tracing logs. Сохраняет необходимые account/request IDs, digest, model/metering pins, tokens, время/status и reservation/settlement refs. Другая body-retention требует явной policy. Проект владельца отдельно сохраняет принятые сообщения и validated outputs: локально либо на hosted-сервере.
 
-## Текстовый proxy и конфиденциальность
+До вызова клиент сохраняет stable request key. Proxy дедуплицирует `(account, key)` и digest: повтор возвращает известный outcome/usage или reconciling, изменённое тело конфликтует. Lookup не восстанавливает текст при отсутствии response retention. Новый вызов после потери текста требует явного решения, не автоматического resubmit.
 
-| Слой | Что хранится / обрабатывается | Чего нельзя обещать |
+Принята оплата фактических authoritative tokens даже при потерянном/неполном ответе. Unknown usage остаётся на сверке; его нельзя оценить для списания или объявить нулём. До реализации достоверного usage/reconciliation соответствующий платный text path выключен.
+
+OpenRouter и конечный provider имеют свои privacy/retention/terms. Ранее сверенные `provider.zdr=true` и `data_collection=deny` — разные routing controls; они не обещают отсутствие обработки payload или end-to-end zero retention всего продукта. Privacy constraints не ослабляются автоматически при отсутствии модели. Доступность `:free`, upstream limits и разрешение предоставлять сервис проверяются перед включением; лимиты не обходятся множеством ключей.
+
+## Результат Удалённого Рендера
+
+Принято: **PostgreSQL хранит order identity/status/права и refs; private GCS — workflow, переданные inputs, outputs и restricted audit заказа.** Это payload заказа, не копия Project DB клиента. Все объявленные outputs загружены и проверены до публикации success. Bucket/location/IAM — параметры будущего deployment; S3 compatibility layer не нужен.
+
+| Данные/доступ | Срок и правило |
+|---|---|
+| Outputs | 365 дней от завершённой загрузки объекта; lifecycle Delete только выделенного outputs prefix |
+| Inputs, workflow/prompt bodies, restricted audit, hosted history | Отдельная policy; год не применяется blanket |
+| Order/request/settlement identities | Без scheduled deletion в первом сервисном выпуске; перед очисткой определить retention/tombstones |
+| Download URL | Рекомендуемые 15 минут, подтвердить при deploy; не срок хранения объекта |
+
+Год — не Bucket Lock и не запрет более раннего удаления по правам/запросу. Минимальная предлагаемая lifecycle rule: `{"action":{"type":"Delete"},"condition":{"age":365,"matchesPrefix":["outputs/"]}}`. Бизнес-доступ прекращается по `available_until`; физическая очистка асинхронна и зависит от soft delete/versioning/holds. Эти настройки и стоимость проверить перед включением, не обещать стирание ровно в указанную секунду.
+
+Status lookup авторизуется по account/order. Download выдаёт короткоживущий signed URL после проверки retained object generation и прав; URL — bearer access, не AssetRef или identity. Новый URL ограничен оставшейся доступностью объекта; истечение ссылки не потеря результата. Ранее сверенный V4 максимум — 7 дней, не рекомендованный TTL. Уже выданная ссылка не перепроверяет Kinodel session на каждом скачивании; URL не логируется.
+
+Adapter владельца проекта скачивает в staging, проверяет размер/type/digest/generation и связь с order/unit, затем сохраняет managed candidate. Local direct ComfyUI использует разрешённый file или `/view` без hosted bucket; browser-hosted bytes остаются на сервере. Только review/apply владельца проекта создаёт selected assets/bindings. Истечение endpoint retention не удаляет уже импортированный original; без импорта его сохранность не гарантируется.
+
+Input upload требует ownership, size/concurrency/capacity/time bounds и pre-order orphan cleanup. Attach и cleanup сериализуются: live-pinned input не удаляется, deleting/expired input нельзя воскресить attach. У оплаченных outputs нет произвольной продуктовой download quota, но остаются validation/timeouts. Численные technical limits и UX недоступности уточняются перед включением.
+
+Retry сначала проходит authorization и lookup старого key/digest, **до** new-order admission и проверки текущей доступности profile/input. Совпавший запрос возвращает прежний order, даже если профиль уже снят; changed payload конфликтует. Access/retention ограничивают выдачу результата, не создают новый платный заказ. Забытый key нельзя считать разрешением нового списания. Предложенный transport — [endpoint wire](../backend/physical-dtos.md#endpoint-wire).
+
+## Конфигурация Подключения
+
+Для одной установки достаточно trusted deployment config. С пользовательскими подключениями появляется record: ID, owner/scope, provider/transport, разрешённый endpoint, secret reference, status и optimistic revision. Creative generation profile отдельно задаёт versioned capability/workflow, не пароль или произвольный URL.
+
+Prepared job фиксирует endpoint/config version, profile/workflow/request digests, exact inputs и seeds до submit. Credential подставляется отдельно; ротация не переключает скрыто provider/account/плательщика. Hosted backend не видит `localhost` компьютера автора: topology и transport проверяются отдельно. Custom URLs/redirects проходят egress checks; secrets не попадают в creative JSON или logs.
+
+## Финансовые Записи
+
+| Логическая запись | Содержание | Ограничение |
 |---|---|---|
-| Локальное приложение | Локальная история и production outputs; отправляется только выбранный запрос/контекст | Прямой BYOK всё равно раскрывает payload выбранному provider |
-| Kinodel LLM proxy | Transient processing выбранного payload; минимальные account/request IDs, model, tokens, время, status и metering/rate-limit данные | Metadata-only policy не означает отсутствие обработки текста; prompts не должны попадать в reverse-proxy, error, APM/tracing logs |
-| Hosted history/production | Сервер сохраняет сообщения и проверенные результаты, чтобы пользователь продолжил проект | Нельзя назвать весь hosted продукт «ничего не хранит», даже если proxy не журналирует тела |
-| OpenRouter и конечный provider | Собственные privacy/routing policies | Настройка Kinodel не меняет чужие правила и не гарантирует доступность подходящей модели |
-| Render endpoint | Сохраняет workflow, input/output и restricted job audit по отдельной policy | Это не ZDR текстового proxy и не разрешение хранить весь chat |
+| Credit account | Payer, balance/reserved projection | Authority только на сервисе |
+| Quote/pricing snapshot | Тариф, charge basis, units и max charge | Не меняется после принятия заказа |
+| Reservation | Account + billable job intent + quote | Один логический резерв на order |
+| Immutable ledger entry | Signed balance/reservation deltas, kind, source, idempotency key, pricing, server time | Истина расчётов; balance projection обновляется в той же transaction |
+| Usage/cost | Измерения job/attempt, provider cost/currency и источник сверки | Себестоимость отдельно от пользовательской цены; unknown не ноль |
 
-**Принято:** текстовый proxy по умолчанию не сохраняет prompt/response bodies; только необходимые metadata для abuse prevention, quota и metering, без тел в logs/APM/traces. Исключение требует отдельной явно согласованной policy, не скрытого debug logging. В Project DB владельца проекта typed agent output сохраняется до advancement по [runtime](../backend/runtime.md#node-operation-protocol). Для local это локальное сохранение; для browser hosted это долговечное серверное сохранение. Потеря ответа proxy до локального commit может потребовать новый вызов: отсутствие response retention не даёт durable replay самого ответа. Универсальное ZDR для всех моделей/providers и всего продукта не обещается.
+Деньги — целые **microcredits: 1 кредит = 1 000 000 units**, без float/per-call округления. Account transaction обеспечивает `available = balance - reserved >= 0`: reserve увеличивает reserved; capture уменьшает balance и reserved; release уменьшает reserved; grant/refund увеличивают balance. Refund ссылается на исходный capture и ограничен невозвращённой суммой.
 
-До text call клиент сохраняет stable request key, а proxy долговечно фиксирует `(account_id, request_key)`, исходный request digest, model/metering pins, submission status, usage и reservation/settlement refs, без prompt/response bodies. Авторизованный lookup по account/key возвращает известный outcome/usage/charge либо reconciling, но не восстанавливает текст. Повтор того же call/key не запускает новую генерацию или списание; изменённый digest конфликтует. **Принято Q18:** фактически использованные authoritative tokens оплачиваются даже при потере ответа. #todo финального релиза: реализовать lost-text settlement/reconciliation и UX явного нового вызова. Unknown usage нельзя оценивать для capture или объявлять бесплатным/refund; пока надёжный usage/reconciliation не реализован, соответствующий платный text path выключен. Automatic resubmit запрещён.
+До billable submit одна серверная transaction проверяет payer/order, сохраняет quote, резервирует остаток и создаёт intent. Provider call вне transaction. Settlement идемпотентен: capture/release не превышают резерв без отдельно разрешённого увеличения. Unknown acceptance остаётся reconciling; timeout не разрешение повторно платить, списать оценку или автоматически вернуть резерв.
 
-OpenRouter документирует отсутствие prompt/completion logging по умолчанию и хранение metadata; явное включение logging меняет это. `provider.zdr=true` ограничивает endpoints заявленным ZDR; `data_collection=deny` является отдельным routing control, не заменой проверки конкретной retention policy. Не ослаблять privacy constraint автоматически при отсутствии подходящей бесплатной модели. ZDR провайдера, отсутствие body logs у оператора, transient processing и пользовательская история приложения называются отдельно. Если сервис сохраняет outputs или историю, обещание end-to-end zero retention неверно.
+Local intent и remote billable order не одна transaction: клиент заранее сохраняет key, endpoint дедуплицирует/даёт lookup. Локальная БД хранит remote ref и наблюдаемый статус, не копию ledger; endpoint не меняет execution bindings. Cancel запрещает creative promotion, но не переписывает фактический расход.
 
-Бесплатные OpenRouter models имеют изменяемые квоты и доступность; наличие `:free` не доказывает SLA или право перепродавать/раздавать доступ через наш сервис. Q4/Q16: проверить terms выбранных моделей/providers, совместимость privacy routing, upstream limits и bounded failure UX до запуска. Не обещать каждому пользователю полную upstream account quota и не обходить лимиты множеством ключей. Product daily limits отложены до финального релиза. Q6: service order logs/identities в MVP без scheduled deletion; окончательная retention policy #todo, не обещание permanent payload storage.
+## Время И Тариф
 
-## Результат удалённого рендера
-
-Подтверждён принцип: endpoint сохраняет свой job workflow, переданные inputs, outputs и restricted audit, чтобы заказ был инспектируемым и результат можно было забрать после потери HTTP-ответа. Это не копия локального чата или Project DB. Рабочий workflow/payload может содержать prompt и input media, поэтому render retention не равен metadata-only LLM proxy.
-
-**Принято:** private Google Cloud Storage (GCS) для workflow, переданных inputs, outputs и restricted audit заказа; серверная PostgreSQL хранит order identity/status, object refs/digests и права. Все объявленные renderer outputs загружаются и проверяются в GCS до публикации успешного результата заказа. Account-authorized status lookup возвращает object ref, отдельная выдача download возвращает короткоживущую signed URL, не публичный bucket. Location/bucket name/IAM ещё deployment inputs, не повторный выбор vendor. S3 compatibility layer не нужен. Предлагаемый [wire contract](../backend/physical-dtos.md#endpoint-wire) описывает input upload, submit/key lookup, polling, cancel и download.
-
-Год хранения MVP означает **365 дней от завершённой загрузки output object**, затем GCS lifecycle `Delete` для выделенного outputs prefix. Это не Bucket Lock, не locked retention policy и не запрет удалить раньше по запросу/правам. Минимальная предлагаемая rule: `{"action":{"type":"Delete"},"condition":{"age":365,"matchesPrefix":["outputs/"]}}`. Нужен отдельный prefix либо отдельный bucket для иной политики входов; не применять год blanket ко всем текстам/workflow/audit. Бизнес-доступ заканчивается по `available_until`; lifecycle выполняется асинхронно, не гарантирует физическое стирание точно в эту секунду. Политика soft delete/versioning/holds влияет на фактическое удержание и стоимость: перед включением явно проверить её и не обещать purge ровно на 365-й день (документированный soft delete default может удерживать ещё семь дней). Это проверка retention, не добавление обязательной backup-системы MVP.
-
-В MVP service order logs, order/request identities и settlement metadata сохраняются без scheduled deletion. Окончательные сроки и eventual tombstone/expired-key policy: #todo финального релиза Q6. Это не бессрочное хранение input media, workflow/prompt bodies, всего restricted payload или hosted history: их policy отдельная, text proxy bodies по умолчанию не сохраняет. Предлагаемый download TTL: 15 минут, не год; подтвердить перед deploy. V4 максимум 604800 секунд (7 дней); доступ зависит от объекта/ключей/прав подписанта. Новый URL выдаётся после account/order authorization и проверки retained object generation, в пределах оставшейся доступности. Уже выданный bearer URL не перепроверяет Kinodel session при каждом скачивании.
-
-URL является временным bearer-доступом: любой получивший ссылку может скачать объект в пределах её действия. Она не `AssetRef`, не identity и не секрет для логирования. Сервер выдаёт/обновляет ссылку только после проверки account/order access и существования retained объекта. Истёкшая ссылка не означает потерю самого результата; при purge новый URL уже не выдаётся. Нельзя обещать мгновенный отзыв скачанного файла.
-
-Adapter владельца проекта скачивает в staging, проверяет размер/type/digest, immutable generation и связь с заказом/unit, публикует managed candidate file. SQLite local / PostgreSQL hosted хранят metadata/ref, не media BLOB; browser-hosted file остаётся на сервере. Только review/promotion владельца проекта создаёт assets и execution binding. Endpoint не принимает решение за автора. Истечение GCS retention не удаляет уже импортированный file; без импорта восстановление не гарантируется. API возвращает `available_until` и явную причину недоступности; подробный warning/download UX #future. Local direct ComfyUI использует разрешённый file или `/view` с проверками пути/ownership/bytes без hosted order/bucket, как в [DTO](../backend/physical-dtos.md#endpoint-wire).
-
-Для оплаченных generated outputs нет произвольной продуктовой download quota; обязательны технические size/type/digest validation и timeouts. Input uploads требуют технических size/concurrency/capacity bounds, ownership и pre-order orphan TTL/cleanup, не продуктового per-account storage запрета. Технические значения остаются Q4/Q6. Attach к заказу и cleanup сериализуются на одной owned input record: attached/live-pinned input не удаляется, deleting/expired input нельзя воскресить attach.
-
-Render retry всегда проходит auth/account authorization, затем lookup прежнего key и сравнение исходного canonical payload/digest/profile/inputs, до new-order admission и проверок текущей доступности profile/input expiry. Совпавший запрос возвращает прежний order/outcome, даже если профиль уже недоступен; изменённый payload конфликтует. Access/retention проверяются при выдаче результата, не создают новый заказ. В MVP durable keys/identities не удаляются по расписанию. #todo финального релиза Q6/Q16: retention и tombstone/expired-key policy до включения их удаления. Забытый key нельзя молча считать разрешением на fresh charge.
-
-### Источники и проверки
-
-Сверка через Context7 и официальные страницы 9 сентября 2026, не проверка настроек аккаунта:
-
-- [OpenRouter privacy](https://openrouter.ai/docs/cookbook/get-started/enterprise-quickstart), [provider routing](https://openrouter.ai/docs/guides/routing/provider-selection), [limits](https://openrouter.ai/docs/api/reference/limits).
-- [GCS signed URLs](https://cloud.google.com/storage/docs/access-control/signed-urls), [Python Blob API](https://github.com/googleapis/python-storage/blob/main/docs/storage/blob.md).
-- [GCS lifecycle](https://cloud.google.com/storage/docs/lifecycle), повторно прочитано 9 сентября: age от upload completion, async Delete, влияние soft delete/holds/versioning. Signed URL primary page также повторно прочитана; bucket/IAM настройки не проверялись.
-- #todo Проверить отсутствие body/URL/credential утечек в logs/traces, отказ чужому account/order, expired URL refresh, missing object, interrupted download, digest mismatch и восстановление заказа после потерянного ответа. Terms review, retention policy и действующие upstream settings ещё не проверены.
-
-## Конфигурация подключения
-
-Рекомендуем connection record: stable ID, owner/scope, provider/transport kind, разрешённый endpoint, secret reference, status и OCC revision. Для одного локального развёртывания достаточно deployment config; таблица появляется при сохраняемых пользовательских подключениях. Generation profile остаётся adapter-owned versioned capability/workflow selector, не секретом или пользовательским URL в Brief.
-
-Prepared job сохраняет exact endpoint identity/config version, profile/workflow/request digests, input asset bindings, resolved parameters и submission intent до вызова. Ключ подставляется отдельно через secret reference. Ротация credential не разрешает скрыто переключить provider/account/плательщика; revoked credential блокирует новые вызовы, не стирает audit.
-
-*question Q16*: local backend может обращаться к своему ComfyUI; hosted backend не видит localhost пользовательского компьютера. Выбрать topology и transport, прежде чем обещать локальное подключение из облачного UI. Remote custom URLs требуют server-side validation/egress policy, включая redirects и разрешение внутренних адресов только для явно выбранного local deployment. Агент не задаёт эти адреса. Secret material не попадает в prompts, wiki, chat, logs или creative JSON.
-
-## Предлагаемые финансовые сущности
-
-Имена ниже логические, не готовые таблицы или обязательная система бухгалтерского учёта.
-
-| Сущность | Минимальные связи и данные | Ограничение |
-|---|---|---|
-| Credit account | Payer identity, единица кредита; проверяемый balance projection при необходимости | Payer не выводится из project ID или client balance |
-| Pricing snapshot/quote | Версия тарифа, endpoint/workflow class, charge basis, оценка и предел, rounding policy | Изменение текущего тарифа не переписывает принятый заказ |
-| Reservation | Account + billable job intent + quote + reserved amount + settlement revision | Одна логическая reservation на заказ; остаток не отрицательный |
-| Credit ledger entry | Account, amount в exact единицах, reserve/capture/release/refund/grant semantics, source и idempotency key | Immutable history; refund ссылается на capture, не удаляет его |
-| Usage/cost record | Job/attempt, измеренные usage, provider charge/валюта, источник и статус сверки | Себестоимость отдельно от user price; unknown не становится нулём |
-| Payment order/event | Provider/order/event IDs, account, verified amount/currency/status | Dedupe по provider/event; business grant ещё и по order/расчётному событию |
-| Entitlement, только при подписке | Account, product/period, источник оплаты, lifecycle | Не имитировать подписку бесконечным балансом; expiry/renewal правила ещё открыты |
-
-Кредитные суммы MVP представлены целыми **microcredits, 1 кредит = 1 000 000 units**, не floating point или per-call округлением. Ledger является истиной; balance projection обновляется тем же accounting commit. Не добавлять отдельный financial microservice или double-entry framework. Payment/entitlement строки выше являются только #future, не MVP migrations.
-
-## Ключевые записи
-
-1. До billable submit владелец платного сервиса проверяет account/payer и разрешённый заказ, создаёт quote, резервирует доступный остаток и собственный billable job intent одной DB transaction. Сериализация account balance предотвращает double spend; model/GPU call вне transaction. Project/connection authorization выполняет владелец проекта; клиентский project ID сам по себе не даёт права на средства SaaS account.
-2. Submission intent фиксируется до HTTP. Unknown acceptance остаётся reconciling/blocked. Нет blind paid retry; successful local dedupe не доказывает provider exactly-once.
-3. По достоверному outcome/usage одна idempotent settlement transaction делает capture и release остатка; сумма capture/release не превышает reserve без отдельно разрешённого увеличения. Остаток reservation не расходуется дважды.
-4. Refund после capture отдельной записью связан с исходным списанием и ограничен доступной к возврату суммой. Technical retry может увеличить cost, но не автоматически user charge.
-5. Verified payment event и credit grant/entitlement update фиксируются согласованно. Проверять signature по выбранному provider protocol, order/account/amount/currency и допустимый lifecycle. Browser success не доказательство; пропущенные и переставленные события требуют reconciliation.
-
-Для локального приложения и удалённого Kinodel endpoint это **не одна общая транзакция**: локальный job intent и удалённый billable order имеют разных владельцев. Рекомендуем записать локальный intent и stable request key до HTTP, а endpoint дедуплицирует заказ по account/key и digest и позволяет запросить его исход после потери ответа. Точный transport ещё Q16. Баланс и settlement каноничны только на стороне сервиса; локальная запись хранит remote order ref и наблюдаемый статус, не второй ledger. Результат импортируется локально до promotion; чужой endpoint не пишет execution bindings. Распределённая транзакция или копия всей Project DB на сервисе не нужны.
-
-Не считать human rejection бесплатной отменой автоматически: валидная, но не понравившаяся генерация отличается от технического сбоя. Предлагаемые Q18 settlement outcomes ниже не ждут creative approval. Cancel execution запрещает promotion, но расчёт и production outcome разные факты.
-
-## Время и тариф
-
-Приняты пользовательские **placeholder-цены MVP**, не рыночные provider prices и не результат benchmark:
+Принятые **placeholder-цены первого сервисного выпуска**, не provider prices или результаты benchmark:
 
 | Операция | Кредиты | Microcredits |
 |---|---|---|
-| Одна картинка | 1 | 1 000 000 |
-| Одно видео класса `low` | 3 | 3 000 000 |
-| Одно видео класса `high` | 5 | 5 000 000 |
-| 1 000 000 input tokens платной модели | 1 | 1 за input token |
-| 1 000 000 output tokens платной модели | 2 | 2 за output token |
-| Бесплатная модель | 0 | 0; technical safety bounds сейчас, product daily limits только финальный релиз |
-| Стартовый grant после регистрации | 100 | 100 000 000, один раз на account |
+| Картинка | 1 | 1 000 000 |
+| Видео `low` / `high` | 3 / 5 | 3 000 000 / 5 000 000 |
+| 1 000 000 input / output tokens | 1 / 2 | 1 за input token / 2 за output token |
+| Бесплатная модель | 0 | 0 |
+| Signup grant | 100 один раз на account | 100 000 000 |
 
-`low/high` назначаются trusted versioned generation profile. Разрешение/длительность этих классов ещё Q4: не переименовывать `high` в FullHD и не угадывать границу по пикселям. Image/video цена относится к одной заказанной единице, список units суммируется; дополнительные технические provider attempts не новые автоматически оплачиваемые user units. Новый творческий заказ получает новую цену/резерв. Quote фиксирует version тарифа до submit, последующее изменение не переписывает принятый заказ.
+`low/high` выбирается trusted versioned profile; разрешение/длительность классов ещё не определены. Цена изображения/видео относится к заказанной unit, не каждому technical attempt. Новый creative order получает новый quote/reserve. Пример exact settlement: 125 input + 40 output = 205 microcredits, только по проверенному provider/server usage.
 
-Пример exact token settlement: 125 input + 40 output = 205 microcredits = 0.000205 кредита. Числа токенов принимаются только из проверенного provider/server usage. Оценка длины prompt, transport bytes, chunk token budget, количество streaming events и клиентский usage не являются счётом.
+Для платного текста предлагаем резерв на проверяемый верхний предел: input bound + enforceable max output + все billable token classes. Estimate длины prompt не гарантия. Пользователь подтверждает max charge; provider overrun остаётся сервисным расходом. Cached/reasoning/другие категории учитываются ровно один раз в metering profile; неподдержанный usage блокирует settlement.
 
-Предложение Q17/Q18: перед model call reserve на проверяемый верхний предел стоимости: server model policy задаёт допустимый input bound и enforceable max output, покрывая контекст, overhead и billable token classes. Если модель не даёт понятного bound/usage mapping, платный вызов не допускается. Предварительный tokenizer estimate не гарантия. Пользователь подтверждает max charge; фактическое списание ограничено резервом, возможный provider overrun оплачивает сервис с диагностикой, не отрицательный баланс пользователя. Cached/reasoning/другие категории должны быть отображены в input/output ровно один раз в зарегистрированном metering profile; неподдержанный usage блокирует settlement для сверки, не выдумывает ноль.
+Grant выдаёт только сервер после проверки auth subject, unique `(account_id, "signup.v1")`, ledger + balance одной transaction. При раздельных auth/ledger DB отсутствующий grant доставляется идемпотентной reconciliation. Login/callback/retry не начисляют повторно. Email гарантирует не уникального человека, а лишь account identity; auth rate limits обязательны.
 
-Grant создаёт только сервер после проверки существующего auth subject: unique `(account_id,"signup.v1")`, ledger grant + balance update одной transaction. Повтор login/callback/retry не даёт ещё 100. При раздельных auth/ledger DB signup и grant не атомарны: idempotent reconciliation повторяет отсутствующий grant; клиент не подаёт доверенный user ID/сумму. Техническая защита signup/account/service от abuse обязательна, но не вводит продуктовую daily quota MVP. Email не гарантирует один grant на человека, только один на account; [auth](projects-identity-chat.md#вход-mvp) использует Supabase email/password.
-
-Ledger minimum: account, signed integer balance delta, reservation delta, entry kind, source order/grant ID, immutable pricing snapshot, idempotency key, server time. Account transaction обеспечивает `available = balance - reserved >= 0`; reserve увеличивает reserved, capture уменьшает balance и reserved, release уменьшает reserved, grant/refund увеличивают balance. Capture/release terminal settlement и quote/source uniqueness проверяются вместе. Никакого второго ledger локально.
-
-| Предлагаемый исход Q18 | Расчёт |
+| Исход | Расчёт и статус решения |
 |---|---|
-| Полный technically valid retained render output / завершённый текст с достоверным usage | Capture fixed unit price / actual token cost в пределах reserve, release остатка; human taste rejection не refund |
-| Доказанная отмена до submit без usage либо terminal render failure без успешного результата | Предложение: capture 0, release reserve; render provider cost остаётся у сервиса |
-| Partial required render group | Предложение: после достоверного terminal failure release всего резерва; не объявлять группу succeeded |
-| Неполный или потерянный текст с authoritative usage | Принято: actual token cost в пределах согласованного reserve; отсутствие текста не основание refund |
-| Потеря submit/response, unknown provider outcome/usage | Hold reserve, reconcile тем же order/key; не estimated capture, не новый paid retry и не автоматический refund по timeout |
-| Cancel во время работы | Render: предложенный расчёт по подтверждённому success/failure после reconciliation. Text: actual authoritative usage даже при cancelled/неполном ответе; unknown остаётся reconciliation. Production не продвигается |
-| Technical retry | Тот же order/reservation, один settlement; дополнительные costs сервисные |
+| Technically valid retained render | Предложение: capture unit price, release остатка; творческое неприятие не refund |
+| Доказанная отмена до submit без usage, terminal render failure или failed partial required group | Предложение: capture 0, release всего резерва; provider cost у сервиса |
+| Завершённый, неполный или потерянный текст с authoritative usage | Принято: actual token cost в пределах reserve |
+| Unknown outcome/usage | Hold и reconciliation; без нового paid retry или выдуманного settlement |
+| Cancel в работе | Render по подтверждённому исходу; text по authoritative usage; production не продвигается |
+| Technical retry | Тот же order/reserve и один settlement; дополнительные costs сервисные |
 
-Render/cancel outcomes остаются инженерным предложением; actual-token billing потерянного текста уже принято, его реализация #todo финального релиза. До включения соответствующего платного path нужны достоверный usage и проверенная reconciliation/escalation для unknown holds; иначе path выключен. Максимум ожидания не повод списать выдуманный usage или назначить refund. Бесплатный proxy сохраняет usage metadata при нулевых кредитах, без продуктового daily limit MVP.
+Продуктовых daily free limits в первом сервисном выпуске нет. Позднее принято 5 000 000 input + 1 000 000 output tokens/account/day с reset в следующую civil midnight `Europe/Chisinau`, учитывая DST. Это отдельно от обязательных технических admission/concurrency/timeouts.
 
-Карты, пополнения, payment webhooks, покупка кредитов, подписки, refunds реальных денег и commercial terms: **#future production**, не реализуются в MVP.
+## Следующий Этап И Источники
 
-- #todo До включения MVP credits проверить конкурентные резервы одного остатка, duplicate/changed keys, partial capture/release/refund и смену тарифа во время job.
-- #todo Проверить outage между reservation/submit/settlement, unknown acceptance и cancel; отсутствие второго capture на retry.
-- #future production До реальных платежей проверить forged/duplicate/out-of-order payment events, повторный grant того же payment order и восстановление журнала после backup. Idempotent signup grant проверяется до включения MVP credits.
-- #todo До удаления accounts согласовать privacy/финансовую retention policy без назначения вымышленных юридических сроков.
+До сервиса проверить concurrent reservations, duplicate/changed keys, signup grant, tariff pins, lost response, cancel, unknown holds, retained outputs и отсутствие body/credential leaks. Render settlement outcomes и escalation unknown holds ещё требуют согласования; платный путь без достоверного учёта не включается. Финальные retention/expired-key policies определяются до удаления identities.
+
+Покупка кредитов, карты, подписки и money refunds — production stage. Тогда нужны verified payment events, dedupe по provider/event **и** business order, проверка amount/currency/account, атомарный grant/entitlement и reconciliation пропущенных/out-of-order событий. Browser success не подтверждение оплаты; отдельный financial microservice не требуется.
+
+Внешние факты сверялись **9 сентября**, не проверялись заново на реальных аккаунтах в этом рефакторинге: [OpenRouter privacy](https://openrouter.ai/docs/cookbook/get-started/enterprise-quickstart), [routing](https://openrouter.ai/docs/guides/routing/provider-selection), [limits](https://openrouter.ai/docs/api/reference/limits); [GCS signed URLs](https://cloud.google.com/storage/docs/access-control/signed-urls), [lifecycle](https://cloud.google.com/storage/docs/lifecycle). Перед активацией проверить действующие terms/API и deployment settings.

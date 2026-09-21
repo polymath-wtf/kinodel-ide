@@ -25,7 +25,7 @@ One typed domain chunk candidate such as character, music, season, episode, or c
 
 The declared season output is one `SeasonMemoryDraftV1` aggregate containing proposed Season and ordered planned Episode bodies. One gate reviews that artifact; deterministic promotion derives the separate chunk artifacts without another model call and commits all bindings atomically. Other pipelines draft their single domain chunk. These future domain shapes do not expand the foundation slice.
 
-Revision is Critic -> Craft -> the same memory gate, never silent repair of approved production sources. Promotion rechecks the exact subject/activation/dependency closure, source approvals, rights, and expected chunk-binding revisions. Craft does not perform promotion. Published shared memory remains pinned for existing consumers on ordinary supersede; rights withdrawal still blocks it.
+Future memory revision goes directly from user feedback to Craft and back to the same gate. Critic advice is optional; approved production sources cannot be repaired silently. Publication rechecks exact subject/dependencies/rights and expected binding revision. Craft does not perform publication. Existing consumers keep pinned revisions; rights withdrawal still blocks use.
 
 ## Content And Quality Contract
 

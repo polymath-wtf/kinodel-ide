@@ -1,56 +1,35 @@
 # Поиск и контекст
 
-Статус: **direct injection обязателен сейчас; retrieval производный и отложен**. Владельцы: [context](../context/context.md), [mentions](../context/context-injection.md), [RAG](../rag/rag.md). Вопросы [Q7/Q14/Q15](open-questions.md).
+**Сейчас — прямой выбор точных источников. Поиск — позже.** [Context](../context/context.md) владеет отбором, проекциями и бюджетом; [RAG](../rag/rag.md) — обнаружением кандидатов. Здесь только хранение.
 
-## Что сохраняется до вызова
+## Что Сохраняется До Вызова
 
-`ContextSelectionV1` принадлежит prepared `operations`, а не отдельному creative artifact или checkpoint body. Предлагаем хранить весь bounded typed trace в операции; отдельная таблица selection не нужна до требования независимого query/lifecycle. `selection_id` и digest дают компактную ссылку.
-
-| Часть | Сохраняемые данные по текущему контракту | Зачем |
+| Данные | Размещение | Правило |
 |---|---|---|
-| Identity | selection/execution/stage/operation/capability | Связать один выбор с одним поручением |
-| Items | origin, role, exact source revision/digest, projection ID/version/digest, dependency mode, required, asset IDs, estimated tokens | Восстановить именно вход, а не повторить поиск |
-| Решения подготовки | omitted refs/reasons, conflicts, token budget/selected tokens | Не скрыть исчезнувшие материалы и противоречия |
-| Prepared configuration | Capability instructions/resource/config versions, declared units и настройки в operation input digest | Retry не обновляет alias/defaults/seed произвольно |
+| Exact inputs, `ContextSelectionV1`, input digest | Подготовленная `operations` | Зафиксированы до model call, неизменны при retry |
+| Source/resource refs, роли, projection versions/digests, выбранные assets | Внутри selection | Достаточны для восстановления именно выбранного входа при сохранённых источниках и реализации projection |
+| Исключённые optional refs, причины, конфликты, бюджет | Внутри selection | Required/canon не исчезают молча; после подготовки нельзя убрать даже выбранный optional item |
+| Готовые тексты и media inputs для модели | Временная память вызова | Восстановить из exact sources и versioned projections, сверить digest |
+| Ссылка на selection/operation | Compact graph state, где нужна | Не копировать тела в каждый checkpoint |
+| Сервисы, текущие права/fence | LangGraph runtime context | Передаются заново при invocation/resume; не источник frozen creative inputs |
 
-Exact typed refs должны разрешаться через canonical metadata; loose string `source_ref` в pseudo-type ещё не executable registry. #question Q7: согласовать сериализацию typed refs, сохранение historical projection implementations и modality-budget data. Не вводить универсальный context envelope вместо узких typed agent inputs.
+Отдельная таблица selections, постоянный context-pack artifact и копия содержимого в LangGraph Store не нужны. Типы refs принадлежат [context contract](../context/context.md#contextselectionv1); неподдержанная версия или несовпадение digest блокируют вызов, а не запускают поиск замены. Источники и код projections удерживаются, пока нужны сохранённым операциям, с учётом политики удаления и прав.
 
-## Подготовка и replay
+## Что Можно Пересобрать
 
-1. Собрать creator mentions, pipeline-required inputs и allowlisted agent resources. `@`/`@@` являются UI синтаксисом, не правом доступа и не типом БД.
-2. Проверить project/library access, required approval, rights/sensitivity, exact bytes и freshness closure.
-3. Применить versioned consumer projection, обнаружить противоречия и проверить model-specific text/media budget.
-4. Optional items можно исключить только сейчас с причиной. Required, selected canon и profile-required prompt guidance нельзя молча обрезать.
-5. Сохранить selection/input digest до model call. На retry rehydrate те же refs/projection versions, повторно проверить access/rights и projection digest.
-
-Unavailable pinned source/version или mismatch блокирует операцию. После preparation нельзя даже optional selected item незаметно убрать. Ordinary index rebuild/shared supersede не меняет selection; creative изменение требует authorized new activation/execution. Hydrated bodies временные, но их источники и versioned projections должны оставаться восстановимыми в пределах retention/rights policy.
-
-`@prompt-engine` выбирается из frozen generation profile и versioned agent manifest. Это trusted guidance, не source wiki и не разрешение читать произвольный путь. Provider endpoints, credentials и raw payloads остаются у adapter.
-
-## Производный поиск, позже
-
-Private wiki принадлежит локальному владельцу либо hosted account/workspace, не одному execution: доступную страницу можно явно выбрать в другом своём проекте. Local index остаётся локальным и опирается на OS/data-root boundary без обязательного Kinodel login. Hosted private corpus логически изолирован account/workspace ACL; отдельная физическая БД на пользователя не требуется. Public index содержит только разрешённые public resources, не private passages с флагом «спрятать в ответе».
-
-Это принятая граница: SQLite/files/index local, PostgreSQL/private storage hosted; signup не запускает upload или indexing локальных данных на сервере. Personal wiki/taste и CinemaChunk не попадают в prompt автоматически. Public wiki выбирается по exact owner-published GitHub release snapshot/revision/digest, не по плавающему latest.
-
-Авторизация ограничивает corpus до поиска и до раскрытия titles/snippets/counts; повторяется при hydration, цитировании и выдаче media, включая cached results. Отзыв/удаление блокирует canonical resolution сразу и инвалидирует index/cache/projections, не ждёт планового reindex для запрета доступа. Endpoint не получает доступ к wiki/index целиком: приложение передаёт только выбранный authorized payload. `@` не выдаёт права и не запускает рекурсивный обход ссылок.
-
-| Предлагаемая запись | Минимум | Восстановление |
+| Производная запись, позже | Минимум для восстановления | Не является |
 |---|---|---|
-| Retrieval passage | Exact source kind/ID/revision, heading/locator, excerpt/content hash, modality/assets, chunker version | Перестроить из разрешённого source snapshot |
-| Index build/profile | Corpus revision scope, extractor/chunker/projection versions, status | Не смешивать несовместимые representations |
-| Embedding row, только после оценки | Passage/content hash + provider/model/endpoint/version, dimension/input options, timestamp | Пересчитать; не canonical creative chunk |
-| Retrieval trace | Query/policy, candidate exact refs, selection/omission reason; хранить ограниченно | Diagnostic данные, не скрытая библиотечная истина |
+| Поисковый passage | Exact source revision, locator, текст/hash, extractor/chunker version, media refs | Creative chunk или новый источник истины |
+| Полнотекстовый индекс, backlinks | Разрешённые canonical revisions и версия построения | Библиотекой оригиналов |
+| Embedding | Passage/content hash, provider/model/endpoint, dimension/input options | Сохранённым знанием или способом сократить prompt |
+| Retrieval trace | Query/policy, candidate refs, причины выбора | Разрешением использовать найденное |
 
-FTS сначала, vectors только при доказанной пользе. Один 768d Gemini experiment в RAG является гипотезой, не выбранным production index или обещанием текущего API. #question Q15: модель, endpoint, размер, нормализация, index storage/cutover и численный evaluation gate перед rollout. Здесь не создаётся pgvector/service dependency.
+Сначала прямые ссылки и навигация. При реальном запросе на поиск — полнотекстовый индекс рядом с существующей SQL-базой; конкретный механизм выбирается и проверяется тогда. Vector storage выбирается после сравнения качества, стоимости и задержки. Эксперимент Gemini не выбранный production backend. `BaseStore` может обслужить будущую интеграцию, но его наличие не требует отдельного сервиса или дублирования библиотеки.
 
-Search filtering применяется **до раскрытия** названий/цитат/медиа чужого scope, повторная authorization обязательна при hydration и commit/use. Cached ACL в index недостаточно после withdrawal; canonical права имеют приоритет. Reindex/purge удаляет derivatives, но не меняет graph activation или approval. Временная недоступность search не мешает direct resolution.
+## Права И Повторное Использование
 
-Навигационные wiki links можно извлекать в rebuildable adjacency/backlink projection. Traversal не должен автоматически загружать всю сеть в prompt. Межстраничный граф не требует graph DB.
+Private library доступна между разрешёнными проектами владельца. Local corpus остаётся локальным, hosted corpus ограничивается account/project policy. Public wiki выбирается по точному опубликованному release snapshot. Namespace, `@` и `@@` не выдают права; endpoint получает только подготовленный payload.
 
-## Приёмка
+Ограничить corpus **до поиска и раскрытия titles/snippets/counts**, повторно проверить доступ при hydration, цитировании, выдаче media и использовании. Index/cache не authority для прав. Withdrawal сразу блокирует canonical resolution, затем удаляются разрешённые derivatives; ждать reindex для запрета доступа нельзя.
 
-- #todo Foundation: пустой optional selection допустим; missing mandatory input, conflicting canon, превышение обязательного бюджета и missing required modality останавливают вызов по контракту.
-- #todo Replay после source supersede/reindex получает тот же digest; withdrawal блокирует даже ранее prepared input.
-- #todo Перед retrieval: gold set exact/paraphrase/contradiction/stale/deleted/cross-project cases; сравнить direct navigation и FTS, затем vectors по качеству, цене и latency.
-- #todo Проверить отсутствие утечек в заголовках, snippets, counts, media URLs и cache, а не только в финальном ответе модели.
+Обновление библиотеки или индекса не меняет уже подготовленный вход. Новая творческая подборка требует новой разрешённой activation/execution. Недоступность поиска не мешает чтению по точной ссылке. Проверки direct context принадлежат [MVP](../roadmap-mvp.md#acceptance); оценка будущего поиска — [RAG](../rag/rag.md#evaluation-gate).

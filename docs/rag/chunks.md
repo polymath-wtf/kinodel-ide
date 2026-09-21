@@ -4,6 +4,10 @@ Status: **Domain contracts, introduced with their pipelines**
 
 A creative chunk is approved reusable production memory. It is a typed artifact with exact provenance, not an embedding row, arbitrary Markdown note, chat summary, or process archive.
 
+Think of it as a **reusable creative card**, not a piece cut out of text. Retrieval passages are disposable search projections; consumer projections are bounded views of the card for a particular specialist. Neither has an independent approval or canonical binding. Chunks use the existing artifact storage and library bindings, not a second LangGraph Store copy or a separate database per chunk type.
+
+These are future library contracts. The current cinematic MVP ends with a technically verified assembly of approved shots, without final-film review or memory publication. References below to final approval describe prerequisites of future memory-enabled pipelines, not an existing gate. Before enabling Cinema publication, reconcile its final-source acceptance and anchor selection with the then-current cinematic contract; do not silently treat completion as approval.
+
 ## Shared Contract
 
 Artifact infrastructure owns immutable ID, schema/version, digest, project scope, body URI, source provenance, and creation operation. A chunk body adds only domain meaning rather than repeating one universal legacy envelope.
@@ -40,7 +44,7 @@ Film or memory approval does not authorize inferred global taste changes. Taste 
 
 Validation, freshness, approval, selection/promotion, and publication remain independent. Craft may inspect exact validated plans/timing analysis as supporting provenance, but result approval does not independently approve those artifacts or make planned intent a completed fact. The memory gate reviews new reusable claims. Promotion rechecks subject/activation/dependency closure, source approvals, rights, and expected chunk-binding revisions; it publishes only the reviewed bodies, never another model-generated summary.
 
-Memory revision follows Critic -> Craft -> the same gate. Critic `needs_input`/`out_of_scope` returns a new request for the unchanged candidate without calling Craft; rewriting approved production sources requires a new execution outside this repair path. A historical approval cannot authorize publication after source validity or rights fail.
+Future memory revision follows direct user feedback -> Craft -> the same gate; optional Critic recommendations do not dispatch edits. Craft can explain an out-of-scope request without replacing the draft. Rewriting approved production sources requires a new execution; historical approval cannot authorize publication after rights or source validity fail.
 
 ## Media Handles
 

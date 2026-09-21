@@ -1,116 +1,84 @@
 # Cinematic Pipeline
 
-Status: **Accepted design; executable graph, schemas and provider checks pending**
+Status: **Accepted MVP route, 2026-09-21; implementation pending.** This page owns cinematic node names, handoffs and repair destinations. [JSON](cinematic.v1.json) mirrors this route for inspection; it is not a graph compiler or runnable configuration.
 
-`cinematic.v1` is the full reference route. Build its reduced `foundation.v0` image-only slice first. Both use Wardrobe-owned anchor prompts and reviewed `main_frames`; there is no separate Storyboard main-anchor mode or mandatory visual-plan approval.
+## Route
 
 ```text
-brief_draft -> brief_review                         [human]
--> story -> story_review                           [human]
--> visual_anchor_plan                              [Wardrobe]
--> render_anchor_candidates                        [Render: sequential units]
--> main_frames_review                              [human: complete anchor set]
--> frame_plan                                      [Storyboard]
--> render_frame_candidates
--> frame_review                                    [human: shot frames]
--> motion_plan -> render_clip_candidates
--> clip_review                                     [human: clips]
--> montage_plan -> montage_execute
--> final_review                                    [human: final film]
--> craft_cinema_memory -> cinema_memory_review      [human: reusable memory]
--> promote_cinema_memory -> complete
+brief (user input)
+→ storytell → story-hitl
+→ wardrobe → anchor-gen → anchor-hitl
+→ storyboard → frames-gen → frames-hitl
+→ filmmaker → video-gen → video-hitl
+→ montage → final
 ```
 
-Every media review saves its approved selection before advancing. This persistence work is part of the gate's apply path, not a visible `promotion` node. Memory publication has separate library semantics and is not changed by this media naming decision.
+`HITL` means human-in-the-loop: inspect, approve, or ask the producing agent for changes. `*-gen` nodes invoke generation tools; they are not LLM agents. The graph waits for durable job completion, not an open model call. `final` is the output of `montage`, not another agent.
 
-## Stage Ownership
+The creator submits the brief and visible production settings before Run. Validation freezes that input; there is no mandatory Producer or Brief approval node. Missing required settings are resolved before starting. The MVP ends with an assembled video from approved shots; no automatic claim of final human approval, extra final gate, Critic or memory publication.
 
-| Stage | Owner | Output |
+## Node Inputs And Results
+
+<a id="exact-dependencies"></a>
+<a id="stage-ownership"></a>
+
+| Node | Required inputs | Result |
 |---|---|---|
-| brief / story | Producer / Storytell | `BriefV1` / `StoryV1`, each with its own review |
-| visual-anchor plan | Wardrobe | `VisualAnchorPlanV1`: shared direction and named anchor prompts, roles and dependencies |
-| anchor generation | Render | candidate images for every declared anchor |
-| anchor review and save | human decision + deterministic Render save | `main_frames`: approved `RenderResultV1` |
-| shot-frame plan | Storyboard | `FramePlanV1`, using exact approved anchor images |
-| shot generation / review and save | Render / human + Render save | `story_frames`: approved `RenderResultV1` |
-| motion plan | Filmmaker | `MotionPlanV1` |
-| clip generation / review and save | Render / human + Render save | `clips`: approved `RenderResultV1` |
-| montage plan / execution | Montage agent / executor | `MontagePlanV1` / `MontageResultV1` |
-| memory draft / review / publication | Craft / human / service | approved active `CinemaChunkV1` |
+| `brief` | User idea, explicit references and visible settings | Submitted immutable `brief` |
+| `storytell` | Submitted brief, selected narrative context | `story`: ordered shot actions |
+| `story-hitl` | Current story | Same story with exact approval |
+| `wardrobe` | Brief, approved story, character/style references | `wardrobe_plan`: visual direction, anchor prompts and dependencies |
+| `anchor-gen` | Wardrobe plan, exact references, image profile | Anchor image attempts; saves selected `anchor_frames` when approved |
+| `anchor-hitl` | Complete current anchor set and its plan | Approved `anchor_frames`, then unlocks Storyboard |
+| `storyboard` | Brief, approved story, Wardrobe plan, approved anchor frames | `storyboard_plan`: one image prompt and reference bindings per shot |
+| `frames-gen` | Storyboard plan, exact anchor frames, image profile | Frame attempts; saves selected `story_frames` when approved |
+| `frames-hitl` | Complete current frame set and its plan | Approved `story_frames` |
+| `filmmaker` | Brief, approved story and story frames | `video_plan`: motion prompt, start image and duration for each shot |
+| `video-gen` | Video plan, exact story frames, video profile | Video attempts; saves selected `shot_videos` when approved |
+| `video-hitl` | Complete current video set and its plan | Approved `shot_videos` |
+| `montage` | Approved shot videos in Story order, brief output settings | `final_video`: assembled and technically verified file |
+
+Creative ownership and physical saving are distinct: `anchor_frames` is Wardrobe's generated result, `story_frames` is Storyboard's, and `shot_videos` is Filmmaker's. Their `*-gen` tool is the sole writer of each media binding. HITL applies a selection through that tool; it neither rewrites prompts nor creates a second owner. Plans remain inspectable supporting results, without extra approval nodes.
+
+Internal body types remain `VisualAnchorPlanV1`, `FramePlanV1` and `MotionPlanV1`; these describe stored data, not extra workflow stages. Candidate manifests, job waits, selection receipts and montage instructions are internal records, not nodes for the user to arrange. The old `main_frames`/`main_frames_ref`/`main_frame_ref` names are replaced by `anchor_frames`; the media slot `clips` is replaced by `shot_videos`. No compatibility layer for unshipped names.
 
 ## Revision Routes
 
-| Gate | Creative revise through Critic | Return path |
+| Current HITL | Who receives the user's message | Route back to review |
 |---|---|---|
-| Brief | Producer | new Brief -> same gate |
-| Story | Storytell | new Story -> same gate |
-| `main_frames_review` | Wardrobe | new anchor plan -> affected renders -> complete-set review |
-| `frame_review` | Storyboard | new frame plan -> shot render aggregate -> same gate |
-| `clip_review` | Filmmaker | new motion plan -> clip render aggregate -> same gate |
-| final | Montage | new montage plan -> execution -> same gate |
-| memory | Craft | new memory draft -> same gate |
+| `story-hitl` | Storytell | `storytell → story-hitl` |
+| `anchor-hitl` | Wardrobe | `wardrobe → anchor-gen → anchor-hitl` |
+| `frames-hitl` | Storyboard | `storyboard → frames-gen → frames-hitl` |
+| `video-hitl` | Filmmaker | `filmmaker → video-gen → video-hitl` |
 
-Only Critic `ready` invokes the fixed owner. `needs_input`/`out_of_scope` opens a new request for the unchanged subject with an explanation. Anchor feedback may change Wardrobe's supporting plan, which has no separate approval; it cannot change approved Brief/Story/canon. Shot feedback cannot secretly redesign approved anchors. An already approved upstream change starts a new execution under [rework](../backend/rework.md), not a backward jump.
+The user writes directly in the owning agent's node discussion. A submitted edit includes the current result revision and feedback. The owner receives the exact previous output, relevant conversation, approved inputs and requested change; a valid replacement becomes v2, v3, etc. An explanation or invalid/partial response is not a new output. Each replacement needs its own approval. The next node receives selected results, never the whole conversation.
 
-## Exact Dependencies
+No Critic dispatches or rewrites feedback in MVP. A later optional Critic may attach recommendations to the reviewed result; the creator chooses which to send to its actual owner (Storytell for story, Storyboard for shot composition). It cannot approve, edit or route production by itself.
 
-Production refs use `current_execution`; selected external canon/resources use `pinned_revision`. All require validation and transitive freshness. Brief/Story need exact human approval; plans below are validated supporting evidence; selected media need the exact saved-selection receipt.
+The [HITL contract](../hilp/hilp.md) owns actions, versioning and replay rules; this pipeline only declares destinations. Frame feedback cannot replace an approved story or anchors; changing those ancestors requires a new run.
 
-| Owner stage | Reads | Writes |
-|---|---|---|
-| `brief_draft` | initial request, separate answer if present, selected context, pinned defaults/constraints | `brief`, own gate |
-| `story` | approved Brief, prepared narrative context | `story`, own gate |
-| `visual_anchor_plan` | approved Brief/Story, character/environment context, prompt guidance and supported reference constraints | `visual_anchor_plan`, validation only |
-| `render_anchor_candidates` | exact visual plan and frozen profile; prepared parent candidate refs for dependent units | immutable complete anchor manifest, no canonical slot |
-| anchor selection save | exact manifest, supporting plan, accepted complete selection | `main_frames` |
-| `frame_plan` | approved Brief/Story, validated visual plan, complete approved `main_frames`, guidance | `frame_plan`, validation only |
-| `render_frame_candidates` / selection save | exact frame plan, its anchor selectors and profile; then exact selection | candidate manifest / `story_frames` |
-| `motion_plan` | approved Brief/Story, validated visual direction, approved `story_frames` | `motion_plan`, validation only |
-| `render_clip_candidates` / selection save | exact motion plan, selected frames and profile; then exact selection | candidate manifest / `clips` |
-| `montage_plan` | approved Brief/Story/clips, measured metadata, temporal observations and edit bounds | `montage_plan`, validation only |
-| `montage_execute` | exact plan and approved clip closure | `final_video`, own gate |
-| `craft_cinema_memory` | approved Brief/Story/main_frames/story_frames/clips/final_video, labelled supporting plans, observations and rights | `cinema_memory_draft`, own gate |
-| `promote_cinema_memory` | exact draft approval, valid sources/rights and expected chunk-binding revision | active Cinema chunk binding |
+## Anchor Dependencies
 
-Review cards freeze the exact candidate manifest, supporting plan revision, producing activation, dependency closure, criteria and permitted actions. Approving images does not independently approve their plan. Media Critic receives the actual images/video and exact owner plan; clarification uses Producer on that same subject. Final review exposes temporal media; memory review exposes claim sources.
+<a id="unit-contracts"></a>
 
-## Unit Contracts
+Wardrobe declares stable anchor keys from narrative needs. Example: `hero_face`, `hero_sheet` referencing that exact face, and an independent character-free `location`. Generate sequentially without intermediate human choices; review the complete set. Keys/counts are not hardcoded to this example.
 
-Wardrobe proposes the required stable anchor keys from narrative needs; the adapter validates and freezes them in the plan before any job. They are neither Story shot IDs nor a hardcoded single `visual`/`main` key. Repairs preserve keys of corresponding units. Each anchor declares its role, prompt and reference bindings; a binding to an earlier unit creates a generation dependency. Reject missing keys, cycles and unsupported image-role mappings before submission.
-
-First acceptance example:
-
-| Order | Unit | Role | Generation input |
-|---|---|---|---|
-| 1 | `hero_face` | high-quality face identity | portrait prompt + explicitly supplied identity references, if any |
-| 2 | `hero_sheet` | anatomy, proportions and clothing | sheet prompt + exact generated `hero_face` candidate |
-| 3 | `location` | consistent environment | location prompt, no character image and no characters |
-
-Generate in this order without intermediate human choices. One candidate per unit per generation is sufficient initially; the child uses that exact parent, not an automatically ranked winner. Persist parent candidate ID/digest before submitting the child. Location follows sheet in the queue but has no character dependency. Review all three images together at the end. The general plan may contain more/fewer anchors; these roles/keys are an acceptance example, not a universal schema limit.
-
-Storyboard receives the complete approved set and binds relevant images per shot by role. For example, three bindings refer to `{render_result_ref: main_frames_ref, unit_key: "hero_face"}`, `hero_sheet` and `location`, with take/ignore and preserve/change constraints. The frozen workflow must support their simultaneous delivery and role mapping; never drop an image or replace the set with a single main frame.
-
-For first full `i2v`, Story shot IDs/order are frame and clip IDs/order: one frame and clip per shot. Anchors do not count as shot frames or omit a shot implicitly. MotionPlan selects `{render_result_ref: story_frames_ref, unit_key: shot_id}`. `flf2v` later requires declared start/end mappings including any terminal frame before rendering. Montage selects the same shot IDs against `clips_ref`; measured bounds/order/duration are machine checks, preservation of action/payoff requires temporal inspection.
+Storyboard binds relevant approved anchors by role: face identity, anatomy/clothing, environment. A workflow must accept every required image; unsupported capacity blocks submission instead of silently dropping references. Each Story shot has one frame and one video with the same shot key and order. First video mode is `i2v`: each selected frame is the exact start image of its video, with no omitted shots. Other modes need explicit endpoint mappings before activation.
 
 ## Anchor Regeneration
 
-At `main_frames_review`:
+At `anchor-hitl`, **revise** asks Wardrobe for new prompts; **regenerate** asks the tool for another attempt with the same prompts and new seeds where supported. Regenerate requested/changed anchors and their dependents: new face means new sheet, but unchanged location stays. Location-only change preserves the character images.
 
-- **Regenerate** selects anchor unit keys and requests new generation with the same prompts and new seeds where supported. Render resolves and freezes seeds once; it does not call Critic or Wardrobe.
-- **Revise** sends creative feedback through Critic to Wardrobe. The owner returns a complete new plan. The service compares effective per-unit inputs, including shared direction, exact source refs, workflow and parameters.
-- In either case, regenerate changed/requested units plus their transitive dependents. A new face invalidates its sheet immediately. Sheet-only regeneration keeps its face; location-only regeneration keeps both character images.
-- Retain an unrelated candidate only with unchanged effective inputs, intact bytes/rights and explicit source candidate/job/input-digest lineage in the new manifest. No loose copying from history or transfer of old set approval. A shared style change affecting all prompts invalidates all affected units.
-- Each change creates a new immutable manifest/review revision and supersedes the old actionable card. Approval is unavailable until all required units are ready. Validate that every selected child actually used the selected parent: `portrait_B + sheet_A` is rejected.
-- Technical recovery is different: same operation, same seeds and inputs, preserve completed units. Unknown submission is reconciled, never treated as permission for another paid generation.
+Retained attempts keep exact input/job lineage. A new review covers the complete resulting set; selecting face B with a sheet generated from face A is rejected. Technical retry instead keeps prepared inputs/seeds, retains successes and reconciles uncertain submission. Frame/video creative revisions may rebuild the whole respective set in MVP; selective repair is later.
 
-This is bounded reuse within the current anchor-review stage. Selective shot/clip creative repair and arbitrary cross-execution reuse are deferred. After proceeding to Storyboard, changing anchors requires a new execution; existing dependent plans/results remain historical, not current.
+## Montage And Completion
 
-## First Slice
+The MVP `montage` is a deterministic tool: take every approved video in Story order, use full clips and simple cuts, normalize compatible output parameters, assemble with ffmpeg and verify with ffprobe. Preserve source references and a validated internal `MontagePlanV1`; output is `MontageResultV1`. No extra LLM editor, creative trims, transition designer or memory agent is required.
 
-`foundation.v0` follows Brief and Story review, Wardrobe, sequential anchor generation and complete `main_frames` review/save, then Storyboard, shot-frame generation and frame review/save, then completes. Use a one-shot Story fixture for the first end-to-end proof, not a universal one-shot constraint. This tests three example anchors and their actual use together in a shot; anchor-only generation is an intermediate test, not build completion.
+Initial output is silent `i2v`; montage removes native clip audio and verifies no audio stream. Unsupported dimensions/codecs/durations block or use the declared transcode policy, never hidden shot omission. Completion requires approved story/anchors/frames/videos and a valid final file with fresh provenance. Completion is not a separate final human approval.
 
-Completion requires current approved Brief/Story plus saved current `main_frames` and `story_frames` selections, with exact validated supporting plans and fresh dependency closure. No mandatory plan-text gate, video, Montage, Craft, graph `Send` or node-editor implementation is needed for this slice. Sequential unit jobs use the existing service wait/recovery mechanism.
+## Build And Verification
 
-Acceptance: restart between portrait and sheet; regenerate face and verify sheet replacement with location retained; regenerate location without touching character images; reject mixed parent/child selection and stale review; verify all required anchor roles reach shot generation; preserve approved images after provider unavailability. Existing cancellation, idempotency, verified import and ambiguous-submit tests still apply.
+<a id="first-slice"></a>
 
-The full cinematic's first video profile remains silent `i2v`: no requested soundtrack/voiceover, Montage mutes native clip audio, and output inspection verifies no audio stream. This video requirement does not apply to image-only foundation. Historical [cinematic.v1.json](cinematic.v1.json) and earlier dry runs are migration evidence, not current route declarations or passing acceptance tests.
+The first user-facing MVP includes the entire route through video and montage. Text-only and image-only graphs are internal incremental checks under their own frozen identities, not alternative release definitions. Setup, implementation order and acceptance live only in [Local MVP](../roadmap-mvp.md).

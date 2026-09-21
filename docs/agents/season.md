@@ -3,7 +3,7 @@
 Class: creative agent  
 Status: **Planned for `serial_season.v1`**
 
-The content contract below is an architectural minimum before the first backend build. Pipeline activation and executable schemas/checks remain later work.
+This is a future capability proposal. Refine and verify it when activating serial production; it does not block the local foundation build.
 
 ## Responsibility
 
@@ -23,7 +23,7 @@ At selection, exact approved shared revisions are pinned for the execution. Ordi
 
 `SeasonPlanV1` with premise, repeatable engine, character/relationship arcs, escalation, payoffs, and an ordered episode blueprint list.
 
-Stable episode IDs connect blueprints, Wardrobe's per-episode aggregate direction, Storyboard's anchor units, and planned Episode memory. These are proposed domain fields, not foundation schemas. Season-plan revisions run Critic -> Season -> same gate; changing selected approved Character/prior-season canon is out of scope, not a hidden rewrite.
+Stable episode IDs connect blueprints, Wardrobe's anchor plan, generated anchors and planned Episode memory. These are future domain fields. User feedback goes directly to Season and returns to its gate; changing selected approved character/prior-season canon is out of scope. Critic is optional advice, not a dispatcher.
 
 ## Boundaries
 

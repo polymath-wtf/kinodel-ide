@@ -1,2 +1,6 @@
 do not push secret stuff por favor
 .env
+.venv*/
+__pycache__/
+*.pyc
+.reference

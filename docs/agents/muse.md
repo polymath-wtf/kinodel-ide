@@ -3,7 +3,7 @@
 Class: creative agent  
 Status: **Planned for `music_video.v1`**
 
-The content contract below is an architectural minimum before the first backend build. Pipeline activation and executable schemas/checks remain later work.
+This is a future capability proposal. Refine and verify it when activating music-video; it does not block the local foundation build.
 
 ## Responsibility
 
@@ -25,7 +25,7 @@ One `MusicPlanV1` aggregate containing sections, lyrics/concept, energy/timing i
 
 Sections have stable IDs and order. Planned timing is intent, not measured song timing: the analysis service derives exact timing only after song selection. Render adapts MusicPlan directly, joins stage-level song candidates, and promotes the exact approved selection.
 
-Both music-plan and song revisions pass through Critic to Muse. A revised MusicPlan always receives its own approval before generation, including the song repair path `Muse -> music_plan_review -> generation/join -> song_review`. Critic `needs_input`/`out_of_scope` creates a new request for the existing subject without an owner call; Muse cannot change the approved Brief or rights constraints. Shared bounds follow the pipeline review contract.
+Future music-plan/song feedback goes directly to Muse; Critic may only add optional recommendations. If that future pipeline retains an independent MusicPlan gate, a changed plan must be reviewed again before generation. Exact routes are reconciled at music-video activation; Muse cannot change submitted Brief or rights constraints silently.
 
 ## Boundaries
 

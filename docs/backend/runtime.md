@@ -8,7 +8,7 @@ The runtime reliably delivers authorized work to an explicit LangGraph graph. It
 
 ## First Deployment
 
-Use Python 3.12, FastAPI and Pydantic. Local: SQLite, managed local data directory, API and one background graph runner in one application process. Server: PostgreSQL, managed server storage and separate API/worker entry points; begin with one worker and support multiple workers through execution ownership. SQLite/PostgreSQL checkpointer setup remains #todo. Redis, Celery, a graph compiler, and an event bus are not needed.
+Use CPython 3.13 (verified patch 3.13.15), FastAPI, Pydantic v2 and Uvicorn. Local: SQLite, managed local data directory, API and one background graph runner in one application process. Server: PostgreSQL, managed server storage and separate API/worker entry points; begin with one worker and support multiple workers through execution ownership. The SQLite dependency smoke check passes; application ownership/recovery integration and PostgreSQL verification remain #todo. Redis, Celery, a graph compiler, and an event bus are not needed.
 
 | Component | Owns |
 |---|---|
@@ -39,14 +39,14 @@ status: pending -> claimed -> completed
 
 The source uniqueness key is `(execution_id, kind, source_id)` across **all** statuses. Completed work cannot be recreated by duplicate callbacks or client retries. A `resume_ref` identifies a durable review/input decision or immutable external wait result, never an arbitrary graph update. Manual retry requeues the same blocked work with optimistic concurrency and a deduplicated control command; it preserves its original source and resume identity.
 
-Work remains claimed through the graph call until a durable unanswered interrupt, an explicit runtime block, or a terminal outcome is settled. In particular, a resume is not completed just because its decision was consumed: a crash in the following Story/Critic node must still leave work to recover. Completion of a work row means a segment settled, not that the film is complete.
+Work remains claimed until a durable pause, explicit block or terminal outcome. Consuming a decision does not finish its segment: a crash in the following owner/tool node still leaves recoverable work. Segment completion is not film completion.
 
 ## Start Protocol
 
 ```text
 authorize and validate opening request + frozen pipeline snapshot
--> prepare immutable InitialRequest bytes under the file commit protocol
--> transaction: execution + initial_request metadata/binding + start work
+-> prepare immutable InitialRequest and submitted Brief under the file commit protocol
+-> transaction: execution + both input metadata/bindings + start receipt/work
 -> return accepted execution_id
 -> worker claims work and execution ownership
 -> absent checkpoint: invoke exact initial state
@@ -100,12 +100,12 @@ Replay may return old recorded refs to finish an interrupted transition; it must
 The logical gate is `prepare_request -> wait -> apply_decision`:
 
 - Prepare persists a deterministic request and returns its exact reference. It performs no model call.
-- Wait calls `interrupt()` once using that reference; after resume it validates the decision reference and returns it. It does not commit approval, call Critic, or promote assets.
+- Wait calls `interrupt()` once for that exact reference and returns the validated decision ref. It does not call a model, generate media or save selection.
 - Apply atomically records the decision effect, marks its source consumed, and records the next activation. This is an ordinary idempotent operation, including after an interrupt.
 
 After the paused invocation flushes checkpoints, the worker binds the application request/wait ID to the exact checkpoint, task namespace, and interrupt ID. Only then is a pending human request actionable. If the worker crashes before binding it, recovery inspects the checkpoint and exposes the same card without rerunning generation.
 
-The API transaction validates the current request, stores an idempotent decision and one resume work row. It never invokes `Command` itself. Review semantics and input questions are defined in [reviews.md](reviews.md).
+The API transaction validates the current request, stores an idempotent decision and one resume work row. It never invokes `Command` itself. Approval, revision and clarification semantics are defined in [HITL](../hilp/hilp.md).
 
 ## Recovery Decision Table
 
@@ -137,8 +137,8 @@ A small reconciliation sweep also checks nonterminal executions with no live wor
 | transient network/rate limit | bounded node retry; same operation; retry budget recorded durably across crashes |
 | unavailable database/storage | stop effects; leave recoverable work; backoff when dependencies return |
 | invalid model draft | bounded structured-output repair; never commit invalid output; exhausted repair blocks with diagnosis |
-| missing input before a Brief exists | typed input request, one focused Producer question |
-| ambiguous or out-of-scope creative feedback | Critic feedback-needed path back to the exact gate |
+| missing required Brief input | input validation before accepting Run; no compulsory Producer call |
+| ambiguous or out-of-scope creative feedback | fixed owner explains on the unchanged reviewed subject; no Critic dispatch |
 | unavailable/withdrawn mandatory context | block before a call or commit; no fallback to search/other canon |
 | ambiguous provider submission | reconcile by durable provider key/ID; if impossible block, do not blindly pay again |
 | integrity, provenance tampering, unsupported frozen graph or programming failure | fail closed; durable failure/diagnostic, no model repair of control state |
@@ -155,11 +155,11 @@ The active worker observes controls between bounded calls and before commits, st
 
 Terminal outcome is an immutable Project DB fact: `completed`, `cancelled`, or `failed`, with its source operation/control and reason. A completion node validates required current approvals and commits `completed` before `END`. If this commit survives but the final checkpoint does not, recovery honors the outcome without re-running production. If cancellation races completion, execution-row transaction ordering decides which was accepted first; the terminal result is never rewritten.
 
-Late provider results may be retained as job audit but cannot promote assets, bind output, or resume cancelled/failed/completed executions. A final approved film may remain available after cancellation of its later memory step; execution completion and individual artifact approval are different facts.
+Late provider results may remain job audit but cannot bind output or resume terminal executions. Previously approved media remains history; the MVP final assembled file is not independently human-approved. Completion and approval are separate facts.
 
 ## Rendering Extension
 
-Provider jobs are added with cinematic production. Each has its own claim/fence, immutable request identity, unit ID, provider idempotency key, attempt budget, and restricted audit. Job workers do not hold the graph invocation lock while a provider renders and do not change execution bindings.
+The `*-gen` tool nodes submit durable generation groups and return job refs promptly. A worker invokes/reconciles the provider independently of the finished LLM call. Jobs retain ownership, request/unit identity, correlation keys, budgets and restricted audit. While the graph is paused, provider polling needs no live graph invocation; job workers cannot change selected output bindings.
 
 ```text
 planner commits exact plan
@@ -186,27 +186,4 @@ Deployment runs version-gated profile-specific migrations/saver setup, pins test
 
 ## Acceptance Matrix
 
-These are required runnable integration tests for implementation, not claims that they pass today.
-
-| Inject failure/race | Required result |
-|---|---|
-| after start transaction, before first invoke | worker starts the same execution without browser retry |
-| during model call, before business commit | same activation/input; no second canonical output; another model charge is possible |
-| after file publish, before DB commit | orphan or reusable pinned bytes, never a visible half-committed artifact |
-| after artifact/transition commit, before checkpoint | replay recorded output and transition, no rebinding/regeneration |
-| after request preparation, before interrupt checkpoint | same request becomes actionable after replay |
-| after decision transaction, before resume | same durable decision is delivered by worker |
-| after persisted resume, before apply | recover pending task writes, apply once |
-| after apply, during Critic/owner/next stage | original work recovers the remaining segment |
-| after next wait checkpoint, before work completion | settle old work, never feed its answer into the new wait |
-| expired heartbeat with still-live advisory session | no takeover or concurrent checkpoint writer |
-| old session lost, old model response arrives | old business commit rejected; old saver cannot reconnect/write |
-| cancel during generation or racing approval/completion | deterministic accepted ordering, no post-cancel promotion |
-| after terminal DB commit, before END checkpoint | retain terminal outcome and outputs; no restart of production |
-| fast job completion, duplicate callback, cancelled late result | one wake source; correct wait only; no cancelled promotion |
-| crash after portrait completion or sheet input preparation | same exact parent/seed on resume, no duplicate portrait or intermediate human gate |
-| regenerate portrait / location at anchor review | portrait also regenerates sheet, retains unchanged location / only location changes; complete new review required |
-| select portrait B with sheet A, or approve superseded set | reject mismatched dependency or stale card, no downstream frame planning |
-| context reindex/supersede/rights withdrawal during a pause | unchanged pinned input for first two; blocked use for withdrawal |
-
-Run the common cases separately on real SQLite and PostgreSQL with process termination; an in-memory saver cannot prove these guarantees. PostgreSQL additionally tests session loss/live-lock takeover and concurrent workers. SQLite additionally tests second-app refusal, one active runner, busy/error handling and saver flush/process death. Compatible manual transfer is tested when shipped; automated backup/disk-loss restore is #future production. Test file publication on each supported filesystem before claiming power-loss durability. All checks remain #todo.
+The local build's checks/evidence are centralized in [Local MVP acceptance](../roadmap-mvp.md#acceptance). Test every boundary in the start, operation and resume protocols with real process termination, including pending writes and terminal commit before END. Hosted activation separately tests PostgreSQL session loss, live-lock ownership and concurrent workers; SQLite success does not certify it.

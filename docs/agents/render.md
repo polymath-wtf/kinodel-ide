@@ -3,7 +3,7 @@
 Class: deterministic/asynchronous service  
 Status: **Accepted design; adapters and execution checks pending**
 
-Render executes a configured generation workflow. It is not an LLM agent and does not depend on which agent produced its inputs.
+Render implements the generation tools invoked by `anchor-gen`, `frames-gen` and `video-gen`. It is not an LLM agent; [tools](../tools/tools.md) owns the nonblocking submit/status/cancel contract.
 
 ## Input And Output Contract
 
@@ -15,17 +15,19 @@ Render executes a configured generation workflow. It is not an LLM agent and doe
 
 For cinematic media, jobs produce candidates; a complete immutable manifest is the review subject. Approval saves the exact selection as `RenderResultV1` with managed `AssetRef`s. Text/structured outputs use their declared result schema and gate policy, not a forced image/media wrapper. Multiple named outputs retain their keys and provenance. First implementation enables only the workflows needed by the local build; it does not implement hypothetical adapters.
 
+Static preflight validates topology, unique declared slot owners, registered schemas/capabilities, port mappings and approval barriers before Run. Once a plan exists, validate its concrete values, exact references, cardinality, access/rights and dependency closure before each effect, including input upload and provider submission. Unknown future plan values cannot all be checked before the first paid model call. A plan requiring three simultaneous image references is blocked before provider effects if the pinned workflow supports only two or lacks any required role mapping; never truncate the inputs. See [pipeline validation boundaries](../backend/pipeline.md#versioning).
+
 ## Execution And Dependencies
 
 Render owns submission, reconciliation, verified import and bounded technical retries. A group exposes one immutable wait token `{wait_id, request_digest}` and one complete review manifest. Unit jobs have their own exact request digests; output port/item mappings are declared before submission.
 
-For the first anchor example, execute portrait, then sheet using that portrait, then character-free location, with no intermediate human choice. Each unit initially yields one candidate. Before sheet submission, persist the exact portrait candidate ID/digest and resolved input. Internal candidate-to-candidate use is permitted only within this declared render dependency; it is not an approved output for Storyboard. Queue order alone does not make the location depend on the portrait.
+For the first anchor example, execute portrait, then sheet using that portrait, then character-free location, with no intermediate human choice. Each unit initially yields one candidate. Before sheet submission, persist the exact portrait candidate ID/digest and resolved input. Internal candidate-to-candidate use is permitted only within this declared render dependency; it is not an approved output for Storyboard or a general editor wire that bypasses a mandatory gate. Queue order alone does not make the location depend on the portrait. Service execution uses the existing [submit/wait/join boundary](../backend/runtime.md#rendering-extension).
 
 ## Retry And Regeneration
 
 - **Technical retry:** same request, same seed and exact inputs; retain successful work and reconcile uncertain submission before retrying. Never randomly generate a new seed during replay.
 - **Regenerate:** explicit creator command on an anchor review; same prompt, new frozen seed where supported, new generation identity. Regenerate selected units and transitive dependents, then review the complete set again.
-- **Creative revise:** Critic -> Wardrobe -> validated replacement plan. Compare each unit's effective inputs, including shared direction; regenerate changed units and dependents. Retain an unrelated candidate only when its effective input digest is unchanged and its exact source lineage is recorded in the new manifest.
+- **Creative revise:** direct user feedback -> Wardrobe -> validated replacement plan. Compare effective inputs, including shared direction; regenerate changed units and dependents. Retain an unrelated candidate only with unchanged inputs and exact source lineage. Frame/video feedback similarly goes directly to Storyboard/Filmmaker before their generation tool.
 
 Thus replacing `hero_face` also replaces `hero_sheet`; replacing `hero_sheet` or `location` does not replace the portrait. A retained location is evidence in the new set, not inherited approval of that set. This bounded within-anchor reuse is required now; generic cross-execution reuse and selective shot/video repair remain separate features. Full rules: [cinematic anchor regeneration](../pipelines/cinematic.md#anchor-regeneration).
 
@@ -38,6 +40,7 @@ Submission completion never selects or approves a result. Workers cannot change 
 ## Required Checks
 
 - Reject unsupported ports, missing references, wrong output types and incomplete coverage.
+- Block a three-reference plan on a two-reference or incompletely mapped workflow before upload/submission, even if static preflight passed before the plan existed.
 - Verify portrait-to-sheet delivery and role-preserving multi-image shot input on the actual workflow.
 - Reject `portrait_B + sheet_A` when sheet A used portrait A; retain unchanged location explicitly.
 - Recover after portrait completion, after child input preparation, and after selection commit without duplicate generation or selection.

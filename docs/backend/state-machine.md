@@ -16,7 +16,7 @@ There is one production transition graph, authored in LangGraph. Database lifecy
 | runnable intent, claim, block, retries | `execution_work` | not the scheduler |
 | prepared inputs, result and authored next activation | `operations` | operation/activation refs and returned delta |
 | artifact revisions and active execution bindings | Project DB metadata + managed immutable files | exact binding projections |
-| review/input request, decision, application receipt | `review_requests` + apply operation | exact request/decision refs |
+| review request, decision, application receipt | `review_requests` + apply operation | exact request/decision refs |
 | provider attempt and group completion | jobs/group records | immutable group-wait ref |
 | cancel request | `execution_controls` | queried, never copied as a mutable flag |
 | reusable memory publication | `chunk_bindings` | only selected exact references via operation context |
@@ -30,6 +30,7 @@ The UI lifecycle status is **derived**, not canonical production truth. Only ide
 | `project_id` | durable workspace, not one run |
 | `execution_id` / `thread_id` | one run of a frozen graph; they are equal |
 | `pipeline_id`, `version`, `digest` | frozen together at start; registry must match on resume |
+| `stage_id` | one declared instance within the frozen graph; capability is its type, not instance identity |
 | `work_id` | one durable runnable segment triggered by start/decision/job/control |
 | `invocation_id` | process attempt for diagnostics only |
 | `activation_id` | one authorized logical entry into a stage, derived from its durable trigger |
@@ -41,6 +42,10 @@ The UI lifecycle status is **derived**, not canonical production truth. Only ide
 
 The triggering transition determines the next activation before it returns a state update. Start, owner revision, clarification, and downstream entry each have stable triggering IDs. Replay returns that recorded transition. Do not recalculate identities from current bindings, random IDs, or an increment performed outside an idempotent transaction.
 
+Two instances of one capability retain separate stage activations, operation identities, context selections and declared output slots. A gate's exact subject/owner and fixed repair stage target one instance, never the latest result of that capability. Result port labels map to declared slots; existing cinematic slot names and identity formulas remain unchanged. Data wires do not themselves authorize transitions, and UI grouping adds no state machine or thread.
+
+The [freeze layers](artifacts.md#freeze-layers) distinguish Run/submitted Brief/profiles/resources, prepared operation refs/context and job seeds/payloads. Future generated refs need not exist at start; draft UI edits cannot rewrite a prepared layer.
+
 ## Checkpoint Projection
 
 `ExecutionStateV1` is implemented as a Python `TypedDict`; boundary DTOs use Pydantic. The contract is a compact JSON-serializable projection:
@@ -50,10 +55,10 @@ The triggering transition determines the next activation before it returns a sta
 | `project_id`, `execution_id`, `pipeline` | immutable run identity |
 | `bindings` | slot -> compact ArtifactRef plus binding revision |
 | `activation_refs` | current authored stage activations, keyed by stage; no full operation records |
-| `review_ref` | exact current review/input request ID, revision and digest, or null |
+| `review_ref` | exact current review request ID, revision and digest, or null |
 | `decision_ref` | exact accepted decision reference while wait/apply executes, or null |
 | `wait_ref` | exact external wait identity, or null; introduced with rendering |
-| `task_results` | current fan-out group's keyed result refs; introduced with rendering |
+| `task_results` | later parallel fan-out group's keyed result refs; absent from sequential foundation |
 
 Compact artifact refs contain ID, schema/version, URI, digest and media type. Hydration reads canonical metadata. No artifact bodies, context passages, transcripts, provider payloads, secrets, lifecycle status, or unbounded review history enter state. Runtime service handles, user authorization context and current fence enter through `Runtime[Context]`, not persistence.
 
@@ -72,14 +77,13 @@ Compute the view in this priority order from durable records and the most recent
 | `blocked` | durable nonterminal work block with reason and permitted action | cannot safely continue; retry/cancel or required corrective action |
 | `running` | claimed/runnable work, including an accepted decision not yet settled | preparing, creating, recovering, or applying feedback |
 | `waiting_review` | durable actionable review interrupt without accepted response | approve, revise, clarify, or cancel |
-| `waiting_input` | durable actionable input interrupt without an answer | answer a focused missing-input question |
 | `waiting_job` | group wait with outstanding provider work and no runnable graph work | generation in progress externally |
 | `created` | accepted start, not yet claimed/checkpointed | queued to start |
 
-For the final two nonterminal cases, an unclaimed start is displayed as `created` rather than generic `running`; a queued accepted resume is `running`. An unexposed prepared card while checkpoint settlement is pending is `running/opening`, not `waiting_review`. `recovering`, `critiquing`, and `applying` are activity labels alongside status, not new lifecycle machines. If reads race, return versioned projections and refresh; do not infer success from missing work or missing interrupts.
+An unclaimed start displays `created`; queued accepted resume displays `running`. A prepared review awaiting durable wait binding displays `opening`, not `waiting_review`. `recovering`, `revising` and `applying` are activity labels, not new lifecycle machines. Return versioned views on read races; missing work/interrupts never proves success.
 
 ```text
-created -> running -> waiting_review | waiting_input | waiting_job
+created -> running -> waiting_review | waiting_job
               ^                  | accepted response / group ready
               +------------------+
 running -> blocked -> running (authorized same-input retry)
@@ -91,11 +95,11 @@ An execution never leaves a terminal outcome. A new creative production after co
 
 ## Operation And Stage View
 
-Operations have `prepared`, `committed`, `blocked`, `failed`, or `superseded` status. Running is derived from active work ownership; it is not a second durable permission to write. `prepared` freezes inputs before effects. `committed` means result and next transition are recorded, not that an artifact was approved. Some operations produce a question, explanation, Critic report, or control receipt rather than an artifact.
+Operations have `prepared`, `committed`, `blocked`, `failed` or `superseded` status. Running derives from work ownership. Prepared inputs precede effects; committed result/transition is not approval. Questions, owner explanations and control receipts can be operation results without creative bindings.
 
 `blocked -> prepared` requires an authorized same-input retry; a change to effective creative inputs requires a new activation. `committed` is immutable. Marking an old unfinished activation superseded cannot erase its audit or promote a late result. Nodes validate activation identity before committing any output.
 
-Stage display distinguishes `not_started`, `running`, `waiting_review`, `waiting_job`, `blocked`, `ready`, and `stale`. `ready` requires the stage's declared output checks and approval policy, not merely a committed operation. This is a projection over operation, review, binding and dependency records, never an editable stage-status table. Detailed revision progress is defined in [reviews.md](reviews.md).
+Stage display distinguishes `not_started`, `running`, `waiting_review`, `waiting_job`, `blocked`, `ready`, and `stale`. `ready` requires the stage's declared output checks and approval policy, not merely a committed operation. This is a projection over operation, review, binding and dependency records, never an editable stage-status table. Human actions are defined in [HITL](../hilp/hilp.md).
 
 ## Artifact State Is Not One Enum
 

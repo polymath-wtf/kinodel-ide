@@ -1,72 +1,40 @@
 # Kinodel Documentation
 
-This directory is the source of truth for the rebuild. It records decisions, contracts, and explicit unknowns. Prompt-like research notes and legacy behavior are not architecture until distilled here.
+Kinodel is a **runtime-vibe-factory for creators**: a user follows a production pipeline, inspects each result and approves or revises it through human-in-the-loop interaction. Cinematic is the first workflow, not the limit of the product.
 
-## Read Order
+## Start Here
 
-1. [`backend/architecture.md`](backend/architecture.md) - system shape and boundaries.
-2. [`backend/runtime.md`](backend/runtime.md) - execution, persistence, interrupts, workers.
-3. [`backend/reviews.md`](backend/reviews.md) - human gates, revision through Critic, and approval identity.
-4. [`backend/implementation.md`](backend/implementation.md) - chosen Python backend, database ownership, implementation order.
-5. [`backend/artifacts.md`](backend/artifacts.md) - production truth and typed references.
-6. [`agents/README.md`](agents/README.md) - creative capability catalog.
-7. [`backend/pipeline.md`](backend/pipeline.md) and [`pipelines/`](pipelines/) - pipeline topology.
-8. [`tools/tools.md`](tools/tools.md) - controlled side effects.
-9. [`context/context.md`](context/context.md) and [`rag/rag.md`](rag/rag.md) - direct context, chunks, and future retrieval.
+1. [Local MVP](roadmap-mvp.md) — repository/dependencies, implementation sequence and first-build acceptance. The only current build checklist.
+2. [Architecture](backend/architecture.md) — stack, ownership and system boundaries.
+3. [Cinematic](pipelines/cinematic.md) — node route, inputs/results and direct revisions; [JSON](pipelines/cinematic.v1.json) is its non-executable inspection reference.
+4. Read the domain page being implemented; do not redesign the entire catalog before writing code.
 
 ## Domain Routes
 
-- Runtime state: [`backend/state-machine.md`](backend/state-machine.md)
-- Human review: [`backend/reviews.md`](backend/reviews.md)
-- LangGraph rules: [`backend/langgraph.md`](backend/langgraph.md)
-- ComfyUI boundary: [`backend/comfyui.md`](backend/comfyui.md)
-- Frontend: [`frontend/webui.md`](frontend/webui.md)
-- Node-based target product: [`pipelines/node-architecture.md`](pipelines/node-architecture.md), [node catalog](pipelines/node-list.md), [phased roadmap](pipelines/node-roadmap.md). Authored cinematic uses Wardrobe anchor prompts, sequential dependent renders, complete `main_frames` review and then Storyboard; executable verification and editor implementation remain pending.
-- Local bootstrap and process ownership: [`backend/local-startup.md`](backend/local-startup.md).
-- Physical candidate/body/review/service DTO proposal: [`backend/physical-dtos.md`](backend/physical-dtos.md).
-- Earlier-stage execution reuse: [`backend/rework.md`](backend/rework.md).
-- Database logical architecture: [`database/README.md`](database/README.md), [`database/local-vs-hosted.md`](database/local-vs-hosted.md), [`database/open-questions.md`](database/open-questions.md), [`database/source-coverage.md`](database/source-coverage.md) (Russian; Windows/Linux local SQLite / PostgreSQL server, Supabase email/password with login display label, private hosted GCS and MVP placeholder credits/signup 100 accepted; product daily limits deferred to final release; no SQL implementation).
-- Roadmap: [`roadmap.md`](roadmap.md)
-- Migration brief: [`refactoring.md`](refactoring.md)
-- Deferred feature notes: [`features/`](features/)
+| Concern | Source |
+|---|---|
+| Graph execution and replay | [Runtime](backend/runtime.md), [LangGraph](backend/langgraph.md), [state](backend/state-machine.md) |
+| Human approval, owner chat revisions and future execution forks | [HITL](hilp/hilp.md), [Fork](hilp/fork.md) |
+| Immutable outputs and proposed wire types | [Artifacts](backend/artifacts.md), [physical DTOs](backend/physical-dtos.md) |
+| Storage/module layout and startup | [Implementation](backend/implementation.md), [local startup](backend/local-startup.md) |
+| Agents | [Catalog](agents/README.md), individual craft contracts |
+| Generation and other side effects | [Tools](tools/tools.md), [ComfyUI](backend/comfyui.md) |
+| Node types, boundaries and later composition | [Nodes](backend/node.md), [Web UI](frontend/webui.md) |
+| Explicit context and future memory/search | [Context](context/context.md), [RAG](rag/rag.md), [chunks](rag/chunks.md) |
+| Database/hosted decisions | [Database](database/README.md) |
+| Later features | [Product roadmap](roadmap.md), [future topics](features/future.md) |
 
-## Authority
+## Authority And Status
 
-When documents disagree, use this order:
+Current domain contracts in `docs/` define intended behavior; tests establish what is implemented. `Decided/Accepted` does not mean tested. `Proposed` needs implementation evidence; `Deferred` is not an MVP prerequisite. Historical notes, dry runs and legacy code are research only.
 
-1. current contract in `docs/`;
-2. tested implementation, once it exists;
-3. local framework docs under `skills/`;
-4. targeted evidence under `legacy/`;
-5. old prose, examples, and provider defaults.
+The 2026-09-21 cinematic/review decisions supersede earlier image-only release plans, mandatory Brief/Critic/final-memory gates and old stage/slot names. Future pipeline sketches must be reconciled at activation. The optional ignored `.reference/langgraph` checkout and tracked [skills](../skills/LangGraph/) explain framework mechanisms, not Kinodel product decisions.
 
-Provider defaults, shot counts, and model IDs are configuration, not universal architecture.
+## Core Rules
 
-## Status Labels
-
-- **Decided**: foundation to implement.
-- **Proposed**: plausible design that needs a vertical-slice test.
-- **Deferred**: intentionally not part of the first implementation.
-- **Legacy**: evidence only.
-
-## Core Decisions
-
-- Build the reduced `foundation.v0` graph first, then the full directly authored `cinematic.v1` graph.
-- One thread per pipeline execution, not per permanent project.
-- Typed references in graph state; immutable content in an Artifact Store.
-- Explicit `interrupt()`/`Command(resume=...)` human gates.
-- Agents generate typed creative output; node adapters validate and persist it.
-- Services perform rendering, montage, retrieval, and indexing.
-- Direct explicit context first; add FTS/vector discovery only when a real library-search use case and gold set prove value.
-- Build `cinematic.v1` as the first full production pipeline; extract abstractions only after a second pipeline works.
-
-## Deferred
-
-- natural-language pipelines that execute immediately;
-- unrestricted pipeline-spec compiler (a constrained editor compiler belongs to the node-product roadmap);
-- autonomous producer/critic swarms;
-- parallel human interrupts;
-- graph database and distributed event bus;
-- multiple embedding dimensions in production;
-- LangGraph Store as a project database;
-- arbitrary checkpoint time-travel UI. The visual node editor is now a phased target product, not an indefinite deferral.
+- One execution/thread runs a frozen graph; layout is only presentation.
+- Agent output is validated and saved; downstream uses exact selected results, not conversation history.
+- Generation tools submit durable work and return promptly; no LLM waits for rendering.
+- Human edits go directly to the declared owner; every new result version needs its own required review.
+- Jobs, saves and commands are idempotent locally; uncertain provider acceptance needs reconciliation.
+- Explicit context first. Generic compilation, arbitrary code/tools, swarms and broad retrieval wait for real use cases.

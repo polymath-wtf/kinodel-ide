@@ -1,64 +1,46 @@
 # Знания, wiki и творческая память
 
-Статус: **public/private ownership и human approval приняты; физическая модель реестра wiki предлагается**. Источники: [RAG](../rag/rag.md), [chunks](../rag/chunks.md), [Craft](../agents/craft.md). Открытые части [Q11/Q12/Q14](open-questions.md): collaboration, editor/receipt schema и права/withdrawal.
+**Библиотека — следующая функция, не отдельная СУБД.** Канонические тела хранятся как immutable files, identities/публикация/права — в прикладной БД. Физическая схема источников и wiki ещё предлагается; [chunks](../rag/chunks.md) задаёт доменные контракты.
 
-## Три разных оригинала
+## Три Разных Оригинала
 
-Исходник сохраняет доказательство, Markdown wiki синтезирует знание о ремесле, creative chunk сохраняет утверждённую память конкретного производства. Один не становится автоматически другим. Markdown о персонаже остаётся source/draft/inspiration до отдельной публикации `CharacterChunkV1`. Markdown-представление chunk не второй оригинал его фактов.
-
-| Предлагаемая сущность | Данные и связи | Правило |
+| Материал | Зачем | Хранение и версия |
 |---|---|---|
-| Source identity | Stable source ID, owner/scope, origin | URL/path не identity и не доказательство прав |
-| Source revision | Revision ID, source ID, URI, MIME/hash, observed date, author/date при наличии, rights/sensitivity, predecessor, status, extractor version | Неизменяемые исходные bytes; повтор импорта с другим содержимым создаёт revision |
-| Wiki page identity | Stable page ID, title/slug/aliases, scope, current published revision и OCC revision | Переименование не ломает historical refs; slug уникален в выбранном scope |
-| Wiki revision | Page ID, immutable Markdown URI/hash, base revision, author/proposer, provenance, review result | Published body не перезаписывается внешним редактором |
-| Wiki claim/citation | Локальный claim key в exact page revision; source revision + locator/quote, тип утверждения, оговорки/противоречия | Минимально структурированные citations при revision, отдельная claim table только если нужна адресная обработка |
-| Wiki approval | Actor, exact revision/digest, решение и publish receipt | Не выводится из Git commit, времени изменения или имени автора-агента |
-| Wiki link | Source page revision -> target page ID, при цитировании exact revision | Навигационные backlinks производны; historical evidence всегда exact |
+| Источник | Сохранить доказательство: статья, изображение, аудио, документ | Stable source identity + immutable revision, bytes/hash, происхождение, дата, права, extractor version |
+| Wiki-страница | Сжато объяснить ремесло или систематизировать источники | Stable page identity + опубликованная Markdown-ревизия, citations, predecessor и receipt публикации |
+| Creative chunk | Повторно использовать согласованный образ, историю или опыт производства | Typed artifact + `chunk_bindings`: logical subject → active approved revision |
 
-Это предлагаемые сущности, не объявленные SQL table names. Реестр прав/версий/публикации рекомендуется держать в Project DB, байты отдельно. В Markdown можно показывать frontmatter, но оно не вправе независимо менять серверные ACL. `index.md` и `log.md` помогают навигации и истории редактирования, не заменяют approval receipt и provenance.
+Источник не обязан проходить через wiki, чтобы стать явно выбранным контекстом. Wiki не превращается автоматически в chunk. Markdown-представление карточки персонажа — производное представление её фактов, не второй редактируемый оригинал. Поисковые passages и embeddings перестраиваются из этих материалов.
 
-## Редактирование и публикация
+## Редактирование И Публикация
 
-Принято: bundled public wiki публикуется через GitHub releases только владельцем Kinodel. Пользователь ведёт собственную private wiki/RAG и явно выбирает разрешённые страницы для своих проектов; регистрация не загружает локальную библиотеку. Общая редакционная команда/marketplace не нужны. Public release pin фиксирует exact release snapshot/revision/digest; Git commit или движущийся tag сами по себе не заменяют авторизованный immutable release snapshot. Обновление public wiki не подменяет ранее pinned материал.
+Public wiki публикует только владелец Kinodel через GitHub releases. Выбор фиксирует разрешённый immutable snapshot/revision/digest; движущийся tag не подменяет этот снимок. Private wiki принадлежит локальному владельцу или hosted account и явно выбирается в разрешённых проектах. Регистрация ничего не загружает.
 
-1. Импортировать разрешённый source snapshot с происхождением и правами, не доверяя инструкциям внутри текста.
-2. Человек или агент готовит рабочий Markdown draft от exact base revision. Mutable editor buffer не выбирается production resolver как опубликованное знание.
-3. Создать immutable proposed revision, проверить ссылки, citations, scope, права и противоречия. Утверждение по источнику не выдаётся за независимо проверенную истину.
-4. Назначенный человек рассматривает exact revision. Publish transaction проверяет current page revision, approval digest и права и заменяет active pointer с OCC.
-5. Новая правка публикует новую revision; старые операции продолжают читать pinned snapshot, пока данные и права доступны.
+Рекомендуем путь: source snapshot → рабочий draft от exact base → immutable proposed revision с citations → явная публикация владельцем. Publish проверяет права и expected current revision и атомарно меняет active pointer с receipt. Для своей wiki автору достаточно действия «опубликовать»; второй reviewer не нужен. Agent draft или внешнее сохранение Markdown не публикуются автоматически.
 
-#question Q12: место редактора, revision/provenance данные и импорт внешних правок ещё открыты; publisher public wiki уже определён. Шаг 4 для private wiki предлагаем объединить с явным сохранением/публикацией самим автором, без второго reviewer. Agent draft не становится опубликованным автоматически. Для public wiki публикация владельцем фиксирует разрешённый release snapshot; отдельная approval table не обязательна. Creative chunks сохраняют собственный memory review.
+Claim citations могут оставаться структурированными данными при revision: source ref, locator/quote, тип утверждения и оговорки. Отдельные claims/links tables нужны только при адресной обработке; backlinks/index/log — производная навигация. Frontmatter не управляет правами. Stable page ID переживает rename; историческая цитата указывает exact revision. Противоречия сохраняются явно, пересказ частного источника не делает его public.
 
-Не используем execution `review_requests` для любого wiki edit без решения: библиотечная правка вне graph execution не имеет его interrupt. Минимально достаточно bounded publish command/receipt, а не ещё одного orchestration engine. Claims/citations могут оставаться структурированными данными при Markdown revision; отдельные таблицы claims/links и graph DB не обязательны. Одна публикация выбирает точный Markdown snapshot, index/backlinks/search перестраиваются из него. Так редактор остаётся удобным, но внешнее сохранение файла не меняет уже выбранное знание у работающего специалиста.
+Wiki edit вне execution не требует LangGraph interrupt: достаточно проверяемой команды публикации. Редактор и импорт внешних правок — [будущие темы](../features/future.md).
 
-Частный источник не может попасть в общую статью только через пересказ. Для публикации нужны разрешение раскрытия и provenance всего публикуемого содержания. При конфликте источников сохраняется различие и evidence, а не безусловное «последний прав».
+## Creative Chunks Используют Artifacts
 
-## Creative chunks используют artifacts
+Для Character/Cinema/Music/Season/Episode/MusicVideo не нужны отдельные canonical таблицы с копиями JSON. Одна логическая тема имеет неизменяемые версии; `chunk_bindings` хранит active approved artifact, scope, status и optimistic revision. Binding должен исключать чужую тему и неподходящий тип. Публикация и resolver проверяют права на источники и media, не только на сам chunk.
 
-Для них не нужны отдельные canonical таблицы character/cinema/music с копиями JSON. Тело является typed artifact; `chunk_bindings` хранит stable logical subject -> active approved artifact, status и optimistic revision. Scope/logical subject key и FK к artifact должны исключать привязку чужого subject или неподходящего schema. Точная SQL форма относится к Q7/Q11.
+Craft готовит типизированную карточку из exact sources; человек утверждает **саму карточку**, затем deterministic publication обновляет binding. Утверждение производственного результата не утверждает пересказ о нём. Источники, supporting plans и observed media сохраняют разные роли: намерение камеры в prompt не доказывает выполненное движение.
 
-| Тип | Источник и публикация | Что сохраняет consumer |
+Season aggregate сохраняет отдельные Season/planned Episode bodies и все bindings одной DB transaction после публикации байтов, без второго пересказа моделью. Completed Episode — новая версия той же темы, не перезапись planned revision. Текущий episode execution продолжает использовать закреплённый plan. Детали типов, media handles и evidence находятся только в [chunks](../rag/chunks.md) и [Craft](../agents/craft.md).
+
+MVP заканчивается сборкой из утверждённых видеошотов и не имеет final-film или memory gate. Будущая Cinema memory требует отдельного контракта запуска/проверки финального источника; наличие собранного файла не считать final approval. Новую обязательную остановку в текущий cinematic маршрут не добавляем.
+
+## Lifecycle И Приёмка
+
+| Действие | Новые selections | Уже закреплённые revisions |
 |---|---|---|
-| Character | Дизайн/import -> Craft candidate -> memory review | Identity, canon и семантические media handles |
-| Cinema | Approved final sources -> Craft -> отдельное memory review | Intent/measured/observed claims, exact field/media citations, final-film evidence |
-| Music | Import/rights + optional analysis -> approval | Permitted attributes, audio и take/ignore; не разрешение копировать мелодию |
-| Season + planned Episodes | Один `SeasonMemoryDraftV1` -> один gate -> deterministic split/promotion | Каждое published body связано с точным approved aggregate и body mapping |
-| Completed Episode | Approved episode -> Craft -> memory review | Новая completed revision того же logical subject; planned revision не стирается |
-| MusicVideo | Approved audiovisual final -> отдельное memory review | Exact song/timing/visual/final provenance; MusicChunk требует отдельной публикации |
+| Supersede | Выбирается новая опубликованная версия | Старые данные не подменяются |
+| Archive | Исключить из обычного выбора | Доступны при сохранённых байтах и правах |
+| Withdrawal прав | Использование запрещено | Блокирует даже prepared контекст |
+| Purge | Identity остаётся tombstone по policy | Разрешённые тела/derivatives удаляются, ошибка не маскируется новой версией |
 
-Season aggregate публикация фиксирует все artifact metadata/chunk bindings/operation result одной DB transaction с проверкой каждой expected revision; bytes опубликованы заранее по [общему протоколу](artifacts-media.md). Никакого второго модельного пересказа при promotion. Existing episode execution сохраняет exact target planned ref, даже когда active binding уже completed.
+Удаление chunk не удаляет media другого retained результата. Очистка учитывает все сохранённые references и live pins по [artifact storage](artifacts-media.md). Отзыв права должен доходить до citations, копий claims, projections и индекса; удаление уже скачанной offline public копии гарантировать нельзя.
 
-Claim evidence Cinema принадлежит [Craft contract](../agents/craft.md#cinema-claim-evidence): JSON Pointer на exact artifact field либо exact asset/range плюс retained observation provenance нужной modality. Planned motion не доказывает observed final action. Media handles описывают take/ignore/must_preserve/prohibited_drift/permitted_consumers, не выдавая каждому агенту все файлы проекта.
-
-## Lifecycle и приёмка
-
-Принято: CinemaChunk и предложения личных taste/preferences требуют явного user approval перед публикацией/изменением. Агент может предложить конкретную правку с основанием, пользователь принимает exact изменение отдельно. Approval фильма или CinemaChunk не означает «всегда делать так». Taste остаётся private и входит в контекст только по явному выбору; автоматической записи/инъекции во все проекты нет. Имя `taste.md`, editor и scope UX остаются Q22, не повторный вопрос о необходимости approval.
-
-Public обновления не изменяют сохранённые private selections. Можно удерживать старую опубликованную revision при наличии bytes и прав; withdrawal/licensing takedown не обходится pin. Q14: как распространять обязательный отзыв на offline copies, какие материалы можно удерживать и как уведомлять автора, остаётся открытым. Сервис не может гарантировать удаление уже скачанной public копии.
-
-Supersede сохраняет историю. Archive исключает новые обычные selections, но retained pinned revision остаётся доступной при правах. Withdrawal блокирует использование и уже prepared контекста. Purge tombstones identity и удаляет допустимые bytes/derivatives, с учётом чужих retained references и [backup policy](operations-security.md).
-
-- #todo До библиотеки проверить stale wiki publish, dangling citation, конфликт источников и импорт внешнего edit без перезаписи pinned bytes.
-- #todo Проверить memory approval отдельно от final approval, exact aggregate split и конкурентную замену chunk binding.
-- #todo Проверить отзыв source rights через цитаты, скопированные claims, chunk projections и search index; графовая БД для этого не нужна.
+Cinema memory и изменение личного вкуса требуют раздельного явного согласия. «Мне понравился этот фильм» не означает «всегда делай так». Taste остаётся private и выбирается в контекст явно. До активации библиотеки проверяются stale publish, exact aggregate split, сохранность pinned revisions, отзыв прав и очистка shared media; это не дополнительные задачи первого билда.

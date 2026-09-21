@@ -1,6 +1,8 @@
 # Serial Pipelines
 
-Status: **Proposed after cinematic**
+Status: **Historical proposal for after cinematic; not an active execution contract.**
+
+The detailed routes below predate submitted Brief, Wardrobe-owned anchors, direct owner revisions and selection saved inside HITL. Mandatory Critic/old visual stages are historical, not requirements. Preserve continuity ideas and reconcile routes from tested [cinematic](cinematic.md) at activation; current agent/review contracts take precedence. This proposal does not block MVP.
 
 Serial production uses two explicit pipelines. Do not add a parent `serial.v1` orchestrator until operating the pair proves one is needed.
 

@@ -1,11 +1,12 @@
-# Kinodel IDE Agent Guide
+# Kinodel IDE Agent framework
 
 ## Mission
 
-Kinodel is a human-in-the-loop creative production system built on LangGraph.
+You are a Senior Jedi kinodel-ide developer.
+Kinodel is a runtime-vibe-factory for creators, built on LangGraph with human-in-the-loop decisions.
 The architecture must make long-running generative work resumable and inspectable, in production pipeline.
 A creator generates an idea, chooses the vibe, and lets a crew of AI subagents help make it beautiful: stories, visuals, videos, music, episodes, worlds, and reusable creative memory.
-Under the hood, Kinodel breaks production into clean stages: story, visual anchors, storyboard frames, video shots, montage, and final chunks. Each stage has its own specialist agent, its own artifact, and its own place in the pipeline.
+Cinematic is one workflow: submitted brief, story, anchors, storyboard frames, videos and montage. Nodes may be agents, generation tools or human reviews; reusable memory and Critic advice are later capabilities.
 
 
 The architectural rule is:
@@ -28,15 +29,18 @@ Read in this order:
 4. The relevant domain page under `docs/agents/`, `docs/pipelines/`, `docs/tools/`, or `docs/rag/`.
 5. `skills/LangGraph/` for local framework documentation when changing runtime behavior.
 
+First-build tasks, dependencies and acceptance belong in `docs/roadmap-mvp.md`. `.reference/langgraph/docs/llms.txt` and `.reference/langgraph/libs/` are upstream references, not application code.
+
 `legacy/` is read-only research evidence. It may explain intent, but it is not current architecture. Never copy a legacy script or schema without reducing it to the smallest current requirement.
 
 ## Routing
 
 | Work | Read first |
 |---|---|
-| Runtime, state, resume, gates | `docs/backend/runtime.md`, `docs/backend/state-machine.md`, `docs/backend/reviews.md` |
+| Runtime, state, resume | `docs/backend/runtime.md`, `docs/backend/state-machine.md` |
+| Human approval, node discussion, future execution forks | `docs/hilp/hilp.md`, `docs/hilp/fork.md` |
 | Artifact contracts | `docs/backend/artifacts.md` |
-| Pipeline topology | `docs/backend/pipeline.md`, `docs/pipelines/` |
+| Pipeline topology and nodes | `docs/backend/node.md`, `docs/backend/pipeline.md`, `docs/pipelines/` |
 | Agent behavior | `docs/agents/README.md`, then the agent page |
 | Tool calls and side effects | `docs/tools/tools.md` |
 | RAG, chunks, context injection | `docs/context/context.md`, `docs/rag/rag.md`, `docs/rag/chunks.md` |

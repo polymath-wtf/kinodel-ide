@@ -2,7 +2,7 @@
 
 Status: **Decided foundation**
 
-Deployment decision: SQLite local / PostgreSQL server; Project DB ownership is independent of engine and both integrations remain #todo. [Earlier-stage rework](../database/artifacts-media.md#возврат-к-раннему-этапу) is accepted as a new execution in the same project from an exact immutable prefix, not permission to bypass invalidation or rewind arbitrary checkpoints. Entry routes and reuse DTO implementation remain #todo.
+Deployment decision: SQLite local / PostgreSQL server; Project DB ownership is independent of engine and both integrations remain #todo. Future [Fork](../hilp/fork.md) creates a child execution in the same project using exact immutable upstream results; implementation is deferred beyond MVP.
 
 Artifacts are validated creative truth. A checkpoint says where an execution is; an artifact says what it produced.
 
@@ -43,23 +43,33 @@ type ArtifactRef = {
 
 ## Brief And Story Boundary
 
-`InitialRequestV1` preserves the creator's raw opening message. A later focused clarification exchange is stored separately as defined in [reviews.md](reviews.md#clarification-and-limits), never appended to immutable initial bytes. `BriefV1.user_vibe` is the approved extraction of the creator's idea from those inputs; it is not a replacement for the raw input.
+`InitialRequestV1` preserves raw submitted input. `BriefV1` normalizes that input with visible settings and selected references confirmed by Run; `user_vibe` preserves the user's idea, not a model extraction. Both are immutable and bound to the start receipt. Cinematic MVP has no mandatory Producer or Brief approval receipt.
 
 `BriefV1` is the production contract. Its minimum content is:
 
-- extracted `user_vibe`, must-keep feature, and explicit assumptions;
+- submitted `user_vibe`, must-keep constraints and visible defaults;
 - declared subjects and exact `CharacterChunkV1` refs when reusable characters are selected;
 - frozen pipeline ID/version mirrored from the execution;
-- stable image, video, and optional audio generation-profile IDs;
-- shot count, shot duration, dimensions, aspect ratio, output format, and workflow class such as `i2v` or `flf2v`.
+- exact image/video generation-profile pins for cinematic; internal image-only experiments explicitly disable video;
+- positive shot count, dimensions, aspect ratio and supported output format; active video additionally requires positive shot duration, supported workflow class such as `i2v` or `flf2v`, and audio policy.
 
-The execution freezes pipeline identity before the graph starts. Brief review may confirm that choice but cannot silently switch the running graph. Generation profiles are stable runtime selectors, not raw model IDs, workflow JSON, credentials, LoRA paths, or provider payloads.
+The proposed [BriefV1 physical fields](physical-dtos.md#briefv1) represent inactive video with explicit null video pin, duration, workflow class and audio policy (and null audio pin for image-only). Enabled graph roles remain authoritative: image-only requires a runnable image profile; enabled video cannot omit its runnable profile or required settings. Registered design-only profiles are restricted to the separate nonrendering text test, never proof of provider readiness.
 
-Producer receives versioned product defaults and supported constraints alongside explicit creator requirements. It fills only absent settings, labels their origin and assumptions, and cannot override explicit values silently. The prepared Brief operation pins these proposal inputs for retry; approval of the exact Brief freezes its effective production/generation settings for downstream operations. Before approval, Brief repair can revise them within the fixed pipeline's supported constraints. Afterwards, changing them requires a new execution. A missing/unsupported required choice blocks or uses the bounded input path, not an invented provider default.
+Before Run the input UI/API validates required choices, shows defaults and resolves profiles under the [profile rule](comfyui.md#profile-selection). Unsupported explicit requirements are not replaced silently. Run fixes the effective Brief/pipeline; changes require a new execution. Missing inputs resolve before start acceptance.
 
-A provider preference is an explicit selection constraint, not a generation-profile ID. The adapter deterministically resolves registered profiles from the supplied versioned defaults/capabilities under the [provider selection rule](comfyui.md#profile-selection); Producer extracts requirements and explains the resulting selections, not guesses a workflow. Brief validation repeats that check before review. The effective stable profile IDs resolve to pinned immutable profile versions/digests, retained with the prepared operation and approval provenance; an existing execution never follows a changed registry alias.
+Profiles are stable selectors, not credentials, workflow JSON or raw endpoints. Retain exact versions/digests; never follow a changed registry alias. Future Producer assistance must show proposed changes before the user submits the Brief.
 
 `StoryV1` is separate narrative truth: hook, compact story, and an ordered list of stable shot units. Each shot says what happens and which story beat it carries. Storyboard owns image composition and image prompts; Filmmaker owns within-clip motion, camera behavior, and video prompts; Montage owns cross-clip transitions and the final mix. Story does not duplicate Brief settings or pre-write their specialist work. Detailed craft requirements and acceptance examples live in the [agent contracts](../agents/README.md).
+
+### Freeze Layers
+
+| Boundary | Frozen authority |
+|---|---|
+| Explicit Run / execution snapshot | Graph declarations, submitted Brief/effective profiles, resources, explicit context/configuration; no unknown future generated refs |
+| Operation preparation | Exact available generated input refs, context/projection/resource digests and effective configuration from submitted Brief/snapshot |
+| Job preparation | Exact effective provider payload and seeds derived from the prepared operation |
+
+These layers refine one configuration lineage, not two writable authorities. Retry reuses its prepared layer. UI creative-instruction overrides enter the snapshot and prepared operation, never mutate trusted safety/schema/ownership/routing contracts. The exact per-node override DTO remains activation-specific; editing a draft does not alter an active execution.
 
 ## Logical Bindings
 
@@ -74,7 +84,11 @@ type ExecutionBinding = {
 };
 ```
 
-Examples: `brief`, `story`, `visual_anchor_plan`, `main_frames`, `frame_plan`, `story_frames`, `motion_plan`, `clips`, `montage_plan`, `final_video`, `cinema_memory_draft`. `main_frames` is the complete approved Wardrobe anchor-image set; VisualAnchorPlan and FramePlan are validated supporting plans, not independently approved outputs.
+Cinematic slots: `brief`, `story`, `wardrobe_plan`, `anchor_frames`, `storyboard_plan`, `story_frames`, `video_plan`, `shot_videos`, `final_video`. `anchor_frames` is Wardrobe's generated result, physically published by anchor-gen on approval. Plans are supporting results, not extra nodes/gates. Montage instructions are internal to montage; memory bindings are later.
+
+An instance uses `stage_id`; capability identifies its type. Each artifact has one declared writer; another instance uses a separate slot. Candidate manifests and receipts use record refs rather than extra artifact slots. Reads resolve exact declared revisions, never latest-by-capability. Context/reviews remain instance-scoped; data wires are input bindings, not execution edges.
+
+Text review confirms the same artifact ref with an approval receipt; it neither copies the artifact nor acquires its slot. Media review invokes the declared Render selected-result write in apply, preserving its sole slot ownership.
 
 A revision creates a new artifact and atomically changes the canonical `execution_bindings` row. It never overwrites history. The LangGraph `bindings` map is a replayable projection of these rows, not another source of truth.
 
@@ -111,7 +125,7 @@ operation_id = hash(execution_id, stage_id, activation_id, operation_kind, task_
 input_digest = hash(exact input refs, dependency modes, frozen context/projection/resource digests, revision feedback, declared settings)
 ```
 
-Crash recovery and technical retry keep the activation and prepared inputs. A creative revision or an authorized rebuild after upstream inputs change creates a new activation for each affected stage. Completion records its result and the next authorized activation in one DB transaction; replay reuses that transition. Critic `needs_input` or `out_of_scope` does not activate the creative owner. Re-resolving newer context under an existing operation is corruption, not recovery.
+Recovery/retry keep activation and prepared inputs. Accepted direct revision creates a new owner activation; valid output creates subsequent tool/review activations. Owner `needs_input/out_of_scope` leaves the reviewed result unchanged. Commit records result and next transition together; replay never re-resolves newer context.
 
 ## Media
 
@@ -210,18 +224,19 @@ Examples:
 
 Old revisions remain valid historical outputs. A slot may still point to its latest produced revision after an upstream change, but provenance validation marks that binding stale and prevents downstream consumption until the owning stage replaces it. History and stale previews therefore remain inspectable without pretending they satisfy current preconditions.
 
-Apply the same closure checks at input preparation, commit, review acceptance, and promotion. Obsolete pending reviews/jobs cannot advance production. Retain historical approvals, but require current validity before consuming them. Invalidation is not an automatic rewind: a change outside the current repair path creates a new execution in the same project. The accepted [prefix-reuse contract](../database/artifacts-media.md#возврат-к-раннему-этапу) requires explicit reuse confirmation, exact source receipts/closure and compatibility checks. Historical prefix closure is frozen as pinned evidence through a matching reuse receipt; new descendants depend on E2 bindings. Target/downstream outputs get new revisions and approvals; old outputs remain immutable for comparison. Until a tested authored rework entry exists, ordinary start still begins at Brief. Arbitrary rewind/merge remains out of scope.
+Apply the same closure checks at input preparation, commit, review acceptance, and promotion. Obsolete pending reviews/jobs cannot advance production. Retain historical approvals, but require current validity before consuming them. Invalidation is not an automatic rewind: a change outside the current repair path creates a new execution in the same project. Future [Fork](../hilp/fork.md) pins unchanged upstream results and their dependencies; the selected stage and descendants produce new outputs with their own required approvals. MVP start still begins at Brief.
 
 ## Minimal Schemas
 
-Design the semantic contracts for the entire agent catalog before the first backend build, including the complete cinematic artifact chain. Implement executable schemas in activation order; a short runtime graph does not reduce the architecture to three agents:
+Implement and verify schemas in activation order. The wider catalog is design context, not a prerequisite for the first backend code:
 
 - `initial_request.v1`;
 - `brief.v1`;
 - `story.v1`;
-- `VisualAnchorPlanV1`, `FramePlanV1`, `MotionPlanV1`, candidate-set records, `RenderResultV1`, `MontagePlanV1`, and `MontageResultV1` when cinematic rendering is added;
+- `VisualAnchorPlanV1`, `FramePlanV1`, candidate-set records and `RenderResultV1` for the image-only slice;
+- `MotionPlanV1`, `MontagePlanV1` and `MontageResultV1` when video/montage is enabled;
 - reusable chunk executable schemas when their pipeline is activated; their ownership/content contract is defined now.
 
-Do not build one universal artifact envelope that attempts to model every domain field. Field-level proposed candidate/body/ref/commit contracts are in [physical-dtos.md](physical-dtos.md); strict agent candidates contain no trusted metadata. Cross-execution reuse receipts and authored entry guards are in [rework.md](rework.md), with terminal-source-only recommended for the first activation.
+Do not build one universal artifact envelope that attempts to model every domain field. Field-level proposed candidate/body/ref/commit contracts are in [physical-dtos.md](physical-dtos.md); strict agent candidates contain no trusted metadata. Fork-specific fields and entry routes wait for feature implementation.
 
 These are architectural contracts, not executable schemas. Render binds validated source values and media to a pinned workflow's typed named ports. VisualAnchorPlan, FramePlan, MotionPlan and MusicPlan are examples, not a closed input list; no redundant universal `render_requests` artifact is needed. Non-media outputs use their declared result schemas. SeasonPlan, SeasonMemoryDraft, episode extensions and audio-analysis implementations do not block the text runtime test.
