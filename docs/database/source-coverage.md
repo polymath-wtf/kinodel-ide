@@ -4,9 +4,9 @@
 
 ## Источники
 
-Прочитаны SOUL, маршрутизатор docs, весь текущий database, context/context-injection, rag/chunks; backend architecture/implementation/runtime/state-machine/artifacts, HITL, cinematic, Craft, Local MVP и future. Это сверка действующих сквозных контрактов, не повторный аудит каждого legacy-файла или всех будущих chunk-шаблонов.
+Прочитаны SOUL, маршрутизатор docs, весь текущий database, context (включая впоследствии объединённую страницу mentions), rag/chunks; backend architecture/implementation/runtime/state-machine/artifacts, HITL, cinematic, Craft, Local MVP и future. Это сверка действующих сквозных контрактов, не повторный аудит каждого legacy-файла или всех будущих chunk-шаблонов.
 
-Прочитаны все шесть приложенных страниц [LangGraph](../langgraph/): [persistence](../langgraph/persistence-langgraph.md), [checkpointers](../langgraph/checkpointer.md), [stores](../langgraph/stores-langgraph.md), [context](../langgraph/context-langgraph.md), [memory](../langgraph/memory-langgraph.md), [time travel](../langgraph/time-travel-langgraph.md). Через Context7 сверены persistence/subgraph guidance и reference `BaseStore`; точный abstract interface дополнительно сверялся с upstream source в опциональном ignored checkout `.reference/langgraph`.
+В исходном проходе прочитаны шесть локальных копий LangGraph: persistence, checkpointers, stores, context, memory и time travel. При консолидации они заменены [кратким индексом официальных источников и MCP-запросов](../langgraph/README.md). Через Context7 ранее сверены persistence/subgraph guidance и reference `BaseStore`; точный abstract interface дополнительно сверялся с upstream source в опциональном ignored checkout `.reference/langgraph`.
 
 ## Что Следует Из Сверки
 
@@ -29,7 +29,7 @@
 - Примеры Agent Server не означают, что обычный embedded `StateGraph` сам доставляет durable commands или предоставляет hosted API. Наш worker остаётся владельцем доставки.
 - `DeltaChannel` описан как beta-оптимизация накопительных channels. Наше состояние уже компактно: оснований вводить его, custom saver или очистку checkpoint history сейчас нет.
 
-Приложенные материалы оставлены как reference. Конкретные signatures, saver schemas и новые API проверяются по выбранной версии при реализации; учебный SQL не становится схемой Kinodel.
+Ссылки и полезные оговорки сохранены в индексе вместо полных копий. Конкретные signatures, saver schemas и новые API проверяются по выбранной версии при реализации; учебный SQL не становится схемой Kinodel.
 
 ## Граница Доказательства
 

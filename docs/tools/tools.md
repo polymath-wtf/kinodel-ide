@@ -46,4 +46,4 @@ Context resolution and result persistence are trusted application helpers, not f
 
 Node adapters prepare exact inputs, look up a prior committed operation before effects, validate/save output and return compact refs. Existing `get_declared_inputs`, `get_operation_result`, `commit_artifacts`, `review_respond` and worker-only `claim_next_work` retain these responsibilities; do not wrap them in a universal ToolResult or duplicate job ledger.
 
-Physical data proposals: [DTOs](../backend/physical-dtos.md). Provider specifics: [ComfyUI](../backend/comfyui.md). Route: [cinematic](../pipelines/cinematic.md). Build tasks and tests: [Local MVP](../roadmap-mvp.md).
+Physical data proposals: [DTOs](../backend/dto.md). Provider specifics: [ComfyUI](../backend/comfyui.md). Route: [cinematic](../pipelines/cinematic.md). Build tasks and tests: [Local MVP](../roadmap-mvp.md).

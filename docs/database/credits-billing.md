@@ -42,7 +42,7 @@ Adapter владельца проекта скачивает в staging, про�
 
 Input upload требует ownership, size/concurrency/capacity/time bounds и pre-order orphan cleanup. Attach и cleanup сериализуются: live-pinned input не удаляется, deleting/expired input нельзя воскресить attach. У оплаченных outputs нет произвольной продуктовой download quota, но остаются validation/timeouts. Численные technical limits и UX недоступности уточняются перед включением.
 
-Retry сначала проходит authorization и lookup старого key/digest, **до** new-order admission и проверки текущей доступности profile/input. Совпавший запрос возвращает прежний order, даже если профиль уже снят; changed payload конфликтует. Access/retention ограничивают выдачу результата, не создают новый платный заказ. Забытый key нельзя считать разрешением нового списания. Предложенный transport — [endpoint wire](../backend/physical-dtos.md#endpoint-wire).
+Retry сначала проходит authorization и lookup старого key/digest, **до** new-order admission и проверки текущей доступности profile/input. Совпавший запрос возвращает прежний order, даже если профиль уже снят; changed payload конфликтует. Access/retention ограничивают выдачу результата, не создают новый платный заказ. Забытый key нельзя считать разрешением нового списания. Предложенный transport — [endpoint wire](../backend/dto.md#endpoint-wire).
 
 ## Конфигурация Подключения
 

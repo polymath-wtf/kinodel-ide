@@ -17,7 +17,7 @@
     {"id": "filmmaker", "kind": "agent", "reads": ["brief", "story", "story_frames"], "requires_approval": ["story", "story_frames"], "writes": ["video_plan"]},
     {"id": "video-gen", "kind": "tool", "creative_owner": "filmmaker", "reads": ["video_plan", "story_frames"], "requires_approval": ["story_frames"], "writes_on_approval": ["shot_videos"]},
     {"id": "video-hitl", "kind": "hitl", "subject": "video-gen.current_set", "selected_output": "shot_videos", "owner": "filmmaker", "revise_route": ["filmmaker", "video-gen", "video-hitl"]},
-    {"id": "montage", "kind": "tool", "reads": ["brief", "story", "shot_videos"], "requires_approval": ["story", "shot_videos"], "writes": ["final_video"]}
+    {"id": "montage", "kind": "tool", "reads": ["brief", "shot_videos"], "requires_approval": ["shot_videos"], "writes": ["final_video"]}
   ],
   "context": "Explicit references and registered profile/instruction pins are prepared per consumer, not propagated chat history.",
   "final_output": "final_video",

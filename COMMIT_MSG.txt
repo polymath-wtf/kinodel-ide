@@ -1,0 +1,22 @@
+docs: 10 docs cleanup fixes
+
+1. Replace six copied LangGraph guides with a concise skills, official docs,
+   and MCP query index while preserving the useful framework caveats.
+2. Retire docs/comfyui/workflow and document workflow/comfyui as the source
+   of current project workflows; keep skill workflows as generic examples.
+3. Remove duplicated artifact, media, retrieval, and context storage protocol
+   text in favor of links to the owning contracts.
+4. Rewrite the non-technical explanation guide around Kinodel film and content
+   production instead of unrelated clinical terminology.
+5. Keep cinematic.v1.json as the first machine-readable pipeline specimen and
+   clarify that MVP execution still uses an authored Python StateGraph.
+6. Merge mention syntax, scope, safety, and Markdown character rules into the
+   main context contract and remove context-injection.md.
+7. Drop mandatory six-layer Mini-FSD and start the frontend around one
+   workspace, colocated components, and a typed HTTP client.
+8. Restrict BriefV1 to the cinematic MVP: required image/video profiles,
+   silent i2v, and no speculative audio or flf2v nullable modes.
+9. Remove redundant source_revision and source_digest fields because exact
+   revision identity and digest already live in the tagged source_ref.
+10. Reduce MontagePlanV1 to ordered approved shots and output settings for
+    full-clip ffmpeg concatenation verified with ffprobe.

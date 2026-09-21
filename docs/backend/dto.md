@@ -1,10 +1,12 @@
-# Physical DTO Proposal
+# DTO Contracts
 
-Status: **Proposed field-level contract; executable schemas pending.** Updated to submitted Brief, direct owner revisions and full cinematic MVP on 2026-09-21. [Artifacts](artifacts.md), [HITL](../hilp/hilp.md) and [cinematic](../pipelines/cinematic.md) own semantics. Hosted wire below activates separately.
+Status: **Proposed field-level contracts; executable schemas pending.** This page owns DTO shapes and boundary validation. [Artifacts](artifacts.md) owns persistence/provenance, [HITL](../hilp/hilp.md) human actions, and [cinematic](../pipelines/cinematic.md) stage ownership. Build order and acceptance live in [Local MVP](../roadmap-mvp.md). Hosted wire activates separately.
 
 ## Trust And Encoding
 
 Use concrete Pydantic v2 models at HTTP/model/storage boundaries, with `extra="forbid"`, strict scalar validation, bounded strings/lists and discriminated unions. Use `model_validator` for local invariants; trusted repository validation handles existence, ownership, approval, rights and cross-artifact closure. JSON Schema and structured provider output cannot prove these facts. JSON and Python strict validation differ for UUID/date values: normalize through one documented wire parser and test both paths. Never trust a constructed model merely because it is already a model instance.
+
+LangGraph's `ExecutionStateV1` remains a compact JSON-serializable `TypedDict` projection, not an HTTP or model DTO. Nodes validate results before returning partial state updates; graph schemas do not replace this validation. Services, authorization and the current fence enter through `Runtime[Context]`. Interrupt/resume payloads carry exact request/decision refs, not browser-supplied graph updates. See [state](state-machine.md#checkpoint-projection) and [invocation modes](langgraph.md#invocation-modes).
 
 | Primitive | Proposed physical representation |
 |---|---|
@@ -38,22 +40,21 @@ Do not ask a model to generate project/execution/artifact/operation IDs, paths, 
 |---|---|
 | `ArtifactStateRef` | `artifact_id`, `schema_id`, `schema_version`, `uri`, `digest`, `media_type` (`application/json` for foundation) |
 | `ArtifactRef` | `ArtifactStateRef` plus `project_id`, original `execution_id`, `produced_by_stage`, `operation_id`; all hydrated/checked from DB |
-| `BindingRef` | `ArtifactStateRef` plus positive `binding_revision`; map key is declared slot. Full `ExecutionBinding` adds owning execution and slot |
+| `BindingRef` | Compact checkpoint projection: `ArtifactStateRef` plus positive `binding_revision`; map key is declared slot |
+| `ExecutionBinding` | Canonical `{execution_id, slot, artifact_ref:ArtifactRef, binding_revision:int>0}`; distinct from the flattened checkpoint projection |
 | `OperationResultRef` | `execution_id`, `operation_id`, `digest`; identifies immutable typed operation result, not an ArtifactRef |
 | `ApprovalReceiptRef` | `OperationResultRef` resolving to successful apply or selection/promotion receipt with exact request/subject digest; not an `approved` flag |
 | `DependencyV1` | Discriminator `mode`; exact `ArtifactRef`, `requires_approval: bool`, `approval_receipt_ref: ApprovalReceiptRef or null`. `current_execution` also requires consuming `execution_id`, `slot`, `binding_revision`; `pinned_revision` omits mutable binding selectors |
 | `ProvenanceV1` | Exact dependencies, capability ID/version, instruction digest, context selection ref, creation timestamp; stored beside artifact metadata, not authored by model |
 | `ContextSelectionRef` | `selection_id`, `digest`; full bounded selection stays in `operations` |
 
-Future [Fork](../hilp/fork.md) preserves original artifact identity and provenance while pinning exact upstream inputs for the child. Cross-execution references do not implicitly authorize reuse; physical fields are deferred until Fork implementation.
-
 Reference validation is repository-owned: URI project/artifact identity, schema/version/digest and producing metadata must match the canonical artifact record; a binding's execution, declared slot/owner and revision must match its exact artifact. `requires_approval=true` requires a non-null successful receipt of the correct typed result/subject kind for that exact revision and request/subject digest; null is allowed only when approval is not required, and any supplied receipt is still validated. Command acceptance, blocked apply, clarification or another subject's approval cannot satisfy it. `SelectedMedia.render_result_ref` must resolve to `RenderResultV1` owned by the declared render stage, with one entry for the unit and a promoted asset linked through the exact manifest/selection/promotion receipt; an arbitrary artifact or loose asset ID is not selected media.
 
-`ContextSelectionV1` uses canonical [ContextSourceRefV1](../context/context.md#contextselectionv1): discriminated `{kind:"artifact", ref:ArtifactRef}`, `{kind:"source", source_id, revision_id, digest}`, or `{kind:"agent_resource", resource_id, version, digest}`, also in omitted/conflicting refs. Chunks use artifact refs. `source_revision` equals `artifact_id`, `revision_id`, or `version` respectively; `source_digest` equals that ref's digest. No independent selectors or compatibility migration for this unshipped contract. `estimated_tokens/selected_tokens` are budget estimates, never authoritative billing usage. Projection hydration requires retained exact implementations and rights checks; no new context-pack table.
+`InitialRequestV1.selected_context` and `BriefV1.setting_origins` reuse [ContextSourceRefV1](../context/context.md#contextselectionv1): `{kind:"artifact", ref:ArtifactRef}`, `{kind:"source", source_id, revision_id, digest}`, or `{kind:"agent_resource", resource_id, version, digest}`. Context selection fields and projection checks are defined on that page; the full selection stays on the prepared operation.
 
 ## Foundation Bodies
 
-All fields below are required unless marked nullable; arrays may be empty only where stated. Length/byte/token release caps are Q4, and must be pinned before accepting calls. These tables define names and types; they do not assert a release's model/profile defaults.
+Fields are required unless explicitly marked optional. Nullable means the key is required but its value may be null; omission is different. Constraint lists and subject lists may be empty when the brief/story needs none; shot/unit arrays require declared coverage. Pin numeric size/depth/token caps before accepting calls under [Local MVP](../roadmap-mvp.md#repository-and-dependencies).
 
 ### InitialRequestV1
 
@@ -63,28 +64,25 @@ All fields below are required unless marked nullable; arrays may be empty only w
 | `selected_context` | Array of `{source_ref, role, required}` using the typed refs above; may be empty; trusted resolution replaces client selectors |
 | `source_message` | Nullable `{chat_id, message_id, event_id}`; provenance only, never a mandatory chat dependency |
 
-The message is immutable; missing required Brief fields resolve before Run. Optional `source_message` must match an authorized stored message; unverifiable provenance is rejected or omitted as null before acceptance. Client IDs never authorize fetching data or prove what was submitted.
+The message is immutable; missing required Brief fields resolve before Run. A non-null `source_message` must match an authorized stored message; unverifiable provenance is rejected or represented as explicit null before acceptance. Client IDs never authorize fetching data or prove what was submitted.
 
 ### BriefV1
 
 | Field | Type / rule |
 |---|---|
 | `user_vibe` | Non-empty submitted idea, not invented model extraction/story |
-| `must_keep`, `exclusions`, `assumptions` | Arrays of non-empty strings; explicitly shown at review |
+| `must_keep`, `exclusions`, `assumptions` | Arrays of non-empty strings; shown before Run; may be empty |
 | `subjects` | Array of `{subject_id:UnitKey, description:string, character_ref:ArtifactRef or null}`; selected characters must resolve to exact authorized Character chunks |
 | `pipeline` | `{pipeline_id:string, version:string, spec_digest:Digest}` injected from the frozen execution |
-| `generation_profiles` | `{image:ProfilePin, video:ProfilePin or null, audio:ProfilePin or null}`; `ProfilePin={profile_id, version, digest}` from deterministic registered-profile resolution; explicit null means inactive, not unresolved/default |
-| `production` | `{shot_count:int>0, shot_duration_ms:int>0 or null, width:int>0, height:int>0, aspect_ratio:{numerator:int>0, denominator:int>0}, output_format:string, workflow_class:"i2v" or "flf2v" or null, audio_policy:"silent" or "generated" or "supplied" or null}`; conditional rules below are mandatory |
+| `generation_profiles` | `{image:ProfilePin, video:ProfilePin}`; both required; `ProfilePin={profile_id, version, digest}` from deterministic registered-profile resolution |
+| `production` | `{shot_count:int>0, shot_duration_ms:int>0, width:int>0, height:int>0, aspect_ratio:{numerator:int>0, denominator:int>0}, output_format:string, workflow_class:"i2v", audio_policy:"silent"}`; workflow/audio fields are fixed literals, not selectable future modes |
 | `setting_origins` | Array `{field:string, origin:"explicit" or "product_default" or "assumption", source_ref:typed ref or null}`; field is allowlisted Brief field selector, not writable JSON path |
 
 The input adapter preserves intent, validates visible settings and supplies trusted pipeline/profile pins, subject keys and origin evidence. Persist Brief with start identity: it has `requires_approval=false` as submitted authority, not a generated draft needing HITL. InitialRequest and Brief share the start reservation/receipt. Resolve required settings before start; compare aspect ratio by integer cross multiplication. Future Producer assistance must be confirmed in the input before Run.
 
-Conditional invariants for this proposed Brief shape:
+This is the first cinematic Brief, not a universal input for future pipelines. Both profiles must support all required [stage roles](comfyui.md#profile-selection), dimensions, start-image input, duration and output constraints; a pin alone does not prove support. No audio profile, generated/supplied audio mode or `flf2v` variant belongs to this DTO.
 
-- Enabled stage roles in the frozen graph, not nullable fields or model output, determine required profiles. The [profile-selection and enabled-role rules](comfyui.md#profile-selection) remain authoritative; a pin alone does not prove support for every required role.
-- An internal image-only experiment requires a runnable image pin; `video`, `shot_duration_ms`, `workflow_class`, `audio_policy` and `audio` are null. Positive count/dimensions and image output format remain required. This is not full cinematic MVP.
-- Enabled video requires a non-null runnable video pin, positive `shot_duration_ms`, non-null supported `workflow_class` and `audio_policy`, and compatible dimensions/output constraints. Missing values reject the candidate even if an image profile is valid. First cinematic is silent `i2v` with `audio=null`; other values require separately enabled roles and supported profiles. Generated audio requires a runnable audio pin; supplied audio requires declared exact authorized inputs. Null audio pin is not permission to skip an enabled audio role.
-- The separate text-test graph may use a registered design-only image pin with rendering explicitly disabled; video/audio pins and video-specific fields remain null. This nonrendering contract never satisfies image/video render admission. Standalone audio or other future graphs need their activation-specific body rules, not inferred nullable-field behavior.
+Internal text/image-only checks use their own minimal test inputs and frozen graph identities, not nullable production fields in cinematic Brief. They do not establish full cinematic render readiness. Future pipelines define their body rules when activated.
 
 ### StoryV1
 
@@ -97,24 +95,11 @@ Conditional invariants for this proposed Brief shape:
 
 Story adapter allocates and persists the required shot keys before the first model call; Storytell assigns narrative meaning/order and returns each exactly once. Freeze the committed order for downstream plans. In-scope repairs preserve corresponding keys; no new keys from retry or incidental reordering. Every subject belongs to exact Brief. No duration, provider setting, image/video prompt, camera or transition fields in Story. Referential/count validation is deterministic; believable action and payoff still require craft review.
 
-Illustrative complete creative body for a two-shot fixture (the fixture's prepared input must declare `s1/s2`, subject `traveler`, count two):
-
-```json
-{
-  "hook": "A stranger returns a lost red glove.",
-  "story": "A traveler finds a red glove, then leaves it where its owner can see it.",
-  "shots": [
-    {"shot_id":"s1","action":"The traveler picks up the glove.","narrative_function":"Establish the discovery.","subject_ids":["traveler"],"state_before":"The glove lies on the path.","state_after":"The traveler holds the glove."},
-    {"shot_id":"s2","action":"The traveler places the glove on a fence post.","narrative_function":"Pay off the act of care.","subject_ids":["traveler"],"state_before":"The traveler holds the glove.","state_after":"The glove is visible on the post."}
-  ]
-}
-```
-
 ### Direct Revision And Non-Ready Results
 
 `RevisionRequestV1={revision_id,review_subject,creator_feedback,proposed_changes,revision_stage_id}` is application-prepared input to the fixed owner. `revision_id` equals accepted request ID; subject, owner and edit scope are verified, not model-controlled. Prepare the exact previous output and relevant persisted discussion beside it. No Critic report or second revision table.
 
-Each creative mode returns `outcome:"ready"` with a complete concrete candidate, or `needs_input/out_of_scope` with `{reason:string,affected_fields:string[],question:string or null}` and no replacement. `ReviewClarificationAnswer={answer:string,evidence_aliases:string[]}` links to the unchanged subject. Replies are bounded operation results; a new creative version exists only after valid replacement commit. Future Critic recommendations get their own schema at activation.
+Generation/revision returns `outcome:"ready"` with a complete concrete candidate, or `outcome:"needs_input" or "out_of_scope"` with `{reason:string,affected_fields:string[],question:string or null}` and no replacement. Clarification returns `ReviewClarificationAnswer={answer:string,evidence_aliases:string[]}` linked to the unchanged subject. These are bounded operation results; a new creative version exists only after valid replacement commit. First generation without a review subject blocks on a non-ready result.
 
 ## Human Commands
 
@@ -136,17 +121,13 @@ Candidate manifests are immutable once published; the subject's `digest` hashes 
 
 Return `{schema_version:"1", request_id, work_id, receipt_ref}` after acceptance transaction; this is command receipt only, not apply success. Apply returns explicit `applied` or `blocked` with exact kind/subject/result references. `blocked` is not a successful committed apply: no approval, next activation or promotion is created, and an authorized unchanged-input retry may reuse the same operation. A successful apply receipt is immutable and replayable. Duplicate same key/digest returns the same identity; conflicting payload gives 409. Revise/clarify counters can initially be counted from accepted requests per execution/gate under execution serialization.
 
-`ApplyDecisionResultV1={request_id, decision_digest, effect:"applied" or "blocked", result_kind, subject_kind, subject_digest:Digest or null, selection:array or null, selection_receipt_ref:OperationResultRef or null, next_activation_ref:ActivationRef or null, block_reason:string or null}` is adapter-owned. A blocked result has no next activation or saved-selection receipt. Candidate approval is usable downstream only after saving the exact selected result as `RenderResultV1` in the gate's apply path. `selection_receipt_ref` replaces the former unshipped `promotion_receipt_ref`; no compatibility field is needed. Cancellation uses a control/terminal receipt under runtime rules.
+`ApplyDecisionResultV1={request_id, decision_digest, effect:"applied" or "blocked", result_kind, subject_kind, subject_digest:Digest or null, selection:array or null, selection_receipt_ref:OperationResultRef or null, next_activation_ref:ActivationRef or null, block_reason:string or null}` is adapter-owned. A blocked result has no next activation or saved-selection receipt. Candidate approval is usable downstream only after saving the exact selected result as `RenderResultV1` in the gate's apply path. Cancellation uses a control/terminal receipt under runtime rules.
 
 ## Commits And Start Pins
 
 Internal `CommitArtifactsRequest` retains existing project/execution/stage/operation/fence/input refs and adds explicit `activation_id`, typed dependencies, context selection ref, fixed output models and recorded transition. Each output is `{slot, schema_id, schema_version, candidate:<exact stage model>}` with every `expected_binding_revisions[slot]` supplied (null means absent). Slot/schema/owner come from stage declaration, not model. Runtime context supplies the fence; public HTTP never accepts one. Commit rechecks rights, transitive closure, cancellation and OCC in its short transaction after immutable file publication. Result is `{outputs:map[slot,BindingRef], next_activation_ref}` recorded durably; no second rebinding on replay.
 
-An instance uses `stage_id`; capability is its type. Each artifact output has one declared writer/slot using current cinematic names. Two instances use distinct slots, operations/context/gates. Candidate manifests and receipts keep record refs; approval pass-through creates no extra slot. Resolve exact owners/inputs, never latest-by-capability; no universal port DTO or new identity layer.
-
-Start pins graph declarations, submitted Brief/effective profiles, resources and overrides. Operations pin generated refs, feedback/context and configuration; jobs pin seeds/payloads. These [freeze layers](artifacts.md#freeze-layers) are not writable copies. Future generated refs need not exist at start. The reservation's intended objects include InitialRequest and Brief; final start commits both metadata/bindings together.
-
-Proposed physical Q8 solution: one `execution_start_reservations` table is justified by pre-execution file publication. Fields `{reservation_id, project_id, client_key, payload_digest, execution_id, initial_artifact_id, intended_objects, status:"prepared" or "committed" or "abandoned", revision, created_at}`; unique `(project_id,client_key)`. IDs and object pins are durable before publication, without an execution FK that does not yet exist. Final start transaction creates execution/initial metadata/binding/work and marks this reservation committed. GC and explicit abandonment serialize on the same reservation; commit cannot resurrect an abandoned reservation. Same key never means a different payload; an abandoned attempt requires a new key. TTL alone cannot abandon an active publisher. This is not another scheduler or a claim that the former nine-table inventory already includes this physical table.
+Start follows the [freeze layers](artifacts.md#freeze-layers) and [start protocol](runtime.md#start-protocol). Proposed pre-publication reservation fields: `{reservation_id, project_id, client_key, payload_digest, execution_id, initial_artifact_id, intended_objects, status:"prepared" or "committed" or "abandoned", revision, created_at}`; unique `(project_id,client_key)`. `intended_objects` pins IDs/digests for both InitialRequest and Brief before publication. Final start commits both bodies' metadata/bindings, execution, receipt/work and reservation status together. Abandonment/GC serialize with finalization; TTL alone cannot abandon a live publisher, and an abandoned key cannot be reused. Concrete storage is chosen with the start implementation.
 
 `expected_binding_revisions` must contain exactly the full declared output-slot key set, with no missing or extra keys. Each value is the expected positive revision or explicit null asserting that the binding is absent at commit; omission is not null and no output bypasses OCC.
 
@@ -163,8 +144,8 @@ These are minimum physical handoff fields, implemented with their stages and com
 | `MotionPlanV1` | Exact `story_ref`, `units:[{unit_key,start_frame:SelectedMedia,end_frame:SelectedMedia or null,duration_ms,action,motion,camera,video_prompt,preserve:string[]}]`; first i2v start key equals shot, end null, duration equals Brief |
 | Candidate manifest | `{candidate_set_id,stage_id,activation_id,request_digest,dependencies,required_units:UnitKey[],candidates:[{candidate_id,job_id,unit_key,unit_input_digest,input_candidates:[{unit_key,candidate_id,digest}],digest,mime_type,bytes,uri,width,height,duration_ms}]}`; dependencies include exact supporting plan; complete coverage and parent/child consistency before approval. Retained candidates keep original job/input lineage; current manifest explicitly authorizes their reuse |
 | `RenderResultV1` | `{entries:[{unit_key,asset_ref:AssetRef,source_candidate_id}]}` exact selected order/coverage; save stores source manifest, plan and approval receipt; slots: `anchor_frames`, `story_frames`, `shot_videos` |
-| `MontagePlanV1` | `{entries:[{shot_id,source:SelectedMedia,source_in_ms,source_out_ms,timeline_start_ms,transition:{kind:"cut",duration_ms:0}}],audio_policy:"silent",output_duration_ms}`; MVP tool generates full-clip cuts in Story order; validate bounds/coverage/duration; creative editing later |
-| `MontageResultV1` | `{asset_ref:AssetRef,plan_ref:ArtifactRef,duration_ms,width,height,audio_stream_count:int}`; measured by executor; silent requires zero audio streams |
+| `MontagePlanV1` | `{entries:[{shot_id,source:SelectedMedia}],output:{width,height,output_format}}`; internal frozen assembly record derived from Brief and approved Story/videos; exact complete Story order, one full clip per shot, simple cuts, silent output. Derive intervals and expected duration from verified source metadata; no editable timeline/transition fields |
+| `MontageResultV1` | `{asset_ref:AssetRef,plan_ref:<exact internal MontagePlan record ref>,duration_ms,width,height,audio_stream_count:int}`; measured by executor; silent requires zero audio streams; physical plan-ref shape is fixed with montage storage, not assumed to be an artifact |
 
 Agent refs are input aliases resolved by adapters; media identities/measurements are tool-owned. Body-to-slot mapping: VisualAnchorPlanV1 → `wardrobe_plan`, FramePlanV1 → `storyboard_plan`, MotionPlanV1 → `video_plan`; no extra nodes. MontagePlan is an internal tool record. Revisions preserve corresponding shot keys, but changed Story invalidates descendants. `flf2v`, audio, serial/chunk and reuse extensions activate separately.
 
@@ -174,48 +155,42 @@ Render's runtime input/output shape is declared by the pinned workflow's named p
 
 ## Endpoint Wire
 
-Transport distinction: local direct ComfyUI uses authorized local managed-file refs and no bucket upload; the hosted endpoint uses stable server object refs plus ephemeral signed download URLs. Neither transport is the provider-neutral `AssetRef`/`RenderResult` identity.
+**Deferred hosted Kinodel service proposal, not local MVP or native ComfyUI API.** Local transport/import belongs to [ComfyUI](comfyui.md); hosted authorization, billing, retention and upload/cleanup rules belong to [credits and storage](../database/credits-billing.md#результат-удалённого-рендера). HTTPS bearer authentication binds actor/payer on the server. DTO version is `"1"`.
 
-Local direct ComfyUI получает bytes из явно разрешённого local output file либо native `/view` download на настроенном connection. Adapter проверяет ownership/job/unit, разрешённый путь (включая traversal/symlink escape), size/type/digest и импортирует immutable managed candidate files + DB metadata. Provider path не доверенный `AssetRef`; новое domain поле `origin` не требуется. Local direct не использует hosted order auth или bucket. Remote hosted output скачивается по transient signed URL и проходит verified import; для browser-hosted проекта managed file остаётся на сервере, не автоматически на компьютере пользователя.
+| Operation | Proposed wire |
+|---|---|
+| Selected-file upload | Authenticated bounded bytes; verifies size/type/digest and returns owned `input_object_id`; no client URL fetch or arbitrary bucket/key |
+| `POST /orders` | `{schema_version:"1",client_request_key,profile:ProfilePin,kind:"image" or "video",units:[{unit_key,parameters:<registered profile schema>,input_object_ids:UUID[]}],max_charge_microcredits:int}` |
+| `GET /orders/by-request-key/{key}`, `GET /orders/{order_id}` | `{schema_version,order_id,request_digest,revision,status,units,charge,outputs,error}`; status `accepted/queued/running/reconciling/succeeded/failed/cancelled`; per-unit outcomes; charge exposes quote/reserved/captured/released integer units |
+| Output entry | `{object_id,unit_key,generation:string,digest,mime_type,bytes,width,height,duration_ms,available_until}`; immutable object generation bound to account/order |
+| `POST /orders/{order_id}/downloads` | Selected object IDs → `{object_id,url,expires_at}` after renewed authorization; URL is transient, never artifact identity or checkpoint data |
+| `POST /orders/{order_id}/cancel` | `{client_request_key,expected_revision,reason}`; acceptance does not prove provider work stopped |
 
-Proposed Kinodel hosted service HTTP API, **not existing native ComfyUI routes and not the local-direct contract**. JSON DTO version `"1"`; HTTPS account bearer authentication, server actor/payer binding. No public anonymous compute or client-defined bill amounts. Service credentials stay outside creative bodies. Local-app and browser-hosted callers choosing this remote service use identical order contracts; their Project DB location differs.
+Authorize before lookup of `(account,key)`; lookup precedes new-order admission. Same payload returns the existing identity/outcome even if the profile/input has expired; changed payload conflicts. A new order atomically records quote/reservation/job intent. Unknown submission stays `reconciling`, never automatically resubmits. Success requires all declared outputs verified. Import verifies bytes/type/digest/order/unit/generation before publishing candidates; only the project-owning backend's review/apply selects them. Retry downloads the same object or renews its link while access permits; purged output is explicitly unavailable. Polling respects server retry-after.
 
-1. Upload only selected input files through a technically bounded authenticated service upload. Service stores private GCS objects, verifies size/type/digest, and returns owned `input_object_id`. Require technical size/timeouts/concurrency/capacity checks and pre-order orphan TTL/cleanup; numeric safety values remain Q4/Q6, not product per-account storage bans. Order attachment and orphan cleanup serialize on the same owned input record, so cleanup cannot delete attached/live-pinned inputs and attachment cannot resurrect a deleting/expired input. No client URL fetch, arbitrary bucket/key or whole-project upload. A future direct-upload mechanism can replace this only when needed.
-2. `POST /orders` with `{schema_version:"1",client_request_key,profile:{profile_id,version,digest},kind:"image" or "video",units:[{unit_key,parameters:<profile-specific validated semantic input>,input_object_ids:UUID[]}],max_charge_microcredits:int}`. Authenticate and authorize on every request, then look up `(account,key)` before new-order admission, current quote/profile availability or input expiry checks. Compare against the original canonical payload/digest, including pinned profile and inputs: same payload returns the existing order/outcome, changed payload conflicts, even if the original profile or inputs have since expired. Current access/retention still governs result delivery, never a replacement generation. Only a genuinely new key passes current profile/input/quote admission and atomically creates order/quote/reservation/job intent. Parameters narrow to registered schema; no arbitrary workflow execution. MVP retains durable order/request identities and service order logs without scheduled deletion. Final-release retention/tombstone policy is #todo Q6/Q16 before deleting these identities; forgetting a key must never admit replay as a fresh charge.
-3. `GET /orders/by-request-key/{key}` recovers a lost response; `GET /orders/{order_id}` polls. Return `{schema_version,order_id,request_digest,revision,status,units,charge,outputs,error}` with status `accepted/queued/running/reconciling/succeeded/failed/cancelled`. Each unit has its own outcome; an incomplete required set is not `succeeded`. Charge gives quote/reserved/captured/released integer units, not secrets or provider costs. Polling respects server retry-after; status alone does not approve production.
-4. Successful output entry: `{object_id,unit_key,generation:string,digest,mime_type,bytes,width,height,duration_ms,available_until}`. Server binds immutable GCS generation and digest to this account/order; output list is complete only after verified upload of all declared outputs. `POST /orders/{order_id}/downloads` with selected object IDs returns `{object_id,url,expires_at}` after renewed authorization. Signed URLs are ephemeral response fields, never artifact identity, logs or checkpoint data.
-5. `POST /orders/{order_id}/cancel` uses `{client_request_key,expected_revision,reason}`; accepted cancellation is not proof provider work stopped. Reconcile unknown submission; never automatically submit a second charged order. A cancelled local execution cannot promote a late successful remote result.
-
-Remote-service download stages a file at the project-owning backend, bounds length and time, verifies digest/type/order/unit/generation, then publishes immutable candidate bytes and metadata. SQLite local / PostgreSQL hosted store refs and metadata, **not media BLOBs**. Paid generated downloads have no arbitrary product quota. No graph promotion from the service callback. Interrupted downloads retry the same object; expired links renew only while object access and retention permit it. After purge return explicit unavailable, not an empty success or replacement generation.
-
-`ServiceErrorV1={code,message,request_id,retryable,details}`; `details` is a bounded safe typed object with field names/expected revisions, never credentials, URLs or prompt dumps. HTTP mapping: 401 invalid session; 403 forbidden action; 404 absent or inaccessible opaque object; 409 changed idempotency payload/stale revision; 410 known authorized expired output; 422 invalid contract/profile; 429 technical rate/admission bound (product free daily limit only at final release); 503 transient storage/provider unavailability. Unknown external acceptance is durable `reconciling`, not a retryable POST instruction. Internal integrity failure blocks and returns a safe diagnostic ID. Use exceptions internally, not a generic ToolResult.
+`ServiceErrorV1={code,message,request_id,retryable,details}` uses bounded typed safe details, never secrets, URLs or prompt dumps. HTTP mapping: 401 invalid session; 403 forbidden; 404 absent/inaccessible object; 409 idempotency conflict/stale revision; 410 authorized expired output; 422 invalid contract/profile; 429 technical admission limit; 503 transient unavailability. Integrity failure blocks with a diagnostic ID; `reconciling` is not permission to retry POST.
 
 ## Fixture Gate
 
-Documentation fixtures to turn into executable checks before enabling schemas:
+DTO-specific cases to turn into executable checks with their schemas. Runtime/provider crash checks remain in [Local MVP acceptance](../roadmap-mvp.md#acceptance).
 
 | Case | Required result |
 |---|---|
 | Submitted Brief and two-shot Story | Brief accepted at Run with start receipt and no approval requirement; Story passes schema checks and waits at story-hitl |
 | Same body, duplicate `s1` or unknown subject | Reject before commit |
 | Brief explicit duration replaced by default, unsupported profile, mismatched ratio | Reject or focused input, never silent coercion |
-| Internal image-only graph, runnable image profile, positive count/dimensions, video/audio disabled | Accept submitted Brief without video profile; not full cinematic completion |
-| Enabled video graph with missing video pin or null duration/workflow/audio policy | Reject even with a valid image profile |
-| Two instances of the same capability with distinct declared slots | Keep separate stage operations/context and exact gate subjects; reject cross-owner writes or capability-latest lookup |
+| Internal text/image-only test input | Validate under its own test contract; never accept it as cinematic Brief |
+| Cinematic Brief with missing video pin, null duration or non-MVP workflow/audio mode | Reject even with a valid image profile |
 | Model inserts `artifact_id`, `approved`, `goto` or unknown field | Reject; no trusted-field overwrite |
 | JSON numeric string, bool as count, NaN, duplicate key | Reject at boundary |
+| Required nullable key missing versus explicit null | Reject omission; accept null only under that field's conditional rules |
 | Same semantic validated JSON, shuffled object keys | Same canonical body digest; shuffled shot list changes digest |
 | Old request digest, incomplete candidate mapping, wrong unit/job | Conflict/reject; no approval/promotion |
 | Face B selected with sheet generated from face A | Reject even when every required unit is present |
-| Direct edit at each HITL / regenerate anchor | Correct owner receives feedback and returns a new version without Critic; changed face regenerates sheet, unchanged location retained, new complete-set review |
-| Restart after portrait or sheet input freeze | Reuse exact saved portrait/seed/request; no new portrait or intermediate human choice |
-| Three required shot references but workflow accepts fewer | Reject before submission; no dropped reference |
-| Response persisted but apply/next stage interrupted | Recover exact decision once under runtime classifier |
 | Unauthorized cross-execution production input | Reject even if schema/hash valid |
-| Changed order key payload, duplicate settle, expired download, corrupt bytes | Conflict/deduplicate/renew or unavailable/reject respectively |
 
-These examples are not executed tests. Open physical details: Q4 numeric caps, Q9 saver tuple binding on pinned versions, Q13 concrete media child tables, and activation-specific full cinematic validators. The HTTP shapes above are proposed, not deployed API claims.
+These are not executed tests or complete API schemas. Numeric caps, concrete nested types (including `ActivationRef`, apply-result variants and media metadata nullability), cinematic schema IDs and cross-artifact validators must be fixed with their implementation. Hosted DTO completion waits for service activation.
 
 ## Sources
 
-Checked via Context7 on 2026-09-09: [Pydantic models](https://docs.pydantic.dev/latest/concepts/models/), [strict mode](https://docs.pydantic.dev/latest/concepts/strict_mode/), [unions](https://docs.pydantic.dev/latest/concepts/unions/), [validators](https://docs.pydantic.dev/latest/concepts/validators/). These support validation mechanisms, not Kinodel ownership/approval guarantees. Google delivery/lifecycle sources and limitations are in [credits and storage](../database/credits-billing.md#результат-удалённого-рендера).
+Checked against official documentation on 2026-09-21: [LangGraph state schemas](https://docs.langchain.com/oss/python/langgraph/graph-api#schema), [interrupt payloads](https://docs.langchain.com/oss/python/langgraph/interrupts#pause-using-interrupt), [Pydantic required/nullable fields](https://docs.pydantic.dev/latest/migration/#required-optional-and-nullable-fields), [strict mode](https://docs.pydantic.dev/latest/concepts/strict_mode/), [model validation](https://docs.pydantic.dev/latest/concepts/models/). These define framework mechanisms, not proof of Kinodel ownership, approval or recovery.

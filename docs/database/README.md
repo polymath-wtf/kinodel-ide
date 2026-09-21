@@ -60,4 +60,4 @@
 | [Эксплуатация](operations-security.md) | Миграции, доступ, удаление и восстановление |
 | [Сверка источников](source-coverage.md) | Основание текущей модели и ограничения проверки |
 
-Runtime, approvals и поля DTO не дублируются здесь: [runtime](../backend/runtime.md), [HITL](../hilp/hilp.md), [artifacts](../backend/artifacts.md), [DTOs](../backend/physical-dtos.md). Незакрытые продуктовые темы — [future](../features/future.md), задачи и приёмка первого билда — только [Local MVP](../roadmap-mvp.md).
+Runtime, approvals и поля DTO не дублируются здесь: [runtime](../backend/runtime.md), [HITL](../hilp/hilp.md), [artifacts](../backend/artifacts.md), [DTOs](../backend/dto.md). Незакрытые продуктовые темы — [future](../features/future.md), задачи и приёмка первого билда — только [Local MVP](../roadmap-mvp.md).

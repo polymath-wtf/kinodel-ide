@@ -50,10 +50,10 @@ type ArtifactRef = {
 - submitted `user_vibe`, must-keep constraints and visible defaults;
 - declared subjects and exact `CharacterChunkV1` refs when reusable characters are selected;
 - frozen pipeline ID/version mirrored from the execution;
-- exact image/video generation-profile pins for cinematic; internal image-only experiments explicitly disable video;
-- positive shot count, dimensions, aspect ratio and supported output format; active video additionally requires positive shot duration, supported workflow class such as `i2v` or `flf2v`, and audio policy.
+- exact runnable image/video generation-profile pins for cinematic;
+- positive shot count/duration, dimensions, aspect ratio and supported output format; first cinematic uses fixed `i2v` and silent output.
 
-The proposed [BriefV1 physical fields](physical-dtos.md#briefv1) represent inactive video with explicit null video pin, duration, workflow class and audio policy (and null audio pin for image-only). Enabled graph roles remain authoritative: image-only requires a runnable image profile; enabled video cannot omit its runnable profile or required settings. Registered design-only profiles are restricted to the separate nonrendering text test, never proof of provider readiness.
+The proposed [BriefV1 physical fields](dto.md#briefv1) describe cinematic only. Internal text/image-only checks use separate minimal test inputs rather than nullable cinematic production fields; they never establish readiness of omitted provider stages. Future audio and other workflow modes require separately activated contracts.
 
 Before Run the input UI/API validates required choices, shows defaults and resolves profiles under the [profile rule](comfyui.md#profile-selection). Unsupported explicit requirements are not replaced silently. Run fixes the effective Brief/pipeline; changes require a new execution. Missing inputs resolve before start acceptance.
 
@@ -237,6 +237,6 @@ Implement and verify schemas in activation order. The wider catalog is design co
 - `MotionPlanV1`, `MontagePlanV1` and `MontageResultV1` when video/montage is enabled;
 - reusable chunk executable schemas when their pipeline is activated; their ownership/content contract is defined now.
 
-Do not build one universal artifact envelope that attempts to model every domain field. Field-level proposed candidate/body/ref/commit contracts are in [physical-dtos.md](physical-dtos.md); strict agent candidates contain no trusted metadata. Fork-specific fields and entry routes wait for feature implementation.
+Do not build one universal artifact envelope that attempts to model every domain field. Field-level proposed candidate/body/ref/commit contracts are in [dto.md](dto.md); strict agent candidates contain no trusted metadata. Fork-specific fields and entry routes wait for feature implementation.
 
 These are architectural contracts, not executable schemas. Render binds validated source values and media to a pinned workflow's typed named ports. VisualAnchorPlan, FramePlan, MotionPlan and MusicPlan are examples, not a closed input list; no redundant universal `render_requests` artifact is needed. Non-media outputs use their declared result schemas. SeasonPlan, SeasonMemoryDraft, episode extensions and audio-analysis implementations do not block the text runtime test.

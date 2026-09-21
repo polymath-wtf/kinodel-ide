@@ -4,16 +4,9 @@
 
 ## Что Сохраняется До Вызова
 
-| Данные | Размещение | Правило |
-|---|---|---|
-| Exact inputs, `ContextSelectionV1`, input digest | Подготовленная `operations` | Зафиксированы до model call, неизменны при retry |
-| Source/resource refs, роли, projection versions/digests, выбранные assets | Внутри selection | Достаточны для восстановления именно выбранного входа при сохранённых источниках и реализации projection |
-| Исключённые optional refs, причины, конфликты, бюджет | Внутри selection | Required/canon не исчезают молча; после подготовки нельзя убрать даже выбранный optional item |
-| Готовые тексты и media inputs для модели | Временная память вызова | Восстановить из exact sources и versioned projections, сверить digest |
-| Ссылка на selection/operation | Compact graph state, где нужна | Не копировать тела в каждый checkpoint |
-| Сервисы, текущие права/fence | LangGraph runtime context | Передаются заново при invocation/resume; не источник frozen creative inputs |
+Exact inputs, `ContextSelectionV1` и input digest хранятся в подготовленной `operations`; checkpoints содержат только compact refs. Готовый payload модели живёт в памяти вызова. Состав selection, hydration и проверки определены в [context contract](../context/context.md#contextselectionv1).
 
-Отдельная таблица selections, постоянный context-pack artifact и копия содержимого в LangGraph Store не нужны. Типы refs принадлежат [context contract](../context/context.md#contextselectionv1); неподдержанная версия или несовпадение digest блокируют вызов, а не запускают поиск замены. Источники и код projections удерживаются, пока нужны сохранённым операциям, с учётом политики удаления и прав.
+Отдельная таблица selections, постоянный context-pack artifact и копия в LangGraph Store не нужны. Источники и код projections удерживаются, пока нужны сохранённым операциям, с учётом политики удаления и прав.
 
 ## Что Можно Пересобрать
 

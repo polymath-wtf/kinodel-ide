@@ -18,7 +18,7 @@ Personal wiki/RAG/taste are private and enter context only through explicit sele
 | Hydrated agent input | Selected text and authorized media in the consumer's format | Temporary model-call data |
 | Library records; optional future LangGraph Store integration | Cross-execution knowledge | Outside graph state; publication and access remain application responsibilities |
 
-Runtime dependencies never enter a prompt automatically. Loading a current connection or authorization context does not permit reselecting a newer creative source. A LangGraph Store is optional: the existing artifact/library repositories already provide exact cross-thread reads. See [storage ownership](../database/README.md) and the supplied [framework context overview](../langgraph/context-langgraph.md).
+Runtime dependencies never enter a prompt automatically. Loading a current connection or authorization context does not permit reselecting a newer creative source. A LangGraph Store is optional: the existing artifact/library repositories already provide exact cross-thread reads. See [storage ownership](../database/README.md) and the [framework reference index](../langgraph/README.md).
 
 ## Context Sources
 
@@ -44,6 +44,16 @@ The initial UI may display:
 - `@@character` as a filtered `CharacterChunkV1` picker.
 
 These may later share one `@` picker without migrating domain data. Attached content never expands nested mentions recursively.
+
+The UI shows the compact projection and role the target agent will receive. Stale, unauthorized, conflicting or over-budget attachments require visible intervention. `@prompt-engine` is an allowlisted agent-configuration selector, not an arbitrary user attachment.
+
+### Scope
+
+A creator attachment applies to the current message by default. Explicit execution pinning lets later stages consider it under their own allowed-schema and projection policies; pinning does not turn inspiration into canon.
+
+### Characters In Markdown
+
+A Markdown character attached through `@file` may be a demo, source, draft or inspiration. A reusable production character becomes canonical only as an approved `CharacterChunkV1`; Markdown and a chunk must not become independent canonical copies of the same character.
 
 ## Pipeline-Required Context
 
@@ -91,8 +101,6 @@ type ContextSelectionItemV1 = {
   origin: "user_mention" | "pipeline_required" | "agent_resource" | "retrieval";
   role: "canon" | "continuity" | "plan" | "inspiration" | "evidence" | "guidance";
   source_ref: ContextSourceRefV1;
-  source_revision: string;
-  source_digest: string;
   projection_id: string;
   projection_version: string;
   projection_digest: string;
@@ -124,7 +132,7 @@ Adapters supply consumer-specific typed content beside the trace reference: narr
 
 New context requires a new authorized activation or execution, never a changed selection under the same operation ID. Within foundation/V1, feedback cannot silently replace approved ancestor canon; if outside the current repair path, start a new execution with adjusted Brief/context. Reindexing is an administrative derived-data operation, not a graph transition, approval, or reason to rebuild a prepared selection.
 
-`ContextSourceRefV1` is the canonical shape shared with [physical DTOs](../backend/physical-dtos.md#references-and-receipts), including omitted/conflicting refs. `ArtifactRef` is defined there; chunks use artifact refs. `source_revision` equals the immutable `artifact_id`, source `revision_id`, or resource `version` for the respective kind; `source_digest` equals that ref's digest. These redundant fields cannot select another revision. This is an unshipped contract correction, not a data migration or string-ref compatibility path.
+`ContextSourceRefV1` is the canonical shape shared with [physical DTOs](../backend/dto.md#references-and-receipts), including omitted/conflicting refs. `ArtifactRef` is defined there; chunks use artifact refs. Read revision identity and digest directly from the tagged ref: artifact `ref.artifact_id`/`ref.digest`, source `revision_id`/`digest`, or resource `version`/`digest`. `projection_digest` remains separate because it identifies the projected content, not the source bytes.
 
 ## Resolution
 

@@ -27,8 +27,8 @@ Creator-selected character/wiki/text/media references enter only the chosen node
 
 After the fixed route works: configurable known nodes, then sequential composition, then optional UI groups. Editing graph/instructions for a new run does not mutate the current execution. Future [Fork](../hilp/fork.md) tries another continuation from a selected stage in a child run. Fork controls and a tree of runs are outside MVP; they do not require a branching pipeline definition.
 
-## Mini-FSD
+## Frontend Layout
 
-Use lightweight Feature-Sliced Design for frontend code as it appears, not pre-created scaffolding: `app` composes/routs the application, `pages` assembles the workspace, `widgets` contains canvas/inspector/viewer, `features` implements user actions, `entities` represents project/execution/node/artifact, and `shared` contains UI primitives and HTTP utilities. Dependencies flow downward; peer slices communicate through composition/public interfaces, not hidden cross-imports. No framework/bundler choice is implied.
+Start with the workspace, its colocated canvas/inspector/viewer components and a typed HTTP client. Keep user actions next to the screen that uses them. Extract shared components or feature modules when actual reuse or complexity warrants it; no mandatory six-layer Mini-FSD or empty slices. No framework/bundler choice is implied.
 
-Frontend entities are read projections, not competing production state. Backend modules retain their Python responsibilities; FSD does not introduce `widgets/features/entities` into runtime code. Create only slices needed by a working screen.
+Frontend data remains read projections, not competing production state. Backend modules retain their Python responsibilities; UI organization does not change execution ownership.

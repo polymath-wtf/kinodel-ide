@@ -48,7 +48,7 @@ The [freeze layers](artifacts.md#freeze-layers) distinguish Run/submitted Brief/
 
 ## Checkpoint Projection
 
-`ExecutionStateV1` is implemented as a Python `TypedDict`; boundary DTOs use Pydantic. The contract is a compact JSON-serializable projection:
+`ExecutionStateV1` is implemented as a Python `TypedDict`; boundary DTO use Pydantic. The contract is a compact JSON-serializable projection:
 
 | Field | Content |
 |---|---|

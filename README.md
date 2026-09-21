@@ -158,21 +158,9 @@ Checkpoints preserve where execution paused.
 
 Tools submit durable generation jobs and return promptly. The model does not sit waiting for a GPU. Provider adapters own payloads and transport; creative plans remain provider-neutral. PostgreSQL and hosted identity/storage are a separate deployment track.
 
-## Mini-FSD: a small frontend, organised by purpose
+## A small frontend, organised around the workspace
 
-**Feature-Sliced Design** separates screens, user actions and domain concepts. This is the intended lightweight frontend layout, not an already generated directory tree:
-
-```text
-frontend/src/
-  app/        boot, routing, composition
-  pages/      project workspace
-  widgets/    node canvas, inspector, result viewer
-  features/   submit brief, approve, revise, attach context
-  entities/   project, execution, node, artifact
-  shared/     UI primitives, HTTP client, small utilities
-```
-
-Create a slice when real code needs it, not an empty folder for every noun. Imports flow downward; shared UI does not know about production decisions. The frontend displays and submits commands; the Python backend owns execution. [Frontend boundaries →](docs/frontend/webui.md)
+Start with the workspace, its canvas/inspector/viewer components and a typed HTTP client. Extract shared UI or feature modules when real reuse warrants it. The frontend displays results and submits commands; the Python backend owns execution. [Frontend boundaries →](docs/frontend/webui.md)
 
 ## Find your way around
 

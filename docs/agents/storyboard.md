@@ -26,7 +26,7 @@ The frozen provider profile must explicitly support the required multi-image inp
 
 ## Output
 
-`FramePlanV1` in `storyboard_plan`: one ordered shot-frame specification per declared unit, with exact selected-media references/roles, preserve/change constraints, semantic intent and image prompt from frozen guidance. These are creative units, not jobs. The following `frames-gen` tool consumes the saved plan; fields follow [physical DTOs](../backend/physical-dtos.md#cinematic-extension).
+`FramePlanV1` in `storyboard_plan`: one ordered shot-frame specification per declared unit, with exact selected-media references/roles, preserve/change constraints, semantic intent and image prompt from frozen guidance. These are creative units, not jobs. The following `frames-gen` tool consumes the saved plan; fields follow [physical DTOs](../backend/dto.md#cinematic-extension).
 
 This is one aggregate validated plan, not an independently approved result. Render reads it through a deterministic adapter without a second universal request artifact. Unit IDs/order must map explicitly to the narrative/timed units; any additional terminal frame required by `flf2v` must be declared by the pipeline before rendering. Anchor units are separate from shot units: anchor existence never supplies or omits a shot frame implicitly.
 

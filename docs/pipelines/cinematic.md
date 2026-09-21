@@ -2,6 +2,8 @@
 
 Status: **Accepted MVP route, 2026-09-21; implementation pending.** This page owns cinematic node names, handoffs and repair destinations. [JSON](cinematic.v1.json) mirrors this route for inspection; it is not a graph compiler or runnable configuration.
 
+Keep the JSON as the first machine-readable pipeline specimen and this page as its explanatory contract. MVP execution is an authored Python `StateGraph` factory registered by version/digest. Loading arbitrary pipeline JSON into a runtime compiler is a later decision; a saved JSON description does not itself execute a graph.
+
 ## Route
 
 ```text

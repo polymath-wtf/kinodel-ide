@@ -14,8 +14,9 @@ Kinodel is a **runtime-vibe-factory for creators**: a user follows a production 
 | Concern | Source |
 |---|---|
 | Graph execution and replay | [Runtime](backend/runtime.md), [LangGraph](backend/langgraph.md), [state](backend/state-machine.md) |
+| Framework implementation guidance and official MCP lookup | [LangGraph reference index](langgraph/README.md) |
 | Human approval, owner chat revisions and future execution forks | [HITL](hilp/hilp.md), [Fork](hilp/fork.md) |
-| Immutable outputs and proposed wire types | [Artifacts](backend/artifacts.md), [physical DTOs](backend/physical-dtos.md) |
+| Immutable outputs and proposed wire types | [Artifacts](backend/artifacts.md), [physical DTOs](backend/dto.md) |
 | Storage/module layout and startup | [Implementation](backend/implementation.md), [local startup](backend/local-startup.md) |
 | Agents | [Catalog](agents/README.md), individual craft contracts |
 | Generation and other side effects | [Tools](tools/tools.md), [ComfyUI](backend/comfyui.md) |
