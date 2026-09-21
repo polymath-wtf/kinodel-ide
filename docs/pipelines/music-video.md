@@ -1,94 +1,82 @@
 # Music Video Pipeline
 
-Status: **Historical proposal for after cinematic; not an active execution contract.**
+Status: **Refreshed concept, 2026-09-21; deferred beyond cinematic MVP.** Node names and handoffs below are proposed, not an executable graph or completed schemas. [Cinematic](cinematic.md), [pipeline boundaries](../backend/pipeline.md) and [HITL](../hilp/hilp.md) supply the architectural baseline; audio-specific decisions remain open.
 
-The detailed route below predates submitted Brief, Wardrobe-owned anchors, direct owner revisions and selection saved inside HITL. Its mandatory Critic/old visual stages are historical, not requirements. Preserve the music/timing ideas and reconcile the route from tested [cinematic](cinematic.md) at activation; current agent/review contracts take precedence. This proposal does not block MVP.
+Music is the temporal spine. Muse owns musical intent; the selected song and its validated timing evidence guide visual production. There is no fabricated Story artifact or mandatory Storytell pass.
 
-Music is the temporal spine. Muse replaces Storytell for the primary creative structure; Storyboard and Filmmaker operate on timed units.
+## Proposed Route
 
 ```text
-music_video_brief
--> brief_review                  [human]
--> resolve_selected_inspiration
--> muse
--> music_plan_review              [human]
--> generate_music_candidates
--> song_review                    [human: select]
--> promote_song
--> analyze_timing
--> visual_anchor_plan
--> visual_anchor_review            [human]
--> style_frame_plan
--> render_style_frame_candidates
--> style_frame_review             [human: select]
--> promote_style_frame
--> timed_frame_plan
--> render_frame_candidates
--> frame_review                   [human: select]
--> promote_frames
--> timed_motion_plan
--> render_clip_candidates
--> clip_review                  [human: select]
--> promote_clips
--> montage_plan
--> audio_master_montage
--> final_review                  [human: approve final video]
--> craft_music_video_memory
--> music_video_memory_review     [human]
--> promote_music_video_memory
--> complete
+brief (user input)
+→ muse → song-gen → song-hitl
+→ audio-analysis
+→ wardrobe → anchor-gen → anchor-hitl
+→ storyboard → frames-gen → frames-hitl
+→ filmmaker → video-gen → video-hitl
+→ montage → final
 ```
 
-## Decisions
+The creator submits the idea, music constraints, references and visible production settings before Run. There is no mandatory Producer or Brief gate. The music Brief contract must be defined separately from cinematic's fixed-duration silent-video settings.
 
-- Muse writes one provider-neutral `MusicPlanV1` containing the audio request; Render owns Suno/other provider mapping.
-- Provider candidates are selected explicitly and recorded in the audio result artifact.
-- ALM/timing analysis is a service result, not an autonomous orchestrator.
-- The analysis service owns `timing_map`: a validated `AudioAnalysisV1` with an exact-song timing projection. This is not a second creative story artifact or an independently approved plan.
-- MVP timing uses sections and lyric windows; beat-accurate editing waits for demonstrated need.
-- Montage agent treats the selected song as timeline master; the execution service validates its plan and runs ffmpeg.
-- Final reusable memory is `MusicVideoChunkV1`; generated songs become general `MusicChunkV1` only through a separate approved action.
+Agents return complete creative plans. `*-gen` nodes dispatch tools from validated saved plans and wait for durable jobs without an open model call. The human selects exact media at HITL; apply saves the selected result through its generation tool. Submit/wait/collect, context resolution and selection persistence are internal operations, not extra promotion or resolver nodes. Native tool calls, if supported, use the same [plan-first dispatch](../tools/tools.md#generation-tool-calls).
 
-## Rights
+## Proposed Handoffs
 
-Inspiration context must declare permitted abstractions and forbidden imitation. Muse may use mood, energy, structure, instrumentation, and delivery, but must not copy lyrics, melody, voice, or artist identity.
+| Node / owner | Required material | Result |
+|---|---|---|
+| `muse` / Muse | Submitted brief, permitted musical inspiration and profile constraints | `music_plan`: proposed `MusicPlanV1`, sections, original lyrics or instrumental intent, energy and audio request |
+| `song-gen` / generation tool | Exact saved MusicPlan and supported audio profile | Song candidates; sole writer of selected `song` on approval |
+| `song-hitl` / human | Exact complete song candidate set with supporting MusicPlan | Selected `song`, proposed audio use of `RenderResultV1`, with selection receipt |
+| `audio-analysis` / service | Exact approved song bytes | `timing_map`: proposed `AudioAnalysisV1`, measured duration and bounded section/lyric evidence |
+| `wardrobe` / Wardrobe | Brief, exact MusicPlan supporting the selected song, approved song, validated timing and visual context | `wardrobe_plan`: anchor direction, prompts and dependencies |
+| `anchor-gen → anchor-hitl` | Wardrobe plan, references and image profile | Approved `anchor_frames` |
+| `storyboard` / Storyboard | Musical spine/timing, Wardrobe plan, approved anchors | `storyboard_plan`: ordered timed visual units, image prompts and reference bindings |
+| `frames-gen → frames-hitl` | Exact Storyboard plan, anchors and image profile | Approved `story_frames` |
+| `filmmaker` / Filmmaker | Exact timing/unit mapping and approved frames | `video_plan`: per-unit motion and supported duration |
+| `video-gen → video-hitl` | Video plan, frames and video profile | Approved `shot_videos` |
+| `montage` / assembly tool | Approved song/videos, validated timeline and output settings | `final_video`, verified against the declared audio/timing policy |
 
-Selected `MusicChunkV1`, Character, or Cinema inspiration is resolved directly from Brief/user mentions. Once a song is selected, downstream stages use its exact promoted artifact and timing map rather than reinjecting the inspiration chunk. Search is not required.
+Muse, Wardrobe, Storyboard and Filmmaker own creative plans; generation tools own their media writes. Plans are inspectable supporting evidence, not independently approved by media selection. This sketch has no separate MusicPlan gate; introducing one requires an explicit product decision and repair route. Existing cinematic body names are reuse candidates, not proof that their current schemas support timed music units.
+
+## Song Review And Audio Evidence
+
+`song-hitl` is a proposed human listening/selection gate (formerly `song_review`). [ALM](../features/alm.md) is an analysis service, not that gate, an approval agent or a replacement for listening. Its choice of DSP/transcription/model, confidence policy and review UI are not implemented contracts.
+
+The sketch analyzes the selected song after approval so downstream timing identifies exact bytes. Optional candidate analysis for the song preview needs its own bounded input and evidence policy; it must not silently select the song. Analysis validates timing evidence, not artistic quality, and does not acquire an independent approval merely because the song was approved.
+
+Muse's section durations are intent. Analysis reports observed windows with provenance and uncertainty; neither an estimated section boundary nor a lyric alignment implies beat accuracy. Missing or contradictory required timing blocks visual planning. A correction/manual timing workflow and its review scope still need definition.
 
 ## Revision Routes
 
-| Gate | Critic returns to |
-|---|---|
-| brief | Producer |
-| music plan / song candidates | Muse |
-| visual-anchor plan | Wardrobe |
-| style frame / storyboard frames | Storyboard for the corresponding image plan |
-| clips | Filmmaker motion plan |
-| final video | Montage agent |
-| music-video memory | Craft |
-
-Every Critic `ready` revision follows the declared repair path back to the same gate with a new exact subject. A song revision must traverse `muse -> music_plan_review -> generate_music_candidates -> song_review`: approval of the old MusicPlan cannot authorize generation from a revised plan. This is an explicit repair path, not a general upstream rewind. Image/clip revisions rerun their corresponding planner, render jobs, and join; final revision reruns Montage planning and execution; memory revision reruns Craft.
-
-Critic `needs_input`/`out_of_scope` returns a new request for the unchanged subject without calling its owner. Style-media review cannot change approved visual direction; final review cannot replace the approved song. Outside declared repair scope, start a new execution with adjusted Brief/context. Shared limits and actions follow [`../backend/pipeline.md`](../backend/pipeline.md#activation-and-repair).
-
-## Proposed Stage Contracts
-
-These fields refine the future pipeline, not the `foundation.v0` implementation scope. Local inputs use `current_execution` dependencies; selected inspiration/canon stays pinned. No fabricated `StoryV1` is required for music production.
-
-| Stage / owner | Exact inputs | Output slot / contract |
+| Current HITL | Creative owner | Proposed route back |
 |---|---|---|
-| music brief / Producer | initial request, selected refs, execution settings | `brief`: approved `BriefV1` |
-| resolve inspiration / context adapter | approved Brief mentions | frozen operation context, no creative artifact |
-| `muse` / Muse | approved Brief, rights-safe hydrated context | `music_plan`: `MusicPlanV1`, own gate |
-| generate / Render; promote / service | approved MusicPlan; complete joined song candidates and selection | `song`: `RenderResultV1` |
-| `analyze_timing` / analysis service | exact promoted approved song | `timing_map`: `AudioAnalysisV1` |
-| visual direction / Wardrobe | approved Brief/MusicPlan/song, validated timing map, visual context | `visual_anchor_plan`: `VisualAnchorPlanV1`, own gate |
-| style image / Storyboard; promote / Render | same spine plus approved visual plan | `style_frame_plan`: `FramePlanV1`; selected `style_frame`: `RenderResultV1` |
-| timed frames / Storyboard; promote / Render | exact spine/timing, approved visual plan/style frame | `frame_plan`: `FramePlanV1`; selected `story_frames`: `RenderResultV1` |
-| timed motion / Filmmaker; promote / Render | exact spine/timing, approved visual direction and frames | `motion_plan`: `MotionPlanV1`; selected `clips`: `RenderResultV1` |
-| Montage plan / agent; audio master / executor | approved Brief/song/clips and validated timing map | `montage_plan`: `MontagePlanV1`; `final_video`: `MontageResultV1`, final gate |
-| Craft / memory promotion service | approved final sources, selected assets, supporting timing/montage provenance | `music_video_memory_draft`: `MusicVideoChunkV1`; own gate then chunk binding |
+| `song-hitl` | Muse | `muse → song-gen → song-hitl` |
+| `anchor-hitl` | Wardrobe | `wardrobe → anchor-gen → anchor-hitl` |
+| `frames-hitl` | Storyboard | `storyboard → frames-gen → frames-hitl` |
+| `video-hitl` | Filmmaker | `filmmaker → video-gen → video-hitl` |
 
-Render reads existing MusicPlan/FramePlan/MotionPlan through deterministic adapters, joins one immutable stage manifest per selection gate, and promotes exact approved selections. Supporting frame/motion/montage plans and timing analysis require validation, not implied independent approval. Craft's memory gate reviews any new reusable claims.
+Feedback includes the exact previous plan, current subject, relevant discussion and approved ancestors. A valid replacement creates a new version and review; clarification and non-ready replies change no output. No Critic dispatch is required. Song-specific seed-only regeneration is not implied by cinematic's anchor-only `regenerate` action; define it only if the provider and gate support it.
 
-Timed units have stable IDs, explicit section/lyric-window boundaries, and declared order within the selected song's measured duration. Frame/clip mappings, terminal `flf2v` end-frame coverage, and montage duration must agree with that timing; no guessed beat precision or silent truncation. Technical retries preserve same-request successes; creative aggregate revisions rebuild all units initially. Song changes invalidate timing and all visual/montage descendants transitively.
+An anchor/image/video revision cannot change the approved song. Replacing that ancestor requires a new execution; its old timing and visual descendants cannot authorize the new run. In-scope anchor reuse must retain exact parent/child lineage under [cinematic regeneration rules](cinematic.md#anchor-regeneration). Technical retries retain prepared inputs and reconcile uncertain provider acceptance.
+
+## Timing And Assembly
+
+Start with section/lyric-window alignment as a concept, not beat-perfect editing. The mapping from musical sections to visual units needs one declared owner: the proposed owner is Storyboard, consuming validated analysis. Stable visual-unit keys/order then connect frame and video plans to the timeline. Section IDs and shot IDs are different concepts; one section may need several shots.
+
+The song is timeline master. Assembly must account explicitly for every required interval, clip and the selected song's measured duration. It must not silently stretch audio, truncate lyrics, omit shots or choose arbitrary trims to hide mismatches. Provider duration limits and gaps/overlaps need a declared planning/assembly policy before activation.
+
+Prefer a deterministic montage tool consuming a validated timeline. Cinematic's full-clip, silent concatenation is insufficient for music-video; audio placement, trims, clip-audio removal/mix and duration tolerance need an audio-aware contract. Add a creative Montage agent only when creative editing and its review scope are deliberately enabled. `final` means a verified output, not independent final human approval.
+
+## Context And Rights
+
+Resolve explicit selected music/character/cinema references through [direct context](../context/context.md), with exact revisions and `take`/`ignore` roles. No search is required. Inspiration may supply permitted mood, energy, instrumentation and structure, not copied lyrics, melody, voice or artist identity. Downstream consumes the selected song and timing evidence rather than treating inspiration as the generated result.
+
+## Open Before Activation
+
+- Music Brief/MusicPlan and audio-profile contracts: mode, lyrics, duration constraints, supported generation/import paths and candidate coverage.
+- Song listening/selection UI, permitted actions and whether plan review is useful; ALM evidence before/after selection and correction of uncertain timing.
+- Section-to-visual-unit schema, stable-key allocation, timed Storyboard/Filmmaker adapters and duration-capacity checks.
+- Audio-aware montage policy, validation and any separate final creative review.
+- Optional Craft publication as `MusicVideoChunkV1` or `MusicChunkV1`: separate explicit memory approval, never an automatic completion step.
+
+These are activation questions, not additions to the [local MVP checklist](../roadmap-mvp.md). Suggested future checks: a 30-second planned section measuring 34 seconds uses measured evidence; stale song selection is rejected; changing a song cannot reuse its old timing; incompatible clip durations block rather than silently cutting the song.

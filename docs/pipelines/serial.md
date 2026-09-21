@@ -1,126 +1,97 @@
 # Serial Pipelines
 
-Status: **Historical proposal for after cinematic; not an active execution contract.**
+Status: **Refreshed concept, 2026-09-21; deferred beyond cinematic MVP.** Season planning and episode production are distinct proposed workflows. Their decomposition, continuity publication and executable schemas still need design. [Cinematic](cinematic.md), [pipeline boundaries](../backend/pipeline.md) and [HITL](../hilp/hilp.md) define the shared execution rules.
 
-The detailed routes below predate submitted Brief, Wardrobe-owned anchors, direct owner revisions and selection saved inside HITL. Mandatory Critic/old visual stages are historical, not requirements. Preserve continuity ideas and reconcile routes from tested [cinematic](cinematic.md) at activation; current agent/review contracts take precedence. This proposal does not block MVP.
+## Season Planning
 
-Serial production uses two explicit pipelines. Do not add a parent `serial.v1` orchestrator until operating the pair proves one is needed.
-
-## `serial_season.v1`
+Proposed `serial_season.v1` core:
 
 ```text
-season_brief
--> brief_review                  [human]
--> resolve_character_and_canon
--> season_plan
--> season_plan_review            [human]
--> per_episode_visual_anchor_plan
--> season_visual_anchor_review   [human]
--> per_episode_anchor_image_plan
--> render_episode_anchor_candidates
--> season_anchor_review          [human: select]
--> promote_episode_anchors
--> craft_season_memory_draft
--> season_memory_review          [human]
--> promote_season_memory
--> complete
+brief (user input)
+→ season → season-hitl
+→ approved season plan
 ```
 
-This graph stops after planning. It does not storyboard or produce full episodes.
+Season creates one aggregate `season_plan` (`SeasonPlanV1` proposal): premise, repeatable engine, arcs, linked setups/payoffs and ordered episode blueprints. The human approves that exact plan or sends feedback directly to Season. The output is planning authority, not completed episode history or automatic publication of reusable chunks.
 
-## `serial_episode.v1`
+This workflow does not produce full episodes. Shared visual development can later append `wardrobe → anchor-gen → anchor-hitl` when there is a concrete need for a season reference set. Per-episode anchors, mandatory season rendering and a separate visual-plan gate are not prerequisites for approving a season concept. The scope and reuse of such anchors remain open.
+
+## Episode Production
+
+Proposed `serial_episode.v1` core:
 
 ```text
-episode_brief
--> episode_brief_review          [human]
--> validate_continuity_context
--> episode_story
--> episode_story_review          [human]
--> per_act_visual_anchor_plan
--> act_visual_anchor_review      [human]
--> per_act_anchor_image_plan
--> render_act_anchor_candidates
--> act_anchor_review             [human: select]
--> promote_act_anchors
--> frame_plan
--> render_frame_candidates
--> frame_review                  [human: select]
--> promote_frames
--> motion_plan
--> render_clip_candidates
--> clip_review                  [human: select]
--> promote_clips
--> montage_plan
--> montage_execute
--> final_review                  [human]
--> craft_completed_episode_chunk
--> episode_memory_review         [human]
--> promote_episode_memory
--> complete
+brief (user input + exact episode selection)
+→ episode → story-hitl
+→ wardrobe → anchor-gen → anchor-hitl
+→ storyboard → frames-gen → frames-hitl
+→ filmmaker → video-gen → video-hitl
+→ montage → final
 ```
+
+The creator submits settings and selects one episode before Run; there is no mandatory Producer or Brief gate. Trusted preparation resolves and validates the exact season, target blueprint and required continuity before invoking Episode. Missing or contradictory mandatory context blocks with an explanation; it does not invent a new human gate or ask Episode to repair canon.
+
+Episode replaces Storytell as the sole narrative owner. The visual/tool tail follows cinematic ownership and names. Agents create validated saved plans; `*-gen` nodes dispatch generation tools and wait on durable jobs. HITL applies complete media selection through the generation tool, with no separate promote node. Montage is deterministic assembly; final output is not an independent human approval or automatic memory publication.
+
+## Proposed Handoffs
+
+| Stage / owner | Required material | Result |
+|---|---|---|
+| `season` / Season | Submitted season brief, selected character canon and prior-season context if continuing | `season_plan`: one aggregate with ordered episode blueprints |
+| `season-hitl` / human | Exact season plan | Approval of that revision |
+| Episode input / adapter | Submitted episode settings, selected season/target blueprint and required prior continuity | Frozen authorized context, no new creative artifact |
+| `episode` / Episode | Hydrated validated context and production constraints | `story`: episode narrative and ordered shot beats; continuity extension still proposed |
+| `story-hitl` / human | Exact episode story | Approval of that revision |
+| `wardrobe → anchor-gen → anchor-hitl` | Brief, approved story, exact character/visual references | `wardrobe_plan` and approved `anchor_frames` |
+| `storyboard → frames-gen → frames-hitl` | Approved story/anchors and Wardrobe plan | `storyboard_plan` and approved `story_frames` |
+| `filmmaker → video-gen → video-hitl` | Approved story/frames and output constraints | `video_plan` and approved `shot_videos` |
+| `montage` / tool | Approved ordered videos and assembly settings | `final_video` |
+
+Each output has one owner; generation tools are sole media writers on behalf of their creative owners. Plans support media review without acquiring separate approval. Reusing these capabilities does not mean current cinematic DTOs already encode episode acts, continuity or long-form production.
+
+## Episode Breakdown And Execution
+
+Season owns the creative breakdown into blueprints, not job scheduling. A stable episode key connects each blueprint to its later production; the application owns persistent identities. Episode selection must retain both the exact season-plan revision and target identity, not just an ordinal such as “episode 3”.
+
+The simplest proposed launch is one explicitly started execution per episode, sequential by default. No parent `serial.v1` scheduler, automatic fan-out, nested episode threads or full-season render is implied. Starting episode N+1 requires available validated continuity, not merely a successful render for N.
+
+How the approved aggregate becomes individually selectable planned episodes remains open: exact projections of the approved plan versus separately reviewed/published Episode chunks. Existing [context](../context/context.md#pipeline-required-context) and [chunk](../rag/chunks.md) concepts describe the latter; this sketch does not invent a second canonical copy or claim that publication already exists. Any extracted blueprint must preserve its source revision and approval coverage. Separate memory publication needs explicit review and optimistic concurrency, not another hidden model call.
+
+Acts are narrative structure, not automatically graph nodes, subgraphs or anchor units. Decide long-episode segmentation, shot budgets, joins and interruption/review granularity before supporting long-form generation. Do not map every act or episode to a fixed anchor count. Wardrobe declares actual visual-reference needs from the selected narrative scope.
 
 ## Continuity Rules
 
-- Season chunk must be approved.
-- Target episode chunk must be planned/approved.
-- Episode N greater than one requires the previous completed episode chunk.
-- Future episode plans are context for setup, never facts.
-- Production is sequential by default.
-- Editing completed episode N requires an authorized new production/memory flow and produces a new reviewed chunk revision. Later executions select the revised continuity explicitly; existing executions retain their frozen selections.
-- Whole-season canon changes create a new reviewed season revision. Ordinary supersede does not mutate or invalidate pinned selections in running executions. Rights withdrawal or unavailable mandatory pinned data blocks use regardless of pinning.
+- Pin exact approved season/target-plan sources and authorized Character revisions. Future blueprints are obligations and setup context, never accomplished facts.
+- Episode one starts from declared initial canon. Later episodes require the relevant reviewed completed continuity; the previous episode alone may be insufficient if an older unresolved fact still matters.
+- Supply a bounded relevant projection, not every conversation or every previous script. Required facts cannot disappear silently to fit the context budget.
+- Keep planned narrative, approved story, rendered final and published completed continuity distinct. Story approval or a technically valid video does not prove that every proposed event is established shared canon.
+- Preserve the exact planned input even if a future shared Episode binding points to a completed revision. A production plan and a record of what happened have different roles.
+- Ordinary supersede does not mutate a running execution's pinned context. Rights withdrawal, missing bytes or lost authorization still block use. New runs explicitly select revised continuity.
+- Revising completed episode N does not silently rewrite N+1. Existing outputs retain provenance; any downstream reproduction or continuity migration needs an explicit new flow.
 
-The initial context gate is machine validation. It becomes a human intervention only when required canon is missing or contradictory.
-
-## Direct Context
-
-- Season planning resolves exact selected Character chunks and prior-season canon only for an explicit continuation.
-- Episode production selects the active approved Season, target planned Episode revision, previous completed Episode when required, and referenced Characters, then pins exact revisions for the execution. Preserve the planned Episode ref even after its logical subject's active binding becomes completed.
-- Older episodes and inspiration are optional bounded projections; no search is required.
-- Render adapts exact FramePlan/MotionPlan artifacts and assets; Montage execution consumes its validated plan and exact approved clips rather than creative-memory search.
+The source and human review of completed continuity are activation blockers for a continuity-dependent next episode. Craft may eventually draft that memory, but a mandatory Craft chain, aggregate publication transaction and final-memory gate are not defined by this concept.
 
 ## Revision Routes
 
-| Gate | Critic returns to |
-|---|---|
-| season brief | Producer |
-| season plan | Season |
-| season visual-anchor plan | Wardrobe per-episode planning |
-| season anchors | Storyboard anchor-image planning |
-| season memory | Craft |
-| episode brief | Producer |
-| episode story | Episode |
-| act visual-anchor plan | Wardrobe per-act planning |
-| act anchors / frames | Storyboard for the corresponding image plan |
-| clips | Filmmaker motion plan |
-| final video | Montage agent |
-| completed episode memory | Craft |
-
-For Critic `ready`, the owner creates a new aggregate revision and follows its declared render/join, execution, or memory-review path back to the same gate. Critic `needs_input`/`out_of_scope` creates a new request for the same subject and explanation without calling the owner. Anchor-image review cannot rewrite approved Wardrobe direction or Season/Episode narrative. Changes outside that scope require a new execution with adjusted Brief/context; there is no general upstream rewind. Limits and actions follow [`../backend/pipeline.md`](../backend/pipeline.md#activation-and-repair).
-
-## Proposed Stage Contracts
-
-These are future pipeline contracts, not extra `foundation.v0` schemas. Each per-episode/per-act planner owns one aggregate artifact, not competing parallel writes to one slot. Local production refs use `current_execution`; shared canon uses `pinned_revision`.
-
-| Pipeline stage / owner | Exact inputs | Output slot / contract |
+| Current HITL | Creative owner | Proposed route back |
 |---|---|---|
-| season brief / Producer | initial request, execution settings, selected canon | `brief`: `BriefV1`, own gate |
-| canon resolution / adapter | approved Brief and selected shared revisions | frozen operation context, no creative artifact |
-| season plan / Season | approved Brief and hydrated pinned canon | `season_plan`: `SeasonPlanV1`, own gate |
-| per-episode direction / Wardrobe | approved Brief/SeasonPlan, character projections | `visual_anchor_plan`: `VisualAnchorPlanV1`, own gate |
-| episode-anchor images / Storyboard | approved Brief/SeasonPlan/visual plan | `anchor_frame_plan`: validated `FramePlanV1` |
-| anchor rendering / Render; promotion / service | exact frame plan; complete stage manifest and selection approval | `episode_anchors`: `RenderResultV1` |
-| season memory / Craft | approved Brief/SeasonPlan/visual plan and selected episode anchors | `season_memory_draft`: `SeasonMemoryDraftV1`, own gate |
-| season publication / service | approved draft, source/rights checks, expected revisions for every subject | separate Season and planned Episode chunks/bindings atomically in DB |
-| episode brief / Producer | initial request/settings, selected continuity refs | `brief`: `BriefV1`, own gate |
-| continuity validation / service | approved Brief, pinned Season/target plan/previous completed/Characters | validated prepared context or blocked, no creative artifact |
-| episode story / Episode | approved Brief and hydrated validated continuity | `story`: episode-compatible `StoryV1`, own gate |
-| per-act direction / Wardrobe | approved Brief/Story, relevant character/physical-state projections | `visual_anchor_plan`: `VisualAnchorPlanV1`, own gate |
-| act-anchor images / Storyboard; Render | approved Brief/Story/visual plan | `anchor_frame_plan`: `FramePlanV1`; selected `act_anchors`: `RenderResultV1` |
-| frames / Storyboard; Render | same inputs plus exact approved act anchors | `frame_plan`: `FramePlanV1`; selected `story_frames`: `RenderResultV1` |
-| motion / Filmmaker; Render | approved Brief/Story/visual direction/frames and current continuity | `motion_plan`: `MotionPlanV1`; selected `clips`: `RenderResultV1` |
-| Montage / agent and executor | approved Brief/Story/clips/audio when present, measured metadata | validated `montage_plan`; `final_video`: `MontageResultV1`, own gate |
-| completed memory / Craft and promotion service | exact approved final sources, selected assets, supporting provenance | `episode_memory_draft`: completed `EpisodeChunkV1`, own gate then binding |
+| `season-hitl` | Season | `season → season-hitl` |
+| `story-hitl` | Episode | `episode → story-hitl` |
+| `anchor-hitl` | Wardrobe | `wardrobe → anchor-gen → anchor-hitl` |
+| `frames-hitl` | Storyboard | `storyboard → frames-gen → frames-hitl` |
+| `video-hitl` | Filmmaker | `filmmaker → video-gen → video-hitl` |
 
-SeasonPlan assigns stable episode IDs; Story assigns stable act/shot IDs and order. Visual/image plans map every required episode or act anchor explicitly; frame and motion plans preserve shot mappings and terminal `flf2v` end-frame coverage. Join creates one stage-level candidate manifest across unit jobs, and a single gate selects every required unit before promotion. Technical retry keeps successful same-request units; revised creative aggregates rebuild all units initially. No full episode generation is hidden in the season graph.
+Direct feedback carries the exact previous output, current subject and relevant discussion. Valid replacements return to their own review; clarification and non-ready replies change no output. Critic is not a dispatcher. Episode cannot rewrite an approved season obligation or prior ending; frame/video feedback cannot rewrite story or anchors. Such ancestor changes require a new execution.
 
-Approval of a selected render/final result does not independently approve supporting FramePlan, MotionPlan, or MontagePlan. Season memory publication derives exactly the reviewed aggregate bodies, without another model call, and verifies every expected chunk-binding revision in one DB transaction. Planned and completed Episode revisions retain separate meaning and immutable history under one stable episode identity.
+Use [cinematic anchor regeneration](cinematic.md#anchor-regeneration) where the same declared dependency contract applies. Technical retries preserve prepared inputs and successes; creative revisions require a new complete review subject. Selective episode/act repair and cross-execution reuse need their own declared scope, not inferred graph rewind.
+
+## Open Before Activation
+
+- Season/episode Brief contracts, episode counts/keys, blueprint granularity and constraints passed to each production.
+- Exact plan-to-episode selection/publication model and launch UX; whether season-wide visual references are needed.
+- Episode story schema: acts, shot mapping, obligations, before/after continuity and compatibility with cinematic consumers.
+- Long-form segmentation and review granularity; start with one bounded episode rather than a season-wide orchestration framework.
+- Completed-continuity evidence, review/publication and conflict handling before the next episode; optional reusable Season/Episode memory.
+- Audio/dialogue and any richer montage/final review: the cinematic baseline currently assembles silent `i2v`, not a complete dialogue-series production system.
+
+These questions do not expand [local MVP](../roadmap-mvp.md). Future concept checks: a repaired blueprint preserves other episode identities; an injury persists until a supported event changes it; a missing reviewed prior ending blocks episode N; updating season canon never silently changes a running episode.

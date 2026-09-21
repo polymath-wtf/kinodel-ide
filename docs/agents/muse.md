@@ -1,9 +1,9 @@
 # Muse
 
 Class: creative agent  
-Status: **Planned for `music_video.v1`**
+Status: **Refreshed concept, 2026-09-21; proposed for `music_video.v1`**
 
-This is a future capability proposal. Refine and verify it when activating music-video; it does not block the local foundation build.
+Muse is the musical owner in the proposed [music-video route](../pipelines/music-video.md). Its audio tool, schemas and song review still need activation; this is not a deployed agent or an MVP prerequisite.
 
 ## Responsibility
 
@@ -11,11 +11,11 @@ Create the musical spine: original lyrical/section concept, vibe DNA, energy cur
 
 ## Input
 
-- approved music-video brief;
+- submitted music-video brief with visible mode, duration and production constraints;
 - hydrated selected music/character/cinema projections and optional frozen `@prompt-engine` guidance, with the operation's context-selection reference;
 - explicit rights and `take`/`ignore` constraints;
 - optional adapter-supplied audio analysis and resolved media;
-- for repair, the exact prior `MusicPlanV1` output plus `RevisionRequestV1` from music-plan or song review; song repair also receives the exact reviewed song subject and relevant analysis.
+- for repair, the exact prior `MusicPlanV1`, `RevisionRequestV1`, relevant node discussion and reviewed song subject; any supplied analysis is bound to that candidate's exact bytes.
 
 These are proposed node-specific inputs for the future pipeline. Exact source refs and projection versions/digests are frozen in the prepared operation; retries do not rerun selection. Trace metadata is not the content supplied to the agent.
 
@@ -23,9 +23,9 @@ These are proposed node-specific inputs for the future pipeline. Exact source re
 
 One `MusicPlanV1` aggregate containing sections, lyrics/concept, energy/timing intent, and a provider-neutral audio request.
 
-Sections have stable IDs and order. Planned timing is intent, not measured song timing: the analysis service derives exact timing only after song selection. Render adapts MusicPlan directly, joins stage-level song candidates, and promotes the exact approved selection.
+Sections have stable keys and order. Planned timing is intent, not measured song timing. The proposed `song-gen` tool consumes the validated saved MusicPlan, creates durable jobs and exposes candidates at `song-hitl`. Its save-selection operation is the sole writer of `song` inside HITL apply; there is no separate promotion node. ALM supplies timing evidence for exact audio bytes, with uncertainty, not guaranteed beat accuracy.
 
-Future music-plan/song feedback goes directly to Muse; Critic may only add optional recommendations. If that future pipeline retains an independent MusicPlan gate, a changed plan must be reviewed again before generation. Exact routes are reconciled at music-video activation; Muse cannot change submitted Brief or rights constraints silently.
+Song feedback goes directly to Muse: `muse → song-gen → song-hitl`. The proposed minimal route treats MusicPlan as supporting evidence, without a separate plan gate; selecting the song does not independently approve the plan. Muse cannot change the submitted Brief or rights constraints. Clarification explains the current result without a new plan; a complete valid revision returns to song review. Changing a song already approved upstream of visual work requires a new execution.
 
 ## Boundaries
 
@@ -36,10 +36,10 @@ Future music-plan/song feedback goes directly to Muse; Critic may only add optio
 
 ## Content And Quality Contract
 
-- Declare instrumental or vocal mode consistent with the approved Brief. Instrumental plans contain no sung lyrics; vocal plans contain original section lyrics, language, and delivery intent rather than placeholders or borrowed lines.
-- Give every section a distinct musical purpose and ordered place in the song. Anchor lyrics, instrumentation changes, energy progression, and planned timing to the same stable section IDs. Initial variable-section keys follow the common unit-identity contract; preserve supplied IDs on repair. The adapter owns persistent identities, digests, validation, and commits.
+- Declare instrumental or vocal mode consistent with the submitted Brief. Instrumental plans contain no sung lyrics; vocal plans contain original section lyrics, language, and delivery intent rather than placeholders or borrowed lines.
+- Give every section a distinct musical purpose and ordered place in the song. Anchor lyrics, instrumentation changes, energy progression and planned timing to the same stable section keys; preserve corresponding keys on repair. Initial key allocation must be defined with MusicPlan. The adapter owns persistent identities, digests, validation and commits.
 - Specify instrumentation roles and meaningful energy changes, not only genre adjectives. Planned section windows/durations must form a coherent timing skeleton within the Brief's duration constraints; they are not measured timestamps or a claim of beat accuracy.
-- Only the analysis service establishes measured section/lyric timing for the exact selected song. Analysis supplied on repair is evidence of that song, not measured timing for a new generation.
+- Only the analysis service supplies observed section/lyric timing for exact audio. Analysis supplied on repair is evidence of that candidate, not measured timing for a new generation. Missing evidence must not become invented timestamps.
 - Apply each inspiration source's `take`/`ignore` and rights constraints explicitly: use only permitted abstract attributes and exclude forbidden imitation. Missing or contradictory required mode, rights, or creative direction yields `needs_input`; a repair requiring a changed Brief or rights grant yields `out_of_scope`.
 - Follow the [common outcome contract](README.md#common-contract): `ready` contains one typed `MusicPlanV1` candidate, not approval or a provider request execution.
 
@@ -49,14 +49,18 @@ These are design acceptance checks, not implemented tests.
 
 - Instrumental request: ordered sections specify instrumentation, energy, and planned timing without lyrics or vocal imitation. Vocal request: each lyrical section has original text attached to its stable section ID.
 - A reference permits syncopated percussion but ignores its chorus and singer identity: the plan uses the rhythmic attribute without copying words, melody, or voice.
-- A planned 30-second section measures 34 seconds in the selected song: downstream timing uses service analysis, not Muse's estimate. A chorus repair preserves unaffected section IDs and returns a complete revised plan for music-plan approval.
+- A planned 30-second section measures 34 seconds in the selected song: downstream timing uses validated service evidence, not Muse's estimate. A chorus repair preserves corresponding section keys and returns a complete revised plan for generation and a new song review.
 
 ## Tools
 
-- No agent tools. Music-chunk projections, optional bounded ALM/audio analysis, and resolved media are input supplied by the adapter, not agent calls.
+Proposed `song-gen`, dispatched by the following graph node after plan validation/persistence under [plan-first tool dispatch](../tools/tools.md#generation-tool-calls). Muse supplies semantic intent, never raw provider calls, polling or selected-result writes. A native model tool call is optional and must match that same saved plan. Context projections and bounded ALM evidence arrive through the adapter.
+
+## Open Before Activation
+
+Music Brief/MusicPlan fields, section-key allocation, audio profile capabilities and song-review actions remain proposed. [ALM](../features/alm.md) is a service concept; candidate listening/analysis, confidence and timing correction need a concrete policy. Timed visual-unit planning belongs to Storyboard, not a second Muse story output.
 
 ## Minimal System Prompt
 
 ```text
-You are Muse, Kinodel's original music concept director. Build a provider-neutral instrumental or vocal plan from the approved brief and explicitly permitted inspiration attributes. Anchor original lyrics, instrumentation, energy, and planned timing to stable sections; never claim measured timing. Preserve rights and take/ignore constraints without copying melody, lyrics, voice, or artist identity. For repair, use the exact prior output and RevisionRequestV1. Return ready with one MusicPlanV1 candidate, needs_input for missing or contradictory required creative input, or out_of_scope for revisions beyond your ownership. Do not call tools, persist output, or route the pipeline.
+You are Muse, Kinodel's original music concept director. Build a provider-neutral instrumental or vocal plan from the submitted brief and permitted inspiration attributes. Anchor original lyrics, instrumentation, energy and timing intent to stable sections; never invent measured timing. Preserve rights and take/ignore constraints without copying melody, lyrics, voice or artist identity. For repair, use the exact prior plan, reviewed song evidence and direct feedback. Return ready with one complete MusicPlanV1 candidate for the song-gen tool, needs_input for missing or contradictory input, or out_of_scope for changes beyond your ownership. Do not call providers, wait for generation, select songs, persist output or route the graph.
 ```
