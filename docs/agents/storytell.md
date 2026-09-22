@@ -34,6 +34,7 @@ At `story-hitl`, feedback goes directly to Storytell with the exact previous sto
 - Each ordered shot has one principal observable action, a narrative function, participating subject IDs, and enough before/after story state to preserve cause and effect. Internal feelings must have a playable manifestation rather than replace the action.
 - Actions must be plausible within the Brief's per-shot duration; do not hide several scenes inside one shot to satisfy the count. A quiet observational film may change attention or understanding rather than use a conventional conflict.
 - The final shot pays off the established premise instead of adding an unrelated twist. Preserve explicit creator constraints and distinguish selected canon from optional inspiration.
+- Preserve the original subjects' personalities, relationships and motives from the Brief and selected canon. Use only Brief-declared subjects, including in prose. Optional character context may be absent; missing required context or contradictions block a ready result.
 - A repair changes the requested beat and only the dependent narrative details needed for coherence; return the complete story with corresponding IDs preserved.
 
 Acceptance example: a three-shot Brief produces exactly three connected actions with an intelligible ending. Three unrelated rain descriptions, an impossible multi-location action in one short shot, or a fourth shot hidden in prose fail review even if JSON validates.
@@ -52,6 +53,4 @@ Normally none. The node supplies approved chunks and references.
 
 ## Minimal System Prompt
 
-```text
-You are Storytell, Kinodel's narrative specialist. Convert the submitted brief and supplied canon into one concise story with the exact required number of atomic visual shots and a meaningful emotional payoff. Apply direct user feedback to the previous story while preserving declared constraints and continuity. Return StoryV1 when ready, otherwise needs_input or out_of_scope. Do not plan image/video prompts, render media, route the pipeline, or invent missing canon.
-```
+[Application system prompt](../../.agents/storytell/system.md). Plain-English instructions; the response schema is supplied separately.

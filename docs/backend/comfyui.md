@@ -4,28 +4,11 @@ Status: **Provider/service design**
 
 ComfyUI is a first-class local or remote render backend. A large deterministic ComfyUI graph appears to Kinodel as one provider workflow with typed inputs, outputs, and capability metadata.
 
-Local projects remain in SQLite/files; registration uploads neither chats nor projects. Local direct ComfyUI imports an authorized output file or native `/view` download, verifies path/ownership/job/unit/size/type/digest and publishes managed candidate files plus DB metadata; no hosted order auth or bucket upload. Provider-neutral AssetRef/RenderResult does not make local paths trusted. Remote Kinodel compute receives only selected authorized job payload, stores order metadata in PostgreSQL and workflow/input/output in private GCS. All declared remote outputs upload/verify before success; lifecycle stays 365 days. MVP service order logs/durable identities have no scheduled deletion; final retention is #todo, workflow/input/prompt-body policy separate. Remote signed URLs are transient and import verifies bytes/order/unit/generation at the project owner; browser-hosted managed files stay server-side. Paid generated downloads have no arbitrary quota, technical validation/timeouts remain. Only review/promotion advances production. Proposed [hosted order DTOs](dto.md#endpoint-wire) are not native ComfyUI routes; open retention/transport topics are in [future](../features/future.md).
+Provider-neutral ports, validation, dependencies and selection belong to [Render](../tools/render.md); durable operations belong to [tools](../tools/tools.md). Local connection, native HTTP routes and verified import belong to [ComfyUI tool](../tools/comfyui-tool.md). Hosted storage, retention and order policy belong to [credits and storage](../database/credits-billing.md#результат-удалённого-рендера); [hosted order DTOs](dto.md#endpoint-wire) are not native ComfyUI routes.
 
 ## Contract
 
-Creative agents produce provider-neutral image/video/audio intent. The ComfyUI adapter owns:
-
-- workflow registration and versioning;
-- semantic-input to node-input mapping;
-- endpoint health/readiness;
-- upload and asset materialization;
-- submit, queue reconciliation, progress, cancellation where supported;
-- output discovery, download/import, and technical audit.
-
-## Rules
-
-- One workflow registry is authoritative; do not duplicate aliases in Python and JSON.
-- Every workflow declares accepted job kinds and required inputs.
-- Workflow version participates in the render job fingerprint.
-- Secrets, raw workflows, queue IDs, and logs stay out of creative artifacts.
-- A local `/view` URL is a preview, not durable asset identity.
-- Timeout may mean the GPU job still runs; reconcile queue/history before retry.
-- Provider health checks use real readiness endpoints and do not generate paid content.
+The adapter owns one authoritative versioned workflow registry, semantic-to-node mappings, readiness, input materialization, submission/reconciliation and verified output import. Do not duplicate aliases in Python and JSON. Workflow version participates in the job fingerprint; secrets, raw workflows, queue IDs and logs stay out of creative artifacts. Health checks use real readiness endpoints without generating paid content; provider paths/URLs are not durable asset identities.
 
 ## Profile Selection
 
@@ -38,11 +21,7 @@ This is a deterministic adapter rule, not an LLM provider choice or a claim that
 
 Freeze effective profile versions/digests with submitted Brief at Run. Generation tools resolve those pins without upgrading/reselecting on retry. Unavailable configuration blocks generation. Concrete defaults, workflows and live integration checks remain pending.
 
-The first anchor sequence generates one portrait candidate, binds its exact bytes/digest to the sheet request, then generates an independent location, without intermediate human selection. Verify that binding and all three reference roles on the actual shot workflow. A new seed is an explicit regeneration, not technical retry; changed parent images require new dependent requests. Broader text/image/video/audio combinations follow the same [Render port contract](../agents/render.md), not planner-name branches in the provider adapter.
-
-The visible service node exposes semantic typed ports; these declarations do not prove the deployed workflow maps or uses them correctly. Multiple named image inputs prove neither preservation of character identity nor creative quality: verify actual role delivery on the pinned live workflow and inspect portrait-to-sheet and multi-reference shot results. Human review remains required. Static preflight checks registered declarations; concrete generated plan values, reference counts, access and dependencies are checked before provider effects under the [Render validation boundary](../agents/render.md#input-and-output-contract).
-
-## Workflow Submission
+Declarations prove neither actual role delivery nor creative quality. Verify exact portrait-to-sheet binding and all three reference roles on the pinned live shot workflow; inspect generated results. Human review remains required. Validate concrete plans before provider effects under the [Render validation boundary](../tools/render.md#input-and-output-contract).
 
 ## Audited Workflow Profiles
 
@@ -58,9 +37,9 @@ The profile leads below were audited 2026-09-09. Recheck mappings against the ch
 
 These are audit leads, not registered profiles. The adapter must validate API graph shape, links, installed node schemas, model availability, output MIME, and endpoint execution before freezing a profile. No numeric capability or seed mapping is claimed from editor JSON alone.
 
-The requested integration is an HTTP submission of `workflow.json` to ComfyUI. No custom webhook is configured or specified yet. Native local ComfyUI already provides `POST /prompt`: send a JSON body `{"prompt": <resolved API-format node graph>, "client_id": <persisted client identifier>}`, not a filename, multipart workflow upload, or editor-format `nodes`/`links` document. Record the returned `prompt_id`; inspect `GET /queue` and `GET /history/{prompt_id}`, then fetch declared outputs through `/view`. WebSocket events are optional progress hints, not durable completion. Cloud/proxy paths and authentication must be verified for the deployed endpoint rather than copied from local examples.
+## Workflow Submission
 
-If "webhook" means a separate gateway rather than this native HTTP route, its URL, authentication, payload/response, status lookup, and retry semantics remain deployment inputs. Do not invent a `/webhook` endpoint or insert a gateway as a mandatory layer. Any configured gateway must preserve the same job ownership and ambiguous-acceptance rules below.
+Use the [native HTTP path](../tools/comfyui-tool.md#native-http-path). No custom webhook is configured; a separate gateway requires verified URL/auth, payload/response, status and retry semantics while preserving job ownership and ambiguous-acceptance rules. Do not invent a `/webhook` route or require a gateway. WebSocket events are progress hints, not durable completion.
 
 Before submission the adapter must:
 
@@ -75,7 +54,7 @@ Freezing a request and seed preserves request identity, not a promise of bit-ide
 
 The [skill](../../skills/comfyui-skill/SKILL.md) and [REST reference](../../skills/comfyui-skill/references/rest-api.md) provide toolkit guidance, not project workflow selection; their legacy `render-kinodel`/backup-provider wording does not override current service ownership. `ComfyRunner.submit()` wraps a graph for HTTP but does not implement Kinodel's durable submission protocol.
 
-Before enabling rendering, test mapping and frozen-seed replay offline, then verify upload -> submit -> queue/history -> import on the configured server and inject a lost response/restart. These checks and actual workflows remain pending; no provider was executed by this documentation audit. Native route reference: [ComfyUI server routes](https://docs.comfy.org/development/comfyui-server/comms_routes), [API examples](https://docs.comfy.org/development/comfyui-server/api-examples). Pin and test the deployed server version rather than treating current upstream behavior as its guarantee.
+Before enabling rendering, test mapping and frozen-seed replay offline, then verify upload -> submit -> queue/history -> import on the configured server and inject a lost response/restart. Checks remain pending; no provider was executed by this documentation audit. [ComfyUI tool](../tools/comfyui-tool.md) records route sources; pin and test the deployed version rather than treating upstream behavior as its guarantee. Build acceptance lives in [Local MVP](../roadmap-mvp.md#provider-setup).
 
 ## ALM
 

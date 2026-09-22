@@ -128,7 +128,7 @@ The full trace belongs to the prepared Project DB operation before the model cal
 
 Run freezes submitted Brief/effective profiles, declarations, resources and overrides, not future generated context. Operation preparation pins exact resources/generated refs and relevant node feedback. Discussion is stored outside graph state and never passed wholesale downstream. UI instruction overrides cannot edit the trusted contract. See [freeze layers](../backend/artifacts.md#freeze-layers).
 
-Adapters supply consumer-specific typed content beside the trace reference: narrative canon for Storytell/Season/Episode; identity/appearance for Wardrobe/Storyboard; motion/voice for Filmmaker; rights-safe music inspiration for Muse; optional editing lessons for Montage. Craft reads declared exact source projections directly; Render and Montage execution consume plans/assets, not creative-memory search. No universal prompt-content envelope is required.
+Adapters supply consumer-specific typed content beside the trace reference: narrative canon for Storytell/Season/Episode; identity/appearance for Wardrobe/Storyboard; motion/voice for Filmmaker; rights-safe music inspiration for Muse. Render and MVP Montage consume plans/assets, not creative-memory search. Future memory publication maps exact selected sources without a Craft agent. No universal prompt-content envelope is required.
 
 New context requires a new authorized activation or execution, never a changed selection under the same operation ID. Within foundation/V1, feedback cannot silently replace approved ancestor canon; if outside the current repair path, start a new execution with adjusted Brief/context. Reindexing is an administrative derived-data operation, not a graph transition, approval, or reason to rebuild a prepared selection.
 
@@ -168,7 +168,7 @@ Custom-agent recommendations may enter only through a declared receiving role, a
 
 ## Prompt Assembly
 
-Keep system instructions separate from data:
+Keep system instructions in [`.agents/`](../../.agents/README.md) separate from data. `docs/agents/` contains developer contracts, not injected model context. Use the selected concise prompt and compatible bounded guidance; do not append the full prompt-engine source guides when their relevant guidance is already incorporated.
 
 ```text
 SYSTEM CONTRACT

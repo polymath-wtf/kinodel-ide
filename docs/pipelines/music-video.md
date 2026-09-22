@@ -77,6 +77,6 @@ Resolve explicit selected music/character/cinema references through [direct cont
 - Song listening/selection UI, permitted actions and whether plan review is useful; ALM evidence before/after selection and correction of uncertain timing.
 - Section-to-visual-unit schema, stable-key allocation, timed Storyboard/Filmmaker adapters and duration-capacity checks.
 - Audio-aware montage policy, validation and any separate final creative review.
-- Optional Craft publication as `MusicVideoChunkV1` or `MusicChunkV1`: separate explicit memory approval, never an automatic completion step.
+- Optional memory publication as `MusicVideoChunkV1` or `MusicChunkV1` through a service/tool: separate explicit memory approval, never an automatic completion step or required Craft agent.
 
 These are activation questions, not additions to the [local MVP checklist](../roadmap-mvp.md). Suggested future checks: a 30-second planned section measuring 34 seconds uses measured evidence; stale song selection is rejected; changing a song cannot reuse its old timing; incompatible clip durations block rather than silently cutting the song.

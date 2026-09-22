@@ -6,9 +6,9 @@ Decision, 2026-09-09: SQLite local and PostgreSQL server are selected. The [loca
 
 The runtime reliably delivers authorized work to an explicit LangGraph graph. It does not independently choose production stages. The target is recoverable execution with idempotent business commits, not exactly-once model/provider calls.
 
-## First Deployment
+## Deployment Profiles
 
-Use CPython 3.13 (verified patch 3.13.15), FastAPI, Pydantic v2 and Uvicorn. Local: SQLite, managed local data directory, API and one background graph runner in one application process. Server: PostgreSQL, managed server storage and separate API/worker entry points; begin with one worker and support multiple workers through execution ownership. The SQLite dependency smoke check passes; application ownership/recovery integration and PostgreSQL verification remain #todo. Redis, Celery, a graph compiler, and an event bus are not needed.
+The first user build is local: CPython 3.13 (verified patch 3.13.15), FastAPI, Pydantic v2, Uvicorn, SQLite and a managed data directory; API and one background graph runner share one application process. Hosted is a later activation: PostgreSQL, managed server storage and separate API/worker entry points; begin with one worker and support multiple workers through execution ownership. The SQLite dependency smoke check passes; application ownership/recovery integration and PostgreSQL verification remain #todo. Redis, Celery, a graph compiler, and an event bus are not needed.
 
 | Component | Owns |
 |---|---|
@@ -16,7 +16,7 @@ Use CPython 3.13 (verified patch 3.13.15), FastAPI, Pydantic v2 and Uvicorn. Loc
 | worker | sole graph invocation path; claim, start, resume, recover, finalize cancellation |
 | authored graph | stage routing, typed node updates, checkpoints and interrupts |
 | node adapter | exact input preparation, bounded agent call, validation, idempotent commit |
-| Project DB | work, operations, bindings, requests, terminal outcomes, controls, later jobs |
+| Project DB | work, operations, bindings, requests, terminal outcomes, controls; jobs added with rendering within the MVP |
 | managed files | immutable validated artifact/media bytes; never scheduling |
 
 The API returns an accepted execution/request/work identity after its transaction. HTTP completion, browser disconnect, and streaming lifetime never own graph execution. Additional server workers use the server claim protocol; the local profile does not allow a second active runner.

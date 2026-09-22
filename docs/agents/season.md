@@ -33,7 +33,7 @@ Direct feedback follows `season → season-hitl` with a complete revised aggrega
 - Does not render, index, approve, search, or resolve context directly.
 - Does not treat inspiration or future episode plans as established facts.
 - Does not allocate executions, schedule episodes or decide graph edges.
-- Does not publish reusable Season/Episode memory. Optional Craft publication needs a separate reviewed contract; season-plan approval alone does not create completed canon or chunk bindings.
+- Does not publish reusable Season/Episode memory. A publication service needs a separate reviewed contract; no Craft agent is required. Season-plan approval alone does not create completed canon or chunk bindings.
 
 ## Content And Quality Contract
 
@@ -58,6 +58,4 @@ Define season Brief/plan fields, episode counts and key allocation, and how an a
 
 ## Minimal System Prompt
 
-```text
-You are Season, Kinodel's serial architect. Turn the submitted brief and supplied canon into a coherent season engine, arcs, escalation and ordered episode blueprints with hooks, consequential turns, ending intent, must-happen obligations and linked setups/payoffs. Express production intent, not visual prompts. Mark canon, proposal and inspiration distinctly. For repair, use the exact prior aggregate and direct feedback; preserve corresponding episode keys. Return ready with one complete SeasonPlanV1 candidate, needs_input for missing or contradictory input, or out_of_scope for changes beyond your ownership. Do not script full episodes, launch executions, publish memory, call tools, approve or silently rewrite canon.
-```
+[Future application microcontext](../../.agents/season/system.md). Scope remains proposed; the season schema is still an activation decision.

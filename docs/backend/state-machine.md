@@ -48,7 +48,7 @@ The [freeze layers](artifacts.md#freeze-layers) distinguish Run/submitted Brief/
 
 ## Checkpoint Projection
 
-`ExecutionStateV1` is implemented as a Python `TypedDict`; boundary DTO use Pydantic. The contract is a compact JSON-serializable projection:
+Implement `ExecutionStateV1` as a Python `TypedDict`; boundary DTO use Pydantic. The target contract is a compact JSON-serializable projection; the application schema is not implemented yet:
 
 | Field | Content |
 |---|---|
@@ -75,7 +75,7 @@ Compute the view in this priority order from durable records and the most recent
 | `completed` / `cancelled` / `failed` | immutable terminal receipt | final execution outcome |
 | `cancelling` | accepted cancel control without terminal receipt | stopping, provider cancellation may still be pending |
 | `blocked` | durable nonterminal work block with reason and permitted action | cannot safely continue; retry/cancel or required corrective action |
-| `running` | claimed/runnable work, including an accepted decision not yet settled | preparing, creating, recovering, or applying feedback |
+| `running` | claimed work or runnable continuation, including an accepted decision not yet settled; excludes an unclaimed initial start | preparing, creating, recovering, or applying feedback |
 | `waiting_review` | durable actionable review interrupt without accepted response | approve, revise, clarify, or cancel |
 | `waiting_job` | group wait with outstanding provider work and no runnable graph work | generation in progress externally |
 | `created` | accepted start, not yet claimed/checkpointed | queued to start |
@@ -111,7 +111,7 @@ Stage display distinguishes `not_started`, `running`, `waiting_review`, `waiting
 | binding/selection | is this the currently selected output of the declared owner? |
 | publication | is this memory revision available through an approved chunk binding? |
 
-An artifact can be historically approved but stale now. A rendered candidate can be technically valid but neither selected nor promoted. A final film may be approved while its memory draft is unapproved. These combinations are intentional, not contradictory statuses. See [artifacts.md](artifacts.md) for checks and transitive invalidation.
+An artifact can be historically approved but stale now. A rendered candidate can be technically valid but neither selected nor promoted. A future memory-enabled pipeline may have an approved final film and an unapproved memory draft; the current cinematic has neither final-film nor memory review. These combinations are intentional, not contradictory statuses. See [artifacts.md](artifacts.md) for checks and transitive invalidation.
 
 ## Invariants
 

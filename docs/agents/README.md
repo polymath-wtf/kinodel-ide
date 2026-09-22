@@ -1,6 +1,6 @@
 # Agent Catalog
 
-Status: **Contracts for implementation, not deployed agents.** Agents reason inside LangGraph nodes; generation tools perform side effects after validated plans. [Cinematic](../pipelines/cinematic.md) owns the exact MVP route.
+Status: **Domain contracts; system prompts authored, runtime integration pending.** [`.agents/`](../../.agents/README.md) owns concise model instructions. This directory owns inputs, outputs, ownership and acceptance for developers, not context to paste into agents. [Cinematic](../pipelines/cinematic.md) owns the exact MVP route.
 
 ## Capabilities
 
@@ -10,12 +10,11 @@ Status: **Contracts for implementation, not deployed agents.** Agents reason ins
 | [Wardrobe](wardrobe.md) | Anchor direction/prompts; generated result `anchor_frames` through its tool | MVP |
 | [Storyboard](storyboard.md) | Shot image plans; `story_frames` through its tool | MVP |
 | [Filmmaker](filmmaker.md) | Video motion plans; `shot_videos` through its tool | MVP |
-| [Render](render.md) | Shared generation tool service, no LLM persona | MVP |
-| [Montage](montage.md) | Deterministic assembly tool | MVP; creative agent later |
 | [Producer](producer.md) | Optional brief preparation/assistance | Later; not a mandatory Brief node |
 | [Critic](critic.md) | Optional recommendations for user consideration | After MVP |
-| [Craft](craft.md) | Draft reusable memory for separate publication | Later |
 | [Muse](muse.md), [Season](season.md), [Episode](episode.md) | Other creative pipelines | Later, reconcile at activation |
+
+[Render](../tools/render.md), [Montage](../tools/montage.md) and [memory publication](../tools/memory.md) are tools/services, not agents. Production result saving already belongs to node adapters; it needs no Craft call. Future agents have micro-context only and are not enabled in cinematic MVP.
 
 ## Common Contract
 
@@ -45,7 +44,7 @@ User feedback follows the [HITL revision contract](../hilp/hilp.md#revision-cont
 
 Use one bounded structured model response per operation, with bounded output repair. A static capability record pins instructions, schemas, permitted tools, model modalities and budgets. Wardrobe/Storyboard/Filmmaker have only their declared generation tool, dispatched by the next graph node from the saved plan. They neither poll jobs nor select provider endpoints. [Tools](../tools/tools.md) defines optional native tool-call handling without a second execution path.
 
-No marketplace, universal handoff dictionary or agent framework is required. Build the enabled prompts/resources under `.agents/` with their actual implementation; the directory is not another scheduler.
+No marketplace, universal handoff dictionary or agent framework is required. The authored [prompt index](../../.agents/README.md) lists one folder per agent; schemas, model bindings and runtime registration remain implementation work. Do not inject this catalog or backend contracts into model context.
 
 ### Consumer Context
 

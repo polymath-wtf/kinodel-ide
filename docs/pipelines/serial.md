@@ -69,7 +69,7 @@ Acts are narrative structure, not automatically graph nodes, subgraphs or anchor
 - Ordinary supersede does not mutate a running execution's pinned context. Rights withdrawal, missing bytes or lost authorization still block use. New runs explicitly select revised continuity.
 - Revising completed episode N does not silently rewrite N+1. Existing outputs retain provenance; any downstream reproduction or continuity migration needs an explicit new flow.
 
-The source and human review of completed continuity are activation blockers for a continuity-dependent next episode. Craft may eventually draft that memory, but a mandatory Craft chain, aggregate publication transaction and final-memory gate are not defined by this concept.
+The source and human review of completed continuity are activation blockers for a continuity-dependent next episode. A future memory feature can prepare it from exact source fields and reviewed claims without a Craft agent; an aggregate publication transaction and final-memory gate are not defined by this concept.
 
 ## Revision Routes
 

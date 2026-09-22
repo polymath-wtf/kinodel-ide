@@ -24,7 +24,7 @@
 
 ## Promotion И Очистка
 
-Сохранение выбранных media следует [promotion protocol](../backend/artifacts.md#candidates-and-promotion); final asset — контракту [Montage](../agents/montage.md). Существование файла не меняет статус approval или memory publication.
+Сохранение выбранных media следует [promotion protocol](../backend/artifacts.md#candidates-and-promotion); final asset — контракту [Montage](../tools/montage.md). Существование файла не меняет статус approval или memory publication.
 
 GC удаляет только eligible unreferenced bytes без live pins, с сериализацией против publication/promotion. Учитываются все retained revisions, contexts, chunks, source refs и будущие child executions, не только current bindings. Rejected attempts остаются историей по retention. Пока pin/GC races не испытаны, автоматическую orphan cleanup не включаем. Межпроектную физическую дедупликацию не вводим: одинаковый hash не объединяет права.
 

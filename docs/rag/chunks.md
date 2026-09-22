@@ -1,10 +1,10 @@
 # Creative Chunks
 
-Status: **Domain contracts, introduced with their pipelines**
+Status: **Future domain memory; no publication in the cinematic MVP.** Type contents below are design proposals, not executable schemas or mandatory pipeline stages.
 
 A creative chunk is approved reusable production memory. It is a typed artifact with exact provenance, not an embedding row, arbitrary Markdown note, chat summary, or process archive.
 
-Think of it as a **reusable creative card**, not a piece cut out of text. Retrieval passages are disposable search projections; consumer projections are bounded views of the card for a particular specialist. Neither has an independent approval or canonical binding. Chunks use the existing artifact storage and library bindings, not a second LangGraph Store copy or a separate database per chunk type.
+Think of it as a **reusable creative card**, not a piece cut out of text or a runtime node. Retrieval passages are disposable search projections; consumer projections are bounded views for a specialist. Neither has an independent approval or canonical binding. Chunks use existing artifact storage and library bindings, not a second LangGraph Store copy or a database per type.
 
 These are future library contracts. The current cinematic MVP ends with a technically verified assembly of approved shots, without final-film review or memory publication. References below to final approval describe prerequisites of future memory-enabled pipelines, not an existing gate. Before enabling Cinema publication, reconcile its final-source acceptance and anchor selection with the then-current cinematic contract; do not silently treat completion as approval.
 
@@ -21,9 +21,7 @@ Every chunk records or references:
 - facts and continuity constraints needed by declared consumers;
 - the prior chunk revision it supersedes when applicable.
 
-Project DB `chunk_bindings` map each reusable logical subject to its active approved artifact revision, status, and optimistic revision. Supersede and archive retain immutable history; archive excludes new normal selection. Existing executions retain exact pinned revisions on ordinary supersede/archive while retained data and rights permit use. Rights withdrawal immediately blocks use, including already prepared selections. Purge tombstones the logical identity, removes its body and derived projections under retention policy, and makes future resolution fail closed.
-
-Chunk purge removes shared media bytes only when no retained artifact, chunk, or live operation references/pins them and retention permits deletion. Removing one chunk is not authorization to destroy another production's assets. A rights-wide purge is a separate explicit policy action; it must block affected references even if retention requires keeping restricted audit data. Cleanup follows the Artifact Store publication/GC protocol.
+Project DB `chunk_bindings` map each logical subject to its active approved artifact revision, status and optimistic revision. [Knowledge lifecycle](../database/knowledge-wiki.md#lifecycle-и-приёмка) owns supersede/archive/withdrawal/purge: ordinary updates retain pinned history; withdrawal blocks even prepared use. Deleting a chunk never independently authorizes deleting shared production media; [artifact storage](../backend/artifacts.md#managed-project-storage) owns pins and cleanup.
 
 Index text, embedding profiles, provider payloads, prompts, chat logs, retry history, and base64 media are not canonical chunk fields.
 
@@ -31,20 +29,16 @@ Index text, embedding profiles, provider payloads, prompts, chat logs, retry his
 
 ```text
 approved source artifacts and selected assets
--> Craft creates one typed chunk candidate artifact
+-> memory feature maps selected fields and creator-authored claims into one typed candidate
 -> schema, provenance, rights, and source-claim validation
 -> lightweight human memory review
 -> promote as the active approved chunk revision
 -> derive consumer projections and, later, search records
 ```
 
-Approval of a film or episode authorizes Craft to draft memory, but does not approve an unseen summary as future canon. The gate reviews that one candidate artifact; deterministic promotion updates its `chunk_binding`. Until then it is not available through `@@chunk` or pipeline-required context. Updating memory creates a new immutable revision; it never edits history in place.
+A future memory feature explicitly selects eligible production sources; completion alone does not trigger publication. No Craft agent is required. Human review approves the candidate's reusable claims, not an unseen summary. Publication rechecks source acceptance, rights, dependency closure and expected binding revisions; it publishes those exact reviewed bytes. Only then is the revision available through `@@chunk` or required library context. Supporting plans remain intent, not observed fact. Personal taste needs [separate explicit acceptance](../database/knowledge-wiki.md#lifecycle-и-приёмка).
 
-Film or memory approval does not authorize inferred global taste changes. Taste suggestions require [separate explicit user acceptance](../database/knowledge-wiki.md#lifecycle-и-приёмка); personal preferences stay private and are selected explicitly, not automatically updated or injected into every film. The `taste.md` filename/editor details remain open, not the approval requirement.
-
-Validation, freshness, approval, selection/promotion, and publication remain independent. Craft may inspect exact validated plans/timing analysis as supporting provenance, but result approval does not independently approve those artifacts or make planned intent a completed fact. The memory gate reviews new reusable claims. Promotion rechecks subject/activation/dependency closure, source approvals, rights, and expected chunk-binding revisions; it publishes only the reviewed bodies, never another model-generated summary.
-
-Future memory revision follows direct user feedback -> Craft -> the same gate; optional Critic recommendations do not dispatch edits. Craft can explain an out-of-scope request without replacing the draft. Rewriting approved production sources requires a new execution; historical approval cannot authorize publication after rights or source validity fail.
+Future memory revision edits the typed candidate and returns it to the same review; saving and publication are service operations, not reasoning tasks. Missing required evidence blocks publication rather than inventing claims. Rewriting approved production sources requires a new execution; historical approval cannot authorize publication after rights or source validity fail.
 
 ## Media Handles
 
@@ -67,9 +61,7 @@ For example, a face reference may authorize identity and hair while explicitly e
 
 ## Compact Projections
 
-The canonical chunk is not pasted wholesale into every prompt. Deterministic, versioned projection functions expose only the fields and media handles required by a consumer. Missing mandatory projection data blocks the invocation; optional inspiration may be omitted with a recorded reason.
-
-The prepared operation freezes exact source revisions and projection versions/digests. Checkpoints hold only a selection reference; adapters hydrate typed content and verify it on retries. `pinned_revision` shared canon does not follow a new active chunk binding automatically. New context needs a new authorized activation/execution; reindexing cannot approve, publish, or advance a graph.
+The [context resolver](../context/context.md#contextselectionv1) freezes exact revisions and versioned consumer projections on the prepared operation. Required canon cannot disappear to fit a budget. Retry rehydrates that selection; a new library revision or index does not change it. The content/consumer sections below define what is useful to project, not a second selection protocol.
 
 ## `CharacterChunkV1`
 
@@ -77,7 +69,7 @@ The prepared operation freezes exact source revisions and projection versions/di
 
 **Canonical content:** stable character ID and aliases; user-approved identity and narrative traits; visual identity, silhouette, age impression, face/hair features; baseline wardrobe; voice and motion traits when available; relationships and canon constraints; `must_preserve` and prohibited drift; approved image/video/audio handles; optional training reference metadata without provider activation syntax.
 
-**Creation:** imported character Markdown/assets or approved character design becomes a Craft candidate and receives its own human memory review. A demo `.md` remains a source until this promotion occurs.
+**Creation:** explicit source-field mapping and creator edits turn imported character Markdown/assets or approved design into a typed candidate for human memory review. A demo `.md` remains a source until this promotion occurs.
 
 **Consumers and projections:**
 
@@ -93,11 +85,11 @@ The prepared operation freezes exact source revisions and projection versions/di
 
 **Purpose:** reusable memory of one completed cinematic production, primarily as explicit inspiration for future work.
 
-**Canonical content:** approved hook and story summary; visual language; selected main frame as the primary style/identity anchor; ordered promoted story frames and clips; final video; concise carry-forward lessons; reuse rights and prohibited imitation.
+**Canonical content:** approved hook and story summary; visual language; explicitly selected style/identity media handles; ordered promoted story frames and clips; final video; concise carry-forward lessons; reuse rights and prohibited imitation. Selecting a representative image for memory does not restore the retired production `main_frame` slot.
 
-**Creation:** after final video approval, Craft drafts the chunk from exact approved artifacts and promoted assets; memory review publishes it.
+**Creation:** source eligibility and explicit creator acceptance of the assembled final must be defined when memory is enabled, because current cinematic has no final-film gate. The memory feature maps exact sources and creator-supplied claims into a candidate; memory review separately approves publication.
 
-Each reusable claim retains the minimal [Cinema claim evidence](../agents/craft.md#cinema-claim-evidence): labelled intent/measured/observed basis and exact field or inspected-media citations. Selected frame/clip handles derive from exact RenderResult unit entries; final-film claims cite the final asset, not merely planned motion or source clips. These are semantic requirements; executable cinema schemas and evidence validators remain pending.
+Each reusable claim retains the minimal [Cinema claim evidence](../tools/memory.md#cinema-claim-evidence): labelled intent/measured/observed basis and exact field or inspected-media citations. Selected frame/clip handles derive from exact RenderResult unit entries; final-film claims cite the final asset, not merely planned motion or source clips. These are semantic requirements; executable cinema schemas and evidence validators remain pending.
 
 **Consumers:** Storytell, Wardrobe, Storyboard, Filmmaker, Montage, Muse, or Season only when the creator/pipeline explicitly selects a relevant projection. It is not mandatory context for a new cinematic by default.
 
@@ -121,11 +113,11 @@ Each reusable claim retains the minimal [Cinema claim evidence](../agents/craft.
 
 **Canonical content:** premise and repeatable story engine; world/canon rules; tone and provider-payload-neutral production defaults; exact CharacterChunk refs; character and relationship arcs; escalation, setups, and payoffs; ordered episode blueprints and statuses; approved visual/audio anchors.
 
-**Creation:** after approval of `SeasonPlanV1`, the per-episode VisualAnchorPlan, and selected episode anchors, Craft creates one `SeasonMemoryDraftV1` containing the proposed Season body and ordered planned Episode bodies. One gate reviews this aggregate stage output, not a bundle of independently owned artifacts. Deterministic promotion stages immutable bytes and then commits the separate chunk metadata/bindings and operation result atomically in the DB, checking every expected revision. Each output records its exact approved draft and body mapping; no additional creative call occurs during promotion. This does not claim atomicity between files and DB.
+**Creation, unresolved:** [serial](../pipelines/serial.md#episode-breakdown-and-execution) first approves one SeasonPlan; target episodes may use exact blueprint projections or separately published chunks. The earlier `SeasonMemoryDraftV1` aggregate is an option only if chunk publication is chosen. Then one memory review covers the proposed Season/Episode bodies and deterministic publication commits their bindings atomically after file publication, without another model call. Per-episode anchors and a separately approved VisualAnchorPlan are not prerequisites of the current serial concept.
 
 **Consumers and projections:** Episode receives season spine, target blueprint, relevant character/relationship subset, production continuity, and selected anchors. A later Season pipeline may receive a prior season projection only for an explicit continuation.
 
-**Injection:** mandatory at continuity validation and Episode story creation; visual agents receive bounded episode-specific projections rather than the whole season.
+**Injection:** if this chunk-based path is activated, supply its bounded season/episode projection before Episode creation; otherwise use the exact approved plan projection declared by serial. Visual agents receive only relevant continuity.
 
 ## `EpisodeChunkV1`
 
@@ -141,9 +133,9 @@ Contains compact recap; exact ending state; character and relationship deltas; w
 
 The completed revision is drafted only after final episode approval and then receives memory review. It does not overwrite the historical planned revision.
 
-Stable episode identity is separate from revision role. An execution pins its target planned revision and corresponding season blueprint ID explicitly; promotion of a completed revision into the active shared binding does not replace that input. Do not use an ambiguous latest Episode lookup or require the upstream SeasonPlan to reference chunks that do not exist yet. A later approved continuity revision is selected by a new authorized execution rather than silently patched into running episodes.
+Stable episode identity is separate from revision role. If chunks are enabled, pin the target planned revision and corresponding season blueprint ID; publication of a completed revision does not replace that input. Never require SeasonPlan to reference chunks that do not exist yet. Exact blueprint projections remain the other open serial option. Later continuity changes require a new authorized selection.
 
-**Injection into episode N:**
+**Proposed injection into episode N when the chunk-based path is chosen:**
 
 - approved `SeasonChunkV1` selected and pinned for this execution: mandatory;
 - target planned episode revision: mandatory;
@@ -160,11 +152,13 @@ Wardrobe, Storyboard, and Filmmaker receive only the current visual/physical sta
 
 **Canonical content:** exact selected song artifact and rights; final timing map; approved visual concept and style frame; ordered promoted frames/clips; montage plan/result and final video; reusable audiovisual lessons; forbidden reuse.
 
-**Creation:** after final video approval, Craft drafts the chunk and memory review publishes it.
+**Creation:** after final video approval, the memory feature prepares a typed candidate from selected fields and evidenced creator claims; memory review authorizes publication.
 
 **Consumers:** future Muse, Wardrobe, Storyboard, Filmmaker, or Montage stages only as explicitly selected inspiration. Saving its generated song as `MusicChunkV1` is a separate reviewed promotion.
 
 ## Pipeline Injection Matrix
+
+Future consumer map, conditional on each memory-enabled pipeline. It does not require these chunks or library tables in the current cinematic build; serial's projection-versus-publication choice remains open.
 
 | Pipeline stage | Required chunks | Optional explicit chunks |
 |---|---|---|
@@ -175,8 +169,8 @@ Wardrobe, Storyboard, and Filmmaker receive only the current visual/physical sta
 | serial episode visual/motion | bounded character and episode-state projections | approved style inspiration |
 | music-video Muse | none unless selected by Brief | music, character, cinema inspiration |
 | Render | none | none; deterministic adapters consume exact FramePlan/MotionPlan/MusicPlan and assets |
-| Montage | none | bounded cinema editing lessons only when explicitly selected; execution service consumes exact approved assets |
-| Craft | none through discovery | reads exact approved sources and labelled supporting provenance through prepared direct projections |
+| Montage | none | none in MVP; execution service consumes exact approved assets; editing lessons require a future creative editor |
+| Memory publication service | none through discovery | maps exact selected source fields and reviewed claims; no agent context |
 
 ## Attention And Token Cost
 

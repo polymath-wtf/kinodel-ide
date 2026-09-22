@@ -31,6 +31,8 @@ Node discussion is the UI for revise/clarify. The selected action disambiguates 
 
 `needs_input` or `out_of_scope` returns an explanation on the unchanged subject. Editing an approved ancestor requires a new run; the current owner cannot quietly rewrite another stage. `RevisionRequestV1` is trusted feedback context prepared by the application, not a required Critic report. No separate revision engine/table is needed.
 
+After clarification or a non-ready revision, persist the owner's response and re-enter prepare/wait with a **new request** linked to the previous one and the unchanged subject. The accepted old request stays consumed; never reopen it or reuse its interrupt. Request revision advances, output version does not, and action budgets do not reset. A ready revision instead opens the next request on the new result/set.
+
 ## Foundation Routes
 
 The authoritative destinations are [cinematic revision routes](../pipelines/cinematic.md#revision-routes). Brief is submitted input, not another gate. The four MVP reviews belong to Storytell, Wardrobe, Storyboard and Filmmaker. There is no final-film or memory gate in this route.

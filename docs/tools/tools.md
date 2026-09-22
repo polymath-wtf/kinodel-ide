@@ -10,7 +10,7 @@ Status: **Accepted MVP boundary; implementation pending.** Agents create typed c
 | Storyboard | `frames-gen` | `story_frames` |
 | Filmmaker | `video-gen` | `shot_videos` |
 
-These are uses of one generation service, not three provider frameworks. Start with one concrete ComfyUI adapter; fal or another endpoint can implement the same validated operations when needed.
+These are uses of one provider-neutral [Render service](render.md), not three provider frameworks. Start with one concrete ComfyUI adapter; fal or another endpoint can implement the same validated operations when needed.
 
 MVP uses **plan-first tool dispatch**: the agent's complete response supplies prompts and references; its adapter validates and saves the plan, then the fixed `*-gen` node invokes the generation tool. This satisfies `Storyboard → frames-gen (tool) → HITL` without an open-ended agent loop. If a model adapter emits native `tool_calls`, accept only the declared generation call, validate its semantic arguments against the saved plan, and dispatch through the same path. Native model function-calling is not a second required implementation for MVP and does not authorize extra jobs or graph edges.
 
@@ -38,9 +38,9 @@ The job-group ref means **queued**, not provider acceptance, completed generatio
 
 ## Other Tools
 
-`montage` assembles approved `shot_videos` into `final_video` with a validated internal edit plan, fixed ffmpeg arguments and ffprobe verification. It runs without an LLM in MVP; subprocess output stays isolated until verified import.
+[`montage`](montage.md) concatenates every approved `shot_videos` clip in Story order into silent `final_video`, with a validated internal plan, fixed ffmpeg arguments and ffprobe verification. It runs without an LLM in MVP; subprocess output stays isolated until verified import.
 
-Context resolution and result persistence are trusted application helpers, not filesystem tools exposed to every agent. Use direct references and consumer-specific projections; no discovery/index dependency. Producer/Storytell need no rendering tool. Critic is deferred.
+Context resolution and result persistence are trusted application helpers, not filesystem tools exposed to every agent. Saving needs no Craft agent; separate future [memory publication](memory.md) uses explicit review. Use direct references and consumer-specific projections; no discovery/index dependency. Producer/Storytell need no rendering tool. Critic is deferred.
 
 ## Foundation Operations
 

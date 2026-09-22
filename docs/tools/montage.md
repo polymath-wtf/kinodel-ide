@@ -18,7 +18,7 @@ The tool does not choose alternative takes, trim story payoff, rewrite prompts o
 
 <a id="output"></a>
 
-Montage owns the internal assembly plan and final result write. No second creative artifact owner or visible save/promotion stage is required. Craft publication is a separate later feature.
+Montage owns the internal assembly plan and final result write. No second creative artifact owner or visible save/promotion stage is required. [Memory publication](memory.md) is a separate later feature.
 
 ## Later Creative Agent
 

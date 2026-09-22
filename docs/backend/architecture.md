@@ -28,7 +28,7 @@ Graph coordinates. Agents reason. Tools perform side effects. Artifacts preserve
 | API / validation | FastAPI, Pydantic v2, Uvicorn ASGI server | Typed commands and reads, no graph invocation inside HTTP handlers |
 | Local persistence | SQLite application records + `AsyncSqliteSaver` | Separate business/checkpoint ownership, even if files share one root |
 | Media | Managed immutable files; generation tools and ffmpeg | Provider-specific payloads/transport stay in adapters |
-| UI | TypeScript HTTP client | Fixed node workspace first; UI framework/bundler chosen at implementation |
+| UI | React, TypeScript, React Flow, typed HTTP client | Own local fixed-node workspace first; graph editing and node-packs later |
 | Hosted profile | PostgreSQL + PostgreSQL saver; Supabase identity, private GCS | Separate activation, not local installation dependencies |
 
 Installed versions, missing dependencies, installation commands and release checks belong to [Local MVP](../roadmap-mvp.md#repository-and-dependencies), not this architecture. No ORM, Redis, Celery, event bus, generic plugin system or LangGraph Agent Server is required by these boundaries.

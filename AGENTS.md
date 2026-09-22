@@ -47,6 +47,15 @@ First-build tasks, dependencies and acceptance belong in `docs/roadmap-mvp.md`. 
 
 ## Routing
 
+### Coding-Agent Context Budget
+
+These rules govern the coding assistant, not Kinodel's application agents.
+
+- Keep task scope, architectural decisions and final integration in the primary session. Delegate dependency/environment inventories, broad documentation or legacy audits, and independent external research to subagents via `task`; handle small local checks directly.
+- Give each subagent a bounded question, relevant paths, constraints and verification criteria; research is read-only unless edits are explicitly assigned. Request a concise report (normally at most 30 lines): findings, evidence paths/lines or commands, uncertainties and blockers—not raw logs or full documents.
+- Do not duplicate delegated research or re-read its entire source set. Inspect only evidence needed to resolve a conflict or verify a consequential finding; parallelize independent assignments.
+- Read/search only the relevant sections and request targeted command output. After edits, inspect the diff rather than re-reading whole files; keep full inventories, long logs and documentation pages out of the primary session unless necessary to resolve the task.
+
 ### Framework Documentation
 
 - For LangChain/LangGraph/LangSmith framework questions, prefer the official MCP tools: `docs-langchain` search for concepts/how-tos; `reference-langchain` `get_symbol` for a known API or `search_api` to find it. Read a specific docs page only when the search result is insufficient.
@@ -82,15 +91,15 @@ First-build tasks, dependencies and acceptance belong in `docs/roadmap-mvp.md`. 
 
 ## Agent Builds
 
-Current work belongs in `docs/agents/`. Production-ready OpenCode agents, subagents, and their bundled resources will later live under `.agents/`.
+Application system prompts live under `.agents/`; developer contracts live in `docs/agents/`. The prompts are authored, not yet runtime-integrated or OpenCode deployment configurations. [`.agents/README.md`](.agents/README.md) lists the four MVP prompts and deferred micro-contexts.
 
-When that build starts:
+For agent work:
 
 - one folder per deployable agent;
 - keep runtime orchestration out of agent prompts;
 - bundle only the references and tools the agent actually needs;
 - treat `docs/agents/<name>.md` as the contract that the build must satisfy;
-- add `.agents/README.md` as the deployment index instead of duplicating routing here.
+- maintain `.agents/README.md` as the prompt/activation index instead of duplicating routing here.
 
 ## Anti-Overengineering Gate
 

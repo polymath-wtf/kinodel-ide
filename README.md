@@ -38,11 +38,10 @@ First: a fixed, useful production route. Later: configurable nodes, a sequential
 | [Filmmaker](docs/agents/filmmaker.md) | Motion, camera intent and video plans that start from selected frames | Cinematic MVP |
 | [Muse](docs/agents/muse.md) | Musical direction, original song concepts and sound-led production | Later |
 | [Season](docs/agents/season.md) / [Episode](docs/agents/episode.md) | Long arcs, episode stories and continuity across a series | Later |
-| [Craft](docs/agents/craft.md) | Reusable creative memory distilled from approved work | Later |
 | [Critic](docs/agents/critic.md) | Optional observations and suggestions for the author to choose from | Later |
 | [Producer](docs/agents/producer.md) | Optional help shaping a brief before production | Later |
 
-The crew does not manage its own graph. Each agent has a bounded task and an owned output. **Render is a tool service, not an LLM persona.** MVP Montage is deterministic assembly with ffmpeg; creative editing comes later.
+The crew does not manage its own graph. Each agent has a bounded task and an owned output. **[Render](docs/tools/render.md) is a tool service, not an LLM persona.** MVP [Montage](docs/tools/montage.md) is deterministic assembly with ffmpeg; creative editing comes later. Concise system instructions live in [`.agents/`](.agents/README.md), separately from developer contracts.
 
 ## Pipelines: different ways to make something
 
@@ -126,7 +125,7 @@ A **creative chunk** is a compact, approved piece of reusable production memory 
 
 Think: the same astronaut in a new short, with the same face and coat, but a different day. Or episode three remembering the promise made in episode two.
 
-Chunk creation and publication are later capabilities. Craft proposes memory; the author approves what becomes reusable truth. Finishing a film does not silently publish a summary or change your personal taste. [Chunk contracts →](docs/rag/chunks.md)
+Chunk creation and publication are later capabilities. A [memory feature](docs/tools/memory.md) prepares selected source fields and creator-authored claims for review; the author approves what becomes reusable truth. Saving does not require a Craft agent. Finishing a film does not silently publish a summary or change your personal taste. [Chunk contracts →](docs/rag/chunks.md)
 
 ## Context: give each specialist the right material
 
@@ -166,6 +165,7 @@ Start with the workspace, its canvas/inspector/viewer components and a typed HTT
 
 ```text
 docs/agents/       the crew's contracts
+.agents/           concise application system prompts and future micro-contexts
 docs/pipelines/    creative production routes
 docs/backend/      how execution, nodes, results and local storage work
 docs/hilp/        human decisions, discussion and future execution forks
@@ -183,16 +183,15 @@ legacy/           the old prototype, read-only evidence
 
 The Windows x64 baseline passes dependency checks, real HTTP validation and a SQLite-backed LangGraph pause/resume across separate processes. This is a **stack smoke check**, not a completed production flow, provider test or crash-recovery certification.
 
-To reproduce in a new environment with Python 3.13 installed:
+To install the pinned direct dependencies and check package compatibility in a new environment with Python 3.13 installed:
 
 ```powershell
 py -3.13 -m venv .venv313
 .\.venv313\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv313\Scripts\python.exe -m pip check
-.\.venv313\Scripts\python.exe scripts/check_stack.py
 ```
 
-Direct dependencies are pinned; a full transitive lock, Linux verification and the application are still ahead. Next: brief → Storytell → human revision → resume, then extend through images, video and montage.
+The earlier HTTP/pause-resume smoke check has no retained runnable script in this repository; add one reproducible test command with the first runtime slice. Direct dependencies are pinned; a full transitive lock, Linux verification and the application are still ahead. Next: brief → Storytell → human revision → resume, then extend through images, video and montage.
 
 **Make something worth keeping. Keep enough to make the next thing better.**
 

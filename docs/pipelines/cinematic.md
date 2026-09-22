@@ -32,7 +32,7 @@ The creator submits the brief and visible production settings before Run. Valida
 | `wardrobe` | Brief, approved story, character/style references | `wardrobe_plan`: visual direction, anchor prompts and dependencies |
 | `anchor-gen` | Wardrobe plan, exact references, image profile | Anchor image attempts; saves selected `anchor_frames` when approved |
 | `anchor-hitl` | Complete current anchor set and its plan | Approved `anchor_frames`, then unlocks Storyboard |
-| `storyboard` | Brief, approved story, Wardrobe plan, approved anchor frames | `storyboard_plan`: one image prompt and reference bindings per shot |
+| `storyboard` | Brief, approved story, Wardrobe plan, approved anchor frames | `storyboard_plan`: one start-frame image prompt and reference bindings per shot |
 | `frames-gen` | Storyboard plan, exact anchor frames, image profile | Frame attempts; saves selected `story_frames` when approved |
 | `frames-hitl` | Complete current frame set and its plan | Approved `story_frames` |
 | `filmmaker` | Brief, approved story and story frames | `video_plan`: motion prompt, start image and duration for each shot |
@@ -64,6 +64,8 @@ The [HITL contract](../hilp/hilp.md) owns actions, versioning and replay rules; 
 <a id="unit-contracts"></a>
 
 Wardrobe declares stable anchor keys from narrative needs. Example: `hero_face`, `hero_sheet` referencing that exact face, and an independent character-free `location`. Generate sequentially without intermediate human choices; review the complete set. Keys/counts are not hardcoded to this example.
+
+For `i2v`, Storyboard depicts the opening of each action consistent with Story's `state_before`, leaving its development and payoff to Filmmaker. A frame showing the completed `state_after` must not force the video to repeat or undo that action.
 
 Storyboard binds relevant approved anchors by role: face identity, anatomy/clothing, environment. A workflow must accept every required image; unsupported capacity blocks submission instead of silently dropping references. Each Story shot has one frame and one video with the same shot key and order. First video mode is `i2v`: each selected frame is the exact start image of its video, with no omitted shots. Other modes need explicit endpoint mappings before activation.
 

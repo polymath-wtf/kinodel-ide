@@ -27,9 +27,9 @@ Kinodel is a **runtime-vibe-factory for creators**: a user follows a production 
 
 ## Authority And Status
 
-Current domain contracts in `docs/` define intended behavior; tests establish what is implemented. `Decided/Accepted` does not mean tested. `Proposed` needs implementation evidence; `Deferred` is not an MVP prerequisite. Historical notes, dry runs and legacy code are research only.
+Current domain contracts in `docs/` define intended behavior; tests establish what is implemented. `Decided/Accepted` does not mean tested. `Proposed` needs implementation evidence; `Deferred` is not an MVP prerequisite. Git history, dry runs and legacy code are research only.
 
-The 2026-09-21 cinematic/review decisions supersede earlier image-only release plans, mandatory Brief/Critic/final-memory gates and old stage/slot names. Future pipeline sketches must be reconciled at activation. The optional ignored `.reference/langgraph` checkout and tracked [skills](../skills/LangGraph/) explain framework mechanisms, not Kinodel product decisions.
+The current cinematic route includes video and montage without mandatory Brief, Critic or final-memory gates. Future pipeline sketches must be reconciled at activation. The optional ignored `.reference/langgraph` checkout and tracked [skills](../skills/LangGraph/) explain framework mechanisms, not Kinodel product decisions.
 
 ## Core Rules
 

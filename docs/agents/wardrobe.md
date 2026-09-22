@@ -11,15 +11,14 @@ Design approvable visual direction and provider-neutral anchor image prompts for
 
 ## Input
 
-- submitted `BriefV1` and exact approved narrative spine: `StoryV1` for cinematic/episode, proposed `SeasonPlanV1` for per-episode anchors, or proposed `MusicPlanV1` plus selected song and validated timing projection for music-video;
-- mode `single`, `per_episode`, `per_act`, or `timed_style`, with the approved narrative scope and any existing anchor identities to preserve;
+- submitted cinematic `BriefV1` and exact approved `StoryV1`, with any existing anchor identities to preserve;
 - hydrated character and environment chunks, visual/canon projections, and labelled reference images with exact revisions and semantic roles; the operation's frozen context-selection reference is not a substitute for content;
 - provider-neutral image/reference capability constraints and any required frozen prompt guidance;
 - previous exact VisualAnchorPlan and `RevisionRequestV1` on repair, plus reviewed anchor candidate evidence when repairing anchor media.
 
-Adapters use node-specific inputs for each pipeline rather than fabricating Story artifacts for Season or Muse output. Future modes remain proposed until their pipelines exist.
+MVP covers one cinematic narrative scope. Season/Muse inputs and `per_episode`, `per_act`, or `timed_style` modes are deferred until their pipelines define their own adapters and contracts.
 
-Anchor units are stable named visual references, not Story shots. For example, `hero_face` requests a close-up identity portrait; `hero_sheet` a full-body character sheet for anatomy and clothing; `location` an environment without characters. Three is the first acceptance example, not a universal count. Wardrobe declares the set from the approved subjects and continuity needs; the adapter validates and freezes its keys/order before rendering. `single` means one narrative scope, not one image.
+Anchor units are stable named visual references, not Story shots. For example, `hero_face` requests a close-up identity portrait; `hero_sheet` a full-body character sheet for anatomy and clothing; `location` an environment without characters. Three is the first acceptance example, not a universal count. Wardrobe declares the set from the approved subjects and continuity needs; the adapter validates and freezes its keys/order before rendering.
 
 ## Output
 
@@ -39,7 +38,7 @@ First example: `hero_face -> hero_sheet -> location` in execution order, without
 - Specify environment, palette, materials/texture, and lighting source, quality, direction, and temperature in concrete visual terms. Composition principles guide the film; individual framing remains Storyboard's job.
 - Reference bindings say what to take, ignore, preserve, and never drift. A face reference does not silently impose its background, pose, or temporary lighting on every shot.
 - New designs may fill genuinely open visual choices but cannot replace selected identity or approved story state. Inspiration requested as an original design must yield its own silhouette, costume, color blocks, and symbols, not a renamed copy.
-- Every declared unit receives coherent direction; shared identity remains shared across per-episode/per-act variations.
+- Every declared unit receives coherent direction; corresponding keys and unrelated content remain stable on revision.
 - Anchor prompts isolate their reference purpose: face identity must remain compatible with the full-body wardrobe design and environment. Anchor framing serves reusable reference quality, not the composition or action of a Story shot.
 
 Acceptance example: a rainy-city palette can vary wet surfaces and local lighting while preserving the approved character's silhouette. Contradictory costume identities across units or "cinematic lighting" with no usable direction are insufficient.
@@ -56,8 +55,10 @@ Acceptance example: a rainy-city palette can vary wet surfaces and local lightin
 
 `anchor-gen`, dispatched after the complete plan is validated and saved. It returns a durable job ref, not an image within the model turn. The adapter supplies authorized image/character projections; visual-capable input is required where judging appearance matters. See [tool calls](../tools/tools.md).
 
-## Minimal System Prompt
+## Application Prompt And Guidance
 
-```text
-You are Wardrobe, Kinodel's visual-anchor designer. Use the submitted Brief, approved spine and supplied references to create visual direction and anchor prompts. Declare stable units, roles, framing, reference bindings and preserve/ignore constraints. Bind a character sheet to its portrait for identity; environment anchors contain no characters. Apply direct user feedback while preserving unrelated content. Return VisualAnchorPlanV1 for the anchor-gen tool when ready, otherwise needs_input or out_of_scope. Do not design Storyboard shots, wait for rendering, approve assets, encode provider payloads, rewrite the spine or route the graph.
-```
+[Wardrobe system prompt](../../.agents/wardrobe/system.md) is the plain application instruction. The structured response schema is injected separately; creative field names follow [DTOs](../backend/dto.md#cinematic-extension). Model references use supplied aliases, resolved by the adapter; persistent identities and provenance are not model-authored.
+
+Image craft adapts [Krea base guidance](../../skills/prompt-engine/krea2/krea-base-agent.md) and [Krea image-edit guidance](../../skills/prompt-engine/krea2/krea2_i2i-guide.md): one cohesive English `image_prompt` paragraph, grounded spatial detail, supplied medium preserved, and no negative prompt. Reference-conditioned identity is carried by images without repeated facial descriptions; plain text-to-image needs grounded appearance. Open visual design may be completed without adding story props or cast. Photographic/phone styling, thinking blocks and source output formatting are not mandatory instructions.
+
+Explicit reference roles and take/ignore constraints express creative intent. Adapted guidance does not establish provider capability: the adapter must verify image capacity, dependency support and role mapping against the selected workflow before generation.
