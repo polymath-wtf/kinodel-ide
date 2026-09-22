@@ -27,15 +27,7 @@ Declarations prove neither actual role delivery nor creative quality. Verify exa
 
 Current project workflows live in [`workflow/comfyui/`](../../workflow/comfyui/); future providers use `workflow/<provider>/`. The old `docs/comfyui/workflow/` directory is retired. Bundled `skills/comfyui-skill/workflows/` files are generic toolkit examples, not active project workflows.
 
-The profile leads below were audited 2026-09-09. Recheck mappings against the chosen current workflow file and its digest; node IDs/classes are fixture evidence, not verified endpoint capabilities.
-
-| Profile candidate | Job | Semantic input nodes/fields | Output | Blockers |
-|---|---|---|---|---|
-| `krea2-txt2img` | image text-to-image | prompt `864.text`; dimensions `854.width/height`; sampler `856.seed/steps/cfg/denoise` | `851.images` and `853.image` | custom KJ/rgthree/Crystools nodes, model names, and actual links/capabilities must be verified |
-| `krea2-img2img` | image reference edit | source `879.image`; resize `866.image/width/height`; prompt `876.prompt`; edit controls `875.ref_boost/ref_boost_a/fit_mode` | `873.images` and `874.image` | custom Krea/Ostris/KJ nodes, models, URL input policy, links, and output MIME are unverified |
-| `minimax-h3-ref2vid` | reference-to-video | prompt/size/length `136.prompt/width/height/length`; refs `136.ref_images.ref_image_0/_1`; source images `147/148` | `157.images`; optional interpolation `158.frames` | Verify nodes, exact start-image behavior, audio, duration and output shape before MVP video activation |
-
-These are audit leads, not registered profiles. The adapter must validate API graph shape, links, installed node schemas, model availability, output MIME, and endpoint execution before freezing a profile. No numeric capability or seed mapping is claimed from editor JSON alone.
+The 2026-09-09 audit IDs referred to earlier workflow versions and are not mappings for the current files. The [current API-format file and node inventory](../tools/comfyui-tool.md#текущие-файлы-и-порты) covers txt2img, Krea/Qwen img2img and both MiniMax video candidates. These are audit leads, **not registered profiles**. The adapter must validate graph shape, links, installed node schemas, model availability, output MIME and endpoint execution before freezing a profile. In particular, current img2img files each accept one image; the three-reference video graph does not prove exact start-frame conditioning or provide a multi-reference *image* graph for Storyboard.
 
 ## Workflow Submission
 

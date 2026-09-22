@@ -296,7 +296,7 @@
     "inputs": {
       "frame_rate": 30,
       "loop_count": 0,
-      "filename_prefix": "api/minimax_api",
+      "filename_prefix": "kinodel/api/img2vid_api",
       "format": "video/h264-mp4",
       "pix_fmt#1": "yuv420p",
       "crf#1": 19,

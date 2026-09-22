@@ -4,3 +4,12 @@ do not push secret stuff por favor
 __pycache__/
 *.pyc
 .reference
+.env.*
+!.env.example
+node_modules/
+/frontend/dist/
+.coverage
+htmlcov/
+.pytest_cache/
+/test-results/
+/playwright-report/

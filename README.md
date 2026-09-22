@@ -183,15 +183,18 @@ legacy/           the old prototype, read-only evidence
 
 The Windows x64 baseline passes dependency checks, real HTTP validation and a SQLite-backed LangGraph pause/resume across separate processes. This is a **stack smoke check**, not a completed production flow, provider test or crash-recovery certification.
 
-To install the pinned direct dependencies and check package compatibility in a new environment with Python 3.13 installed:
+To install the verified Windows x64 lock in a new environment with CPython 3.13.15 installed (do not recreate an existing working environment):
 
 ```powershell
 py -3.13 -m venv .venv313
-.\.venv313\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv313\Scripts\python.exe -m pip install -r requirements-win-py313.lock
 .\.venv313\Scripts\python.exe -m pip check
+.\.venv313\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-The earlier HTTP/pause-resume smoke check has no retained runnable script in this repository; add one reproducible test command with the first runtime slice. Direct dependencies are pinned; a full transitive lock, Linux verification and the application are still ahead. Next: brief → Storytell → human revision → resume, then extend through images, video and montage.
+Step 0 is verified on Windows: all 46 runtime pins reproduce in a clean venv. `backend/config.py` selects an absolute data root outside the checkout and venv without creating files: `%LOCALAPPDATA%\Kinodel`, or Linux `${XDG_DATA_HOME:-$HOME/.local/share}/kinodel`, with explicit `KINODEL_DATA_ROOT` override. Linux installation is not yet verified.
+
+The workspace interpreter default is `.venv313`; select it manually if your IDE already remembers another environment. `scripts/test.ps1` verifies the interpreter and runs the same unittest command above. The retained test covers data-root selection and validation; the earlier HTTP/pause-resume smoke check has no retained script yet. Next: storage and text contracts, then restart-safe Storytell → human revision → resume. See [step 0 evidence](docs/roadmap-mvp.md#шаг-0-подготовка-репозитория-и-окружения).
 
 **Make something worth keeping. Keep enough to make the next thing better.**
 

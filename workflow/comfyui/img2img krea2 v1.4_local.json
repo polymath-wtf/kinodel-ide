@@ -38,7 +38,7 @@
   },
   "814": {
     "inputs": {
-      "value": 1280
+      "value": 1024
     },
     "class_type": "easy int",
     "_meta": {
@@ -47,7 +47,7 @@
   },
   "815": {
     "inputs": {
-      "value": 1280
+      "value": 1024
     },
     "class_type": "easy int",
     "_meta": {
@@ -71,16 +71,6 @@
         "type": "PowerLoraLoaderHeaderWidget"
       },
       "lora_1": {
-        "on": true,
-        "lora": "krea 2\\style\\lenovo_krea2.safetensors",
-        "strength": 0.42
-      },
-      "lora_2": {
-        "on": false,
-        "lora": "krea 2\\style\\IMPERFECTA_c1-st4000.safetensors",
-        "strength": 0.42
-      },
-      "lora_3": {
         "on": true,
         "lora": "krea 2\\edit\\krea2_identity_edit_v1_2.safetensors",
         "strength": 1
@@ -178,7 +168,7 @@
       "divisible_by": 2,
       "device": "cpu",
       "image": [
-        "879",
+        "880",
         0
       ]
     },
@@ -198,35 +188,6 @@
     "class_type": "Krea2OstrisEditModelPatch",
     "_meta": {
       "title": "Krea 2 Ostris Edit Model Patch"
-    }
-  },
-  "873": {
-    "inputs": {
-      "filename_prefix": "fill_refill/test/test_img2img",
-      "quality": 100,
-      "images": [
-        "668",
-        0
-      ]
-    },
-    "class_type": "FL_SaveWebPImage(SaveImage)",
-    "_meta": {
-      "title": "FL Save WebP Image"
-    }
-  },
-  "874": {
-    "inputs": {
-      "filename_prefix": "fill_refill/test/test_img2img",
-      "with_workflow": false,
-      "metadata_extra": "{\n  \"CreateDate\": \"2026:07:03 15:42:18\",\n  \"ModifyDate\": \"2026:07:03 15:42:18\"\n}",
-      "image": [
-        "873",
-        0
-      ]
-    },
-    "class_type": "Save image with extra metadata [Crystools]",
-    "_meta": {
-      "title": "🪛 Save image with extra metadata"
     }
   },
   "875": {
@@ -291,15 +252,26 @@
       "title": "VAE Encode"
     }
   },
-  "879": {
+  "880": {
     "inputs": {
-      "image": "",
-      "keep_alpha_channel": false,
-      "output_mode": false
+      "image": "00001-3226185930-DPM++ 2M Karras-Lois van Baarle,characters, digital, fantasy, femininity, illustration, whimsical, beautiful watercolor art by (Aliza Razell_1.2.png"
     },
-    "class_type": "LoadImageFromUrl",
+    "class_type": "LoadImage",
     "_meta": {
-      "title": "ref image url face"
+      "title": "Load Image"
+    }
+  },
+  "881": {
+    "inputs": {
+      "filename_prefix": "kinodel/api/img2img_test",
+      "images": [
+        "668",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
     }
   }
 }

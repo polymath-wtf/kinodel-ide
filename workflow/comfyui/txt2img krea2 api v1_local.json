@@ -38,7 +38,7 @@
   },
   "814": {
     "inputs": {
-      "value": 1280
+      "value": 1024
     },
     "class_type": "easy int",
     "_meta": {
@@ -47,7 +47,7 @@
   },
   "815": {
     "inputs": {
-      "value": 1280
+      "value": 1024
     },
     "class_type": "easy int",
     "_meta": {
@@ -69,21 +69,6 @@
     "inputs": {
       "PowerLoraLoaderHeaderWidget": {
         "type": "PowerLoraLoaderHeaderWidget"
-      },
-      "lora_1": {
-        "on": true,
-        "lora": "krea 2\\style\\lenovo_krea2.safetensors",
-        "strength": 0.6
-      },
-      "lora_2": {
-        "on": false,
-        "lora": "krea 2\\style\\DisposableCamera.safetensors",
-        "strength": 0.42
-      },
-      "lora_3": {
-        "on": true,
-        "lora": "krea 2\\style\\IMPERFECTA_c1-st4000.safetensors",
-        "strength": 0.42
       },
       "➕ Add Lora": "",
       "model": [
@@ -112,35 +97,6 @@
     "class_type": "DiffusionModelLoaderKJ",
     "_meta": {
       "title": "Diffusion Model Loader KJ"
-    }
-  },
-  "851": {
-    "inputs": {
-      "filename_prefix": "fill_refill/019f28ae-deda-70e2-af44-05c09cd4147b/a2e9581f-c7fd-439f-881b-ae167a0e6b3f",
-      "quality": 100,
-      "images": [
-        "668",
-        0
-      ]
-    },
-    "class_type": "FL_SaveWebPImage(SaveImage)",
-    "_meta": {
-      "title": "FL Save WebP Image"
-    }
-  },
-  "853": {
-    "inputs": {
-      "filename_prefix": "fill_refill/019f28ae-deda-70e2-af44-05c09cd4147b/a2e9581f-c7fd-439f-881b-ae167a0e6b3f",
-      "with_workflow": false,
-      "metadata_extra": "{\n  \"CreateDate\": \"2026:07:03 15:42:18\",\n  \"ModifyDate\": \"2026:07:03 15:42:18\"\n}",
-      "image": [
-        "851",
-        0
-      ]
-    },
-    "class_type": "Save image with extra metadata [Crystools]",
-    "_meta": {
-      "title": "🪛 Save image with extra metadata"
     }
   },
   "854": {
@@ -201,6 +157,19 @@
     "class_type": "CLIPTextEncode",
     "_meta": {
       "title": "CLIP Text Encode (Positive Prompt)"
+    }
+  },
+  "865": {
+    "inputs": {
+      "filename_prefix": "kinodel/api/txt2img_api",
+      "images": [
+        "668",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
     }
   }
 }

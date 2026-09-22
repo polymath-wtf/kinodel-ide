@@ -1,6 +1,6 @@
 # Backend Implementation Boundaries
 
-Status: **Target layout; application not implemented.** Build order and dependencies live in [Local MVP](../roadmap-mvp.md), not here.
+Status: **Partial foundation: config/ownership, SQLite preflight/recovery, text DTO/canonical encoding and internal Story v1 storage are implemented and tested on Windows. Review/runtime pending.** Build order and dependencies live in [Local MVP](../roadmap-mvp.md), not here.
 
 ## Repository Shape
 
