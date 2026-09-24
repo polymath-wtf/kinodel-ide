@@ -1,6 +1,6 @@
 # Local Startup And Ownership
 
-Status: **Accepted rules; data-root lock, application/saver SQLite preflight and internal Story runtime shutdown tested on Windows. Launcher/HTTP lifespan and process-death Story recovery pending.** This page owns safe process/data lifetime. Installation tasks, package versions and all first-build checks live in [Local MVP](../roadmap-mvp.md).
+Status: **Accepted rules; data-root lock, application/saver SQLite preflight and internal Story HTTP lifespan/shutdown tested with TestClient on Windows. Launcher and process-death Story recovery pending.** This page owns safe process/data lifetime. Installation tasks, package versions and all first-build checks live in [Local MVP](../roadmap-mvp.md).
 
 ## First Launch
 
@@ -26,6 +26,28 @@ API, graph runner and saver live in the lock-owning process. One active graph in
 Shutdown stops commands/claims, stops or drains bounded model/tool tasks, flushes saver work, closes DBs, and releases the data lock last. If writers cannot stop within the bound, terminate the app rather than release ownership with live writers. DB/busy/disk-full errors stop effects with a recoverable diagnostic.
 
 Installer and ffmpeg subprocesses must not outlive their supervising lifecycle uncontrolled. Before enabling them, implement tested process-tree cleanup on each OS (for example Windows Job Objects); POSIX groups alone are not proof of parent-death cleanup. An alternative installer must retain its own bootstrap lock until it exits. ffmpeg writes isolated attempt files, never canonical DB bindings. An independently running ComfyUI is an external provider: reconcile its jobs rather than killing its server.
+
+## Internal Story API Prototype
+
+From the repository root on Windows, with `.venv313` installed:
+
+```powershell
+.\.venv313\Scripts\python.exe -m uvicorn backend.api:app --host 127.0.0.1 --port 8765 --workers 1 --no-proxy-headers
+```
+
+Open `http://127.0.0.1:8765/docs` for the local API schema. The API serves the **internal deterministic Story fixture**, not a public cinematic Run. Data defaults to `%LOCALAPPDATA%\Kinodel`; set `KINODEL_DATA_ROOT` to an absolute local path outside the checkout before starting if you need a separate root. One process owns this root; a second instance refuses startup. Stop with Ctrl+C, then restart with the same command to inspect the same execution and its versions.
+
+Before using the command/read endpoints, call `GET /api/session` from the same origin to receive an HttpOnly local session cookie and a `csrf_token` in JSON. Send both on each POST, using `X-Kinodel-CSRF` for the token; reads require the cookie. For example in PowerShell:
+
+```powershell
+$session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+$csrf = (Invoke-RestMethod -Uri http://127.0.0.1:8765/api/session -WebSession $session).csrf_token
+$body = @{project_id = [string][guid]::NewGuid(); client_key = 'story-1'; input_message = 'A fox at dusk'; shot_ids = @('s1')} | ConvertTo-Json
+$receipt = Invoke-RestMethod -Uri http://127.0.0.1:8765/api/executions/internal-story -Method Post -WebSession $session -Headers @{'X-Kinodel-CSRF'=$csrf} -ContentType application/json -Body $body
+Invoke-RestMethod -Uri "http://127.0.0.1:8765/api/executions/$($receipt.execution_id)" -WebSession $session
+```
+
+The response contains the actionable `review` (once ready), `work` status and `stories` including historical bodies. The API schema documents `respond`, `retry` and `cancel`. Only `approve` and `revise` are accepted until the discussion slice. Bind Uvicorn to `127.0.0.1:8765` as shown; peer, Host and Origin checks also reject nonlocal requests. The session expires on process restart; bootstrap it again after reopening.
 
 ## Acceptance Gate
 

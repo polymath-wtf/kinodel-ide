@@ -35,11 +35,6 @@
       "description": "Work on this project with confirmation before code edits and most shell commands.",
       "permission": {
         "edit": "ask",
-        "task": {
-          "*": "deny",
-          "general": "allow",
-          "explore": "allow"
-        },
         "bash": {
           "*": "ask",
           "git status*": "allow",
@@ -59,12 +54,7 @@
             "grep": "allow",
             "list": "allow",
             "lsp": "allow",
-            "task": {
-                "*": "deny",
-                "explore": "allow",
-                "general": "allow",
-                "sol-auto-code": "allow"
-            },
+            "task": "allow",
             "todowrite": "allow",
             "question": "allow",
             "webfetch": "allow",
@@ -81,39 +71,6 @@
                 "/tmp/opencode/**": "allow"
             }
         }
-    },
-    "sol-auto-code": {
-        "mode": "subagent",
-        "description": "Implement bounded coding tasks autonomously within this project; report changes and checks to the primary agent.",
-        "model": "openai/gpt-6-sol",
-        "reasoningEffort": "xhigh",
-        "permission": {
-            "edit": "allow",
-            "webfetch": "allow",
-            "websearch": "allow",
-            "bash": {
-                "*": "allow",
-                "git push*": "deny",
-                "git * push*": "deny"
-            },
-            "external_directory": {
-                "*": "deny",
-                "/tmp/opencode": "allow",
-                "/tmp/opencode/**": "allow"
-            }
-        }
-    },
-    "general": {
-        "model": "openai/gpt-6-sol",
-        "permission": {
-            "edit": "ask",
-            "bash": "deny",
-            "webfetch": "allow",
-            "websearch": "allow"
-        }
-    },
-    "explore": {
-        "model": "openai/gpt-6-sol"
     }
   }
 }

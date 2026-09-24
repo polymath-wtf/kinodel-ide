@@ -65,6 +65,11 @@ class DomainModel(BaseModel):
     )
 
 
+class OwnerResponseV1(DomainModel):
+    status: Literal["clarified", "needs_input", "out_of_scope"]
+    explanation: Annotated[str, Field(strict=True, min_length=1, max_length=4096), AfterValidator(_valid_text)]
+
+
 class ArtifactStateRef(DomainModel):
     artifact_id: CanonicalUUID
     schema_id: Text

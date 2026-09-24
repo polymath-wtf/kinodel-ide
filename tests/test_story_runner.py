@@ -8,7 +8,8 @@ import sqlite3
 from uuid import uuid4
 from unittest.mock import patch
 
-from backend.database import APPLICATION_ID, DATABASE_NAME, OPERATION_SCHEMA, REVIEW_SCHEMA, START_SCHEMA, STORY_SCHEMA, open_database
+from backend.database import (APPLICATION_ID, CONTROL_SCHEMA, DATABASE_NAME, OPERATION_SCHEMA,
+                              REVIEW_SCHEMA, RUNNER_SCHEMA, START_SCHEMA, STORY_SCHEMA, open_database)
 from backend.domain import StoryV1
 from backend.review_store import accept_story_decision
 from backend.review_store import apply_story_decision
@@ -16,6 +17,7 @@ from backend.saver import open_saver
 from backend.story_runner import run_story_work
 from backend.story_start import start_test_story
 from backend.story_store import prepare_story_operation, read_story, save_story
+from backend.api import fixture_story
 
 
 def produce_story(message, shots, prior, feedback):
@@ -26,6 +28,79 @@ def produce_story(message, shots, prior, feedback):
 
 
 class StoryRunnerTests(unittest.IsolatedAsyncioTestCase):
+    async def test_sweep_does_not_enqueue_reconcile_when_decision_arrives_during_saver_read(self):
+        with tempfile.TemporaryDirectory(prefix="kinodel sweep race ") as directory:
+            root = Path(directory) / "data"
+            with open_database(root) as db:
+                async with open_saver(root, db) as saver:
+                    receipt = await start_test_story(db, saver, str(uuid4()), "start", "Fox", ["s1"])
+                    await run_story_work(db, saver, produce_story)
+                    request = db.execute("SELECT request_id,request_digest,binding_revision FROM review_requests").fetchone()
+                    original = saver.aget_tuple
+                    injected = False
+
+                    async def accept_while_reading(*args, **kwargs):
+                        nonlocal injected
+                        saved = await original(*args, **kwargs)
+                        if not injected:
+                            injected = True
+                            accept_story_decision(db, receipt.execution_id, request[0], request[1], request[2],
+                                                  "edit", "revise", "Darker")
+                        return saved
+
+                    saver.aget_tuple = accept_while_reading
+                    self.assertEqual(await run_story_work(db, saver, produce_story), 1)
+                    self.assertTrue(injected)
+                    self.assertEqual(db.execute("SELECT COUNT(*) FROM execution_work WHERE kind='reconcile'").fetchone(), (0,))
+                    self.assertEqual(db.execute("SELECT COUNT(*) FROM artifacts").fetchone(), (2,))
+
+    async def test_committed_clarification_replays_without_second_owner_call(self):
+        with tempfile.TemporaryDirectory(prefix="kinodel owner response ") as directory:
+            root = Path(directory) / "data"
+            project = str(uuid4())
+            calls = []
+
+            def owner(*args, discussion=None):
+                calls.append(discussion)
+                return fixture_story(*args, discussion=discussion)
+
+            with open_database(root) as db:
+                async with open_saver(root, db) as saver:
+                    receipt = await start_test_story(db, saver, project, "start", "A fox", ["s1"])
+                    await run_story_work(db, saver, owner)
+                    first = db.execute("SELECT request_id,request_digest,binding_revision,checkpoint_id,task_id,"
+                                       "interrupt_id FROM review_requests").fetchone()
+                    accept_story_decision(db, receipt.execution_id, first[0], first[1], first[2],
+                                          "question", "clarify", "Why?")
+                    from backend.story_store import commit_owner_response
+                    original = commit_owner_response
+
+                    def stop_after_response(*args):
+                        result = original(*args)
+                        raise RuntimeError("after response commit")
+
+                    with patch("backend.story_graph.commit_owner_response", side_effect=stop_after_response):
+                        with self.assertRaisesRegex(RuntimeError, "after response commit"):
+                            await run_story_work(db, saver, owner)
+                    self.assertEqual(len(calls), 2)
+                    self.assertEqual(db.execute("SELECT COUNT(*) FROM artifacts").fetchone(), (1,))
+            with open_database(root) as db:
+                async with open_saver(root, db) as saver:
+                    self.assertEqual(await run_story_work(db, saver, owner), 1)
+                    self.assertEqual(len(calls), 2)
+                    second = db.execute("SELECT request_id,request_digest,binding_revision,checkpoint_id,task_id,"
+                                        "interrupt_id FROM review_requests ORDER BY request_revision DESC LIMIT 1").fetchone()
+                    self.assertNotEqual(first[0], second[0])
+                    self.assertNotEqual(first[3:], second[3:])
+                    self.assertEqual(second[2], 1)
+                    self.assertEqual(db.execute("SELECT COUNT(*) FROM artifacts").fetchone(), (1,))
+                    self.assertEqual(db.execute("SELECT owner_response FROM story_operations "
+                                                "WHERE owner_response IS NOT NULL").fetchone()[0],
+                                     '{"explanation":"The Story follows: A fox","status":"clarified"}')
+                    accept_story_decision(db, receipt.execution_id, second[0], second[1], second[2],
+                                          "approve", "approve", None)
+                    await run_story_work(db, saver, owner)
+
     async def test_approval_outcome_commits_before_final_checkpoint(self):
         with tempfile.TemporaryDirectory(prefix="kinodel approval gap ") as directory:
             root = Path(directory) / "data"
@@ -179,6 +254,23 @@ class StoryRunnerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(db.execute("SELECT input_message FROM executions WHERE execution_id=?",
                                             (execution,)).fetchone(), ("Idea",))
                 self.assertEqual(db.execute("SELECT COUNT(*) FROM execution_outcomes").fetchone(), (0,))
+
+    async def test_v8_discussion_migration_preserves_committed_story(self):
+        with tempfile.TemporaryDirectory(prefix="kinodel v8 discussion ") as directory:
+            root = Path(directory) / "data"
+            root.mkdir()
+            execution, project = str(uuid4()), str(uuid4())
+            with closing(sqlite3.connect(root / DATABASE_NAME)) as old:
+                old.executescript(f"PRAGMA application_id={APPLICATION_ID}; PRAGMA user_version=8; "
+                                  f"{STORY_SCHEMA} {OPERATION_SCHEMA} {REVIEW_SCHEMA} {START_SCHEMA} "
+                                  f"{RUNNER_SCHEMA} {CONTROL_SCHEMA}")
+                old.execute("INSERT INTO executions (execution_id,project_id,input_message,shot_ids) "
+                            "VALUES (?,?,?,?)", (execution, project, "Idea", '["s1"]'))
+                old.commit()
+            with open_database(root) as db:
+                self.assertEqual(db.execute("SELECT input_message FROM executions WHERE execution_id=?",
+                                            (execution,)).fetchone(), ("Idea",))
+                self.assertEqual(db.execute("SELECT owner_response,discussion_activation FROM story_operations").fetchall(), [])
 
     async def test_persisted_resume_write_restarts_without_answering_next_wait(self):
         with tempfile.TemporaryDirectory(prefix="kinodel pending resume ") as directory:

@@ -83,7 +83,7 @@ class StoryGraphTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(db.execute("SELECT COUNT(*) FROM artifacts").fetchone(), (2,))
                     self.assertEqual(db.execute("SELECT COUNT(*) FROM review_requests").fetchone(), (2,))
 
-    async def test_unsupported_clarification_does_not_apply_decision(self):
+    async def test_owner_must_return_typed_clarification(self):
         with tempfile.TemporaryDirectory(prefix="kinodel clarify ") as directory:
             root = Path(directory) / "data"
             project, execution = str(uuid4()), str(uuid4())
@@ -107,10 +107,12 @@ class StoryGraphTests(unittest.IsolatedAsyncioTestCase):
                                     snapshot.tasks[0].id, snapshot.interrupts[0].id)
                     decision = accept_story_decision(db, execution, request["request_id"], request["digest"],
                                                      1, "question", "clarify", "Why?")
-                    with self.assertRaisesRegex(ValueError, "persisted owner response"):
+                    with self.assertRaisesRegex(ValueError, "owner explanation"):
                         await graph.ainvoke(Command(resume={snapshot.interrupts[0].id: decision.decision_id}),
                                             config, durability="sync")
-                    self.assertEqual(db.execute("SELECT applied_activation FROM review_requests").fetchone(), (None,))
+                    self.assertIsNotNone(db.execute("SELECT applied_activation FROM review_requests").fetchone()[0])
+                    self.assertEqual(db.execute("SELECT owner_response FROM story_operations "
+                                                "WHERE expected_revision=1").fetchone(), (None,))
 
 
 if __name__ == "__main__":

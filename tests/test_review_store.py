@@ -7,8 +7,9 @@ from uuid import uuid4
 from backend.database import open_database
 from backend.domain import StoryV1, make_operation_id
 from backend.review_store import (accept_story_decision, apply_story_decision,
-                                  bind_story_wait, prepare_story_review)
-from backend.story_store import create_test_execution, read_story, save_story
+                                   bind_story_wait, prepare_story_review)
+from backend.story_store import (commit_owner_response, create_test_execution, prepare_story_operation,
+                                 read_story, save_story)
 
 
 class StoryReviewTests(unittest.TestCase):
@@ -87,9 +88,17 @@ class StoryReviewTests(unittest.TestCase):
             bind_story_wait(db, self.execution, first.request_id, "cp1", "task1", "interrupt1")
             answer = accept_story_decision(db, self.execution, first.request_id, first.digest, 1,
                                            "key", "clarify", "Why?")
-            apply_story_decision(db, self.execution, first.request_id, answer.decision_id)
-            second = prepare_story_review(db, self.execution, "sha256:" + "b" * 64,
-                                          self.ref, 1, previous_request_id=first.request_id)
+            activation = apply_story_decision(db, self.execution, first.request_id, answer.decision_id)
+            with self.assertRaisesRegex(ValueError, "response not committed"):
+                prepare_story_review(db, self.execution, "sha256:" + "b" * 64,
+                                     self.ref, 1, previous_request_id=first.request_id)
+            _, digest, _ = prepare_story_operation(db, self.execution, activation, prior_ref=self.ref,
+                                                    feedback="Why?", expected_revision=1,
+                                                    request_id=first.request_id, action="clarify")
+            trigger = commit_owner_response(db, self.execution, activation, digest,
+                                            {"status": "clarified", "explanation": "Because of the fox."})
+            second = prepare_story_review(db, self.execution, trigger,
+                                           self.ref, 1, previous_request_id=first.request_id)
             self.assertEqual(second.revision, 2)
             self.assertNotEqual(first.digest, second.digest)
             bind_story_wait(db, self.execution, second.request_id, "cp2", "task2", "interrupt2")
@@ -112,6 +121,32 @@ class StoryReviewTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "approved"):
                 prepare_story_review(db, self.execution, "sha256:" + "b" * 64, self.ref, 1,
                                      previous_request_id=first.request_id)
+
+    def test_owner_response_commit_failure_preserves_prepared_operation(self):
+        with open_database(self.root) as db:
+            first = prepare_story_review(db, self.execution, self.activation, self.ref, 1)
+            bind_story_wait(db, self.execution, first.request_id, "cp1", "task1", "interrupt1")
+            accepted = accept_story_decision(db, self.execution, first.request_id, first.digest, 1,
+                                             "question", "clarify", "Why?")
+            activation = apply_story_decision(db, self.execution, first.request_id, accepted.decision_id)
+            _, digest, _ = prepare_story_operation(db, self.execution, activation, prior_ref=self.ref,
+                                                    feedback="Why?", expected_revision=1,
+                                                    request_id=first.request_id, action="clarify")
+            db.execute("CREATE TEMP TRIGGER stop_response BEFORE UPDATE OF owner_response ON story_operations "
+                       "BEGIN SELECT RAISE(ABORT, 'response gap'); END")
+            with self.assertRaisesRegex(sqlite3.IntegrityError, "response gap"):
+                commit_owner_response(db, self.execution, activation, digest,
+                                      {"status": "clarified", "explanation": "Because."})
+            self.assertEqual(db.execute("SELECT owner_response,discussion_activation FROM story_operations "
+                                        "WHERE activation_id=?", (activation,)).fetchone(), (None, None))
+            db.execute("DROP TRIGGER stop_response")
+            trigger = commit_owner_response(db, self.execution, activation, digest,
+                                            {"status": "clarified", "explanation": "Because."})
+            self.assertEqual(commit_owner_response(db, self.execution, activation, digest,
+                                                   {"status": "clarified", "explanation": "Because."}), trigger)
+            with self.assertRaisesRegex(ValueError, "conflict"):
+                commit_owner_response(db, self.execution, activation, digest,
+                                      {"status": "clarified", "explanation": "Different."})
 
     def test_resume_work_failure_rolls_back_decision(self):
         with open_database(self.root) as db:

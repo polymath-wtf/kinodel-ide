@@ -46,14 +46,20 @@ def prepare_story_review(db: sqlite3.Connection, execution_id: str, trigger_acti
         return ReviewRef(existing[0], existing[5], existing[6])
     db.execute("BEGIN IMMEDIATE")
     try:
-        last = db.execute("SELECT request_id, applied_activation, action FROM review_requests WHERE execution_id=? "
-                          "ORDER BY request_revision DESC LIMIT 1", (execution_id,)).fetchone()
+        last = db.execute("SELECT request_id, applied_activation, action,subject_artifact_id FROM review_requests WHERE execution_id=? "
+                           "ORDER BY request_revision DESC LIMIT 1", (execution_id,)).fetchone()
         if (last is None and previous_request_id is not None) or (
             last is not None and (last[0] != previous_request_id or last[1] is None)
         ):
             raise ValueError("Previous review not applied")
         if last is not None and last[2] == "approve":
             raise ValueError("Story already approved")
+        if last is not None and last[3] == subject.artifact_id:
+            response = db.execute("SELECT owner_response,discussion_activation FROM story_operations "
+                                  "WHERE execution_id=? AND activation_id=?",
+                                  (execution_id, last[1])).fetchone()
+            if response is None or response[0] is None or response[1] != trigger_activation:
+                raise ValueError("Discussion response not committed for new review")
         _assert_writable(db, execution_id)
         current = db.execute("SELECT artifact_id, binding_revision FROM execution_bindings "
                              "WHERE execution_id=? AND slot='story'", (execution_id,)).fetchone()
@@ -148,6 +154,11 @@ def accept_story_decision(db: sqlite3.Connection, execution_id: str, request_id:
                              "WHERE b.execution_id=? AND b.slot='story'", (execution_id,)).fetchone()
         if current != (row[2], row[1], row[3]):
             raise ValueError("Stale review subject")
+        if action in ("revise", "clarify"):
+            count = db.execute("SELECT COUNT(*) FROM review_requests WHERE execution_id=? AND action=?",
+                               (execution_id, action)).fetchone()[0]
+            if count >= 5:
+                raise ValueError(f"Story {action} limit reached")
         decision_id = _digest("kinodel.story-decision-id.v1", request_id, command_key)
         work_id = _digest("kinodel.story-resume-work.v1", decision_id)
         db.execute("UPDATE review_requests SET decision_key=?,decision_digest=?,decision_id=?,"

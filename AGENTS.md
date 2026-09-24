@@ -51,8 +51,8 @@ First-build tasks, dependencies and acceptance belong in `docs/roadmap-mvp.md`. 
 
 These rules govern the coding assistant, not Kinodel's application agents.
 
-- The primary session owns scope, architectural decisions and final integration. From `safe-build`, delegate only read-only research (`explore` for local code, `general` for documents); from `auto-build`, also delegate bounded implementation to `sol-auto-code`. Handle small checks directly; delegate independent work when it saves primary-session context.
-- Subagents do not inherit the full conversation: pass the question, relevant paths, decisions, constraints and verification criteria. Request a concise report (normally at most 30 lines) with evidence, changes and checks if applicable, and blockers—not raw logs.
+- Keep task scope, architectural decisions and final integration in the primary session. Delegate dependency/environment inventories, broad documentation or legacy audits, and independent external research to subagents via delegate `task`; handle small local checks directly.
+- Give each subagent a bounded question, relevant paths, constraints and verification criteria; research is read-only unless edits are explicitly assigned. Request a concise report (normally at most 30 lines): findings, evidence paths/lines or commands, uncertainties and blockers—not raw logs or full documents.
 - Do not duplicate delegated research or re-read its entire source set. Inspect only evidence needed to resolve a conflict or verify a consequential finding; parallelize independent assignments.
 - Read/search only the relevant sections and request targeted command output. After edits, inspect the diff rather than re-reading whole files; keep full inventories, long logs and documentation pages out of the primary session unless necessary to resolve the task.
 

@@ -9,10 +9,10 @@ from uuid import uuid4
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
-from backend.domain import ArtifactRef, StoryV1, sha256_digest
+from backend.domain import ArtifactRef, OwnerResponseV1, StoryV1, sha256_digest
 from backend.review_store import apply_story_decision, prepare_story_review
-from backend.story_store import (_uuid, commit_story_operation, prepare_story_operation,
-                                 read_story)
+from backend.story_store import (_uuid, commit_owner_response, commit_story_operation,
+                                 prepare_story_operation, read_story)
 
 
 STAGE_ID = "storytell"
@@ -58,32 +58,50 @@ def build_story_graph(db: sqlite3.Connection, saver: object,
         prior = None
         feedback = None
         expected = None
+        action = None
         if "previous_request_id" in state:
             previous = db.execute("SELECT decision_id,action,message,applied_activation "
                                   "FROM review_requests WHERE execution_id=? AND request_id=?",
                                   (execution, state["previous_request_id"])).fetchone()
-            if previous is None or previous[1] != "revise" or previous[3] != state["story_activation"]:
+            if previous is None or previous[1] not in ("revise", "clarify") or previous[3] != state["story_activation"]:
                 raise ValueError("Revision activation does not match applied review")
             prior = read_story(db, execution, artifact_id=state["story_ref"]["artifact_id"])[0]
             if prior.model_dump(mode="json") != state["story_ref"]:
                 raise ValueError("Prior Story ref changed")
             feedback, expected = previous[2], state["binding_revision"]
+            action = previous[1]
         _, digest, replay = prepare_story_operation(
             db, execution, state["story_activation"], prior_ref=prior,
             feedback=feedback, expected_revision=expected,
+            request_id=state.get("previous_request_id"), action=action,
         )
         if replay is None:
             prior_body = read_story(db, execution, artifact_id=prior.artifact_id)[1] if prior else None
             try:
-                draft = produce_story(row[1], json.loads(row[2]), prior_body, feedback)
+                kwargs = {}
+                if action and "discussion" in inspect.signature(produce_story).parameters:
+                    prepared = db.execute("SELECT prepared_inputs FROM story_operations WHERE execution_id=? "
+                                          "AND activation_id=?", (execution, state["story_activation"])).fetchone()[0]
+                    kwargs["discussion"] = json.loads(prepared)[-1]
+                draft = produce_story(row[1], json.loads(row[2]), prior_body, feedback, **kwargs)
                 if inspect.isawaitable(draft):
                     draft = await draft
             except (TimeoutError, ConnectionError) as error:
                 raise StoryOwnerUnavailable("Story owner unavailable") from error
+            if isinstance(draft, (dict, OwnerResponseV1)):
+                response = OwnerResponseV1.model_validate(draft)
+                trigger = commit_owner_response(db, execution, state["story_activation"],
+                                                digest, response.model_dump(mode="json"))
+                return {"story_activation": trigger}
+            if action == "clarify":
+                raise ValueError("Clarification must return an owner explanation")
             ref, trigger = commit_story_operation(db, execution, state["story_activation"],
                                                   digest, str(uuid4()), draft)
         else:
             ref, trigger = replay
+            if isinstance(ref, dict):
+                OwnerResponseV1.model_validate(ref)
+                return {"story_activation": trigger}
         return {"story_ref": ref.model_dump(mode="json"),
                 "binding_revision": (expected or 0) + 1, "story_activation": trigger}
 
@@ -109,12 +127,10 @@ def build_story_graph(db: sqlite3.Connection, saver: object,
                          "AND decision_id=?", (state["execution_id"], request_id, state["decision_id"])).fetchone()
         if row is None:
             raise ValueError("Review decision does not match this wait")
-        if row[0] == "clarify":
-            raise ValueError("Clarification requires a persisted owner response before opening a new review")
         activation = apply_story_decision(db, state["execution_id"], request_id, state["decision_id"])
         if row[0] == "approve":
             return Command(update={"approved_story": state["story_ref"], "decision_id": ""}, goto=END)
-        if row[0] == "revise":
+        if row[0] in ("revise", "clarify"):
             return Command(update={"story_activation": activation, "previous_request_id": request_id,
                                    "decision_id": ""}, goto=STAGE_ID)
         raise ValueError("Unsupported Story decision")

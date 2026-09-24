@@ -268,6 +268,10 @@ async def run_story_work(db: sqlite3.Connection, saver: AsyncSqliteSaver,
             raise ValueError("Empty checkpoint without terminal Story receipt")
         checkpoint_id = saved.config["configurable"]["checkpoint_id"]
         work_id = sha256_digest(f"kinodel.reconcile.v1:{execution_id}:{checkpoint_id}".encode())
+        # A decision may arrive while saver.aget_tuple/graph.aget_state yielded to the API.
+        if db.execute("SELECT 1 FROM execution_work WHERE execution_id=? "
+                      "AND status IN ('pending','claimed','blocked')", (execution_id,)).fetchone():
+            continue
         inserted = db.execute("INSERT OR IGNORE INTO execution_work (work_id,execution_id,kind,source_id,payload_digest,status) "
                    "VALUES (?,?, 'reconcile', ?, ?, 'pending')",
                    (work_id, execution_id, checkpoint_id, digest))

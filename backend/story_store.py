@@ -7,8 +7,13 @@ import sqlite3
 import stat
 import tempfile
 
-from backend.domain import ArtifactRef, StoryV1, canonical_json, make_operation_id, parse_json_model, sha256_digest
+from backend.domain import (ArtifactRef, OwnerResponseV1, StoryV1, canonical_json,
+                            make_operation_id, parse_json_model, sha256_digest)
 from backend.database import _check_file, _sync_directory
+
+
+DISCUSSION_LIMIT = 4096
+DISCUSSION_TURNS = 10
 
 
 def _uuid(value: str) -> str:
@@ -128,11 +133,14 @@ def _bind_story(db: sqlite3.Connection, execution_id: str, artifact_id: str,
 def prepare_story_operation(
     db: sqlite3.Connection, execution_id: str, activation_id: str, *,
     prior_ref: ArtifactRef | None = None, feedback: str | None = None,
-    expected_revision: int | None = None,
-) -> tuple[str, str, tuple[ArtifactRef, str] | None]:
+    expected_revision: int | None = None, request_id: str | None = None,
+    action: str | None = None,
+) -> tuple[str, str, tuple[ArtifactRef | dict, str] | None]:
     """Pin exact test inputs before the model substitute; return a committed replay if present."""
     _uuid(execution_id)
-    kind = "revise" if prior_ref is not None else "generate"
+    kind = action or ("revise" if prior_ref is not None else "generate")
+    if kind not in ("generate", "revise", "clarify") or (kind == "generate") != (prior_ref is None):
+        raise ValueError("Invalid owner operation kind")
     operation_id = make_operation_id(execution_id, "storytell", activation_id, kind)
     row = db.execute("SELECT input_message, shot_ids FROM executions WHERE execution_id=?", (execution_id,)).fetchone()
     if row is None:
@@ -151,18 +159,63 @@ def prepare_story_operation(
             raise ValueError("Missing expected Story binding revision")
         if prior_ref.execution_id != execution_id:
             raise ValueError("Prior Story belongs to another execution")
-        inputs = ["test-story-revise-v1", prior_ref.model_dump(mode="json"), feedback]
+        if request_id is not None:
+            previous = db.execute("SELECT action,message,subject_artifact_id,binding_revision,applied_activation "
+                                  "FROM review_requests WHERE execution_id=? AND request_id=?",
+                                  (execution_id, request_id)).fetchone()
+            if previous != (kind, feedback, prior_ref.artifact_id, expected_revision, activation_id):
+                raise ValueError("Owner request does not match activation")
+            history = db.execute("SELECT r.action,r.message,o.owner_response FROM review_requests r "
+                                 "LEFT JOIN story_operations o ON o.execution_id=r.execution_id "
+                                 "AND o.activation_id=r.applied_activation "
+                                 "WHERE r.execution_id=? "
+                                 "AND r.request_revision <= (SELECT request_revision FROM review_requests WHERE request_id=?) "
+                                 "AND r.action IN ('revise','clarify') ORDER BY r.request_revision DESC LIMIT ?",
+                                 (execution_id, request_id, DISCUSSION_TURNS)).fetchall()[::-1]
+            context = [[act, msg[:DISCUSSION_LIMIT],
+                        json.loads(reply)["explanation"][:DISCUSSION_LIMIT] if reply else None]
+                       for act, msg, reply in history]
+        else:
+            if kind == "clarify":
+                raise ValueError("Clarification requires a review request")
+            context = []
+        inputs = ["test-story-owner-v2", kind, request_id, prior_ref.model_dump(mode="json"),
+                  feedback, context]
     prepared = json.dumps(inputs, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
     digest = sha256_digest(prepared.encode("utf-8"))
     existing = db.execute(
-        "SELECT operation_id, input_digest, prepared_inputs, expected_revision, artifact_id, next_activation "
+        "SELECT operation_id, input_digest, prepared_inputs, expected_revision, artifact_id, next_activation, "
+        "owner_response, discussion_activation "
         "FROM story_operations WHERE execution_id=? AND activation_id=?", (execution_id, activation_id),
     ).fetchone()
     if existing:
+        pinned = json.loads(existing[2])
+        if kind == "revise" and prior_ref is not None and pinned[:1] == ["test-story-revise-v1"]:
+            if pinned[1:] != [prior_ref.model_dump(mode="json"), feedback]:
+                raise ValueError("Legacy operation inputs conflict")
+            prepared, digest = existing[2], existing[1]
+        elif kind != "generate" and request_id is not None:
+            # Later reviews cannot change the context of a previously prepared call.
+            inputs[-1] = pinned[-1]
+            prepared = json.dumps(inputs, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+            digest = sha256_digest(prepared.encode("utf-8"))
         if existing[:4] != (operation_id, digest, prepared, expected_revision):
             raise ValueError("Operation activation or prepared inputs conflict")
-        result = ((read_story(db, execution_id, artifact_id=existing[4])[0], existing[5])
-                  if existing[4] is not None else None)
+        if existing[4] is not None and existing[6] is not None:
+            raise ValueError("Owner operation has conflicting results")
+        result = None
+        if existing[4] is not None:
+            result = (read_story(db, execution_id, artifact_id=existing[4])[0], existing[5])
+        elif existing[6] is not None:
+            response = parse_json_model(existing[6].encode("utf-8"), OwnerResponseV1)
+            if (canonical_json(response).decode("utf-8") != existing[6]
+                    or (kind == "clarify" and response.status != "clarified")
+                    or (kind == "revise" and response.status not in ("needs_input", "out_of_scope"))
+                    or existing[7] != sha256_digest(json.dumps(
+                        ["kinodel.story-discussion.v1", operation_id, digest], separators=(",", ":")
+                    ).encode("utf-8"))):
+                raise ValueError("Committed owner response mismatch")
+            result = (response.model_dump(mode="json"), existing[7])
         if result is None:
             _assert_writable(db, execution_id)
         return operation_id, digest, result
@@ -182,7 +235,8 @@ def prepare_story_operation(
     try:
         _assert_writable(db, execution_id)
         db.execute(
-            "INSERT INTO story_operations VALUES (?,?,?,?,?,?,?,?)",
+            "INSERT INTO story_operations (operation_id,execution_id,activation_id,input_digest,"
+            "prepared_inputs,expected_revision,artifact_id,next_activation) VALUES (?,?,?,?,?,?,?,?)",
             (operation_id, execution_id, activation_id, digest, prepared, expected_revision, None, None),
         )
         db.execute("COMMIT")
@@ -190,6 +244,47 @@ def prepare_story_operation(
         db.execute("ROLLBACK")
         raise
     return operation_id, digest, None
+
+
+def commit_owner_response(db: sqlite3.Connection, execution_id: str, activation_id: str,
+                          input_digest: str, response: dict) -> str:
+    """Commit a bounded explanation without changing the Story binding."""
+    body = canonical_json(OwnerResponseV1.model_validate(response))
+    row = db.execute("SELECT operation_id,input_digest,prepared_inputs,expected_revision,owner_response,"
+                     "discussion_activation,artifact_id FROM story_operations WHERE execution_id=? AND activation_id=?",
+                     (execution_id, activation_id)).fetchone()
+    if row is None or row[1] != input_digest or row[6] is not None:
+        raise ValueError("Owner response inputs mismatch")
+    action = json.loads(row[2])[1]
+    result = parse_json_model(body, OwnerResponseV1)
+    if (action == "clarify" and result.status != "clarified") or (
+        action == "revise" and result.status not in ("needs_input", "out_of_scope")
+    ):
+        raise ValueError("Owner response status conflicts with action")
+    if row[4] is not None:
+        if row[4] != body.decode("utf-8") or row[5] != sha256_digest(json.dumps(
+            ["kinodel.story-discussion.v1", row[0], input_digest], separators=(",", ":")
+        ).encode("utf-8")):
+            raise ValueError("Owner response replay conflict")
+        return row[5]
+    activation = sha256_digest(json.dumps(
+        ["kinodel.story-discussion.v1", row[0], input_digest], separators=(",", ":")
+    ).encode("utf-8"))
+    db.execute("BEGIN IMMEDIATE")
+    try:
+        _assert_writable(db, execution_id)
+        current = db.execute("SELECT binding_revision FROM execution_bindings WHERE execution_id=? AND slot='story'",
+                             (execution_id,)).fetchone()
+        if current != (row[3],):
+            raise ValueError("Story changed during owner discussion")
+        db.execute("UPDATE story_operations SET owner_response=?,discussion_activation=? "
+                   "WHERE operation_id=? AND owner_response IS NULL",
+                   (body.decode("utf-8"), activation, row[0]))
+        db.execute("COMMIT")
+    except BaseException:
+        db.execute("ROLLBACK")
+        raise
+    return activation
 
 
 def commit_story_operation(
