@@ -11,7 +11,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from backend.database import APPLICATION_ID, BUSY_TIMEOUT_MS, DATABASE_NAME, OPERATION_SCHEMA, REVIEW_SCHEMA, SCHEMA_VERSION, STORY_SCHEMA, V2_SCHEMA, open_database
+from backend.database import APPLICATION_ID, BUSY_TIMEOUT_MS, DATABASE_NAME, OPERATION_SCHEMA, REVIEW_SCHEMA, RUNNER_SCHEMA, SCHEMA_VERSION, START_SCHEMA, STORY_SCHEMA, V2_SCHEMA, open_database
 from backend.ownership import own_data_root
 
 
@@ -49,7 +49,7 @@ class DatabaseTests(unittest.TestCase):
                     self.assertEqual(db.execute(f"PRAGMA {pragma}").fetchone()[0], expected)
                 self.assertEqual({row[0] for row in db.execute("SELECT name FROM sqlite_schema WHERE type='table'")},
                                   {"executions", "artifacts", "execution_bindings", "story_operations",
-                                   "review_requests", "execution_work"})
+                                    "review_requests", "execution_work", "execution_outcomes", "execution_controls"})
             with self.assertRaises(sqlite3.ProgrammingError):
                 db.execute("SELECT 1")
 
@@ -83,7 +83,7 @@ class DatabaseTests(unittest.TestCase):
         self.root.mkdir()
         for identity, version, schema in (
             (0, 0, False), (123, 1, False), (APPLICATION_ID, 0, False),
-            (APPLICATION_ID, 6, False), (APPLICATION_ID, 1, True),
+            (APPLICATION_ID, SCHEMA_VERSION + 1, False), (APPLICATION_ID, 1, True),
         ):
             with self.subTest(identity=identity, version=version, schema=schema):
                 self.path.unlink(missing_ok=True)
@@ -96,9 +96,9 @@ class DatabaseTests(unittest.TestCase):
                 db.close()
                 self.refuse_unchanged()
 
-    def test_unknown_v2_v3_v4_and_v5_shape_refused_before_migration(self):
+    def test_unknown_v2_through_v7_shape_refused_before_migration(self):
         self.root.mkdir()
-        for version in (2, 3, 4, SCHEMA_VERSION):
+        for version in (2, 3, 4, 5, 6, SCHEMA_VERSION):
             with self.subTest(version=version):
                 self.path.unlink(missing_ok=True)
                 with closing(sqlite3.connect(self.path)) as db:
@@ -106,7 +106,9 @@ class DatabaseTests(unittest.TestCase):
                         f"PRAGMA application_id={APPLICATION_ID}; PRAGMA user_version={version};"
                         + (V2_SCHEMA if version == 2 else STORY_SCHEMA +
                            (OPERATION_SCHEMA if version >= 4 else "") +
-                           (REVIEW_SCHEMA if version >= 5 else ""))
+                           (REVIEW_SCHEMA if version >= 5 else "") +
+                            (START_SCHEMA if version >= 6 else "") +
+                            (RUNNER_SCHEMA if version >= 7 else ""))
                         + "CREATE TABLE unexpected (payload TEXT); INSERT INTO unexpected VALUES ('keep');"
                     )
                 self.refuse_unchanged()

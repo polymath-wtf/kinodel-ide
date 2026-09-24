@@ -6,7 +6,7 @@ import re
 import sqlite3
 
 from backend.domain import ArtifactRef, sha256_digest
-from backend.story_store import _uuid, read_story
+from backend.story_store import _assert_writable, _uuid, read_story
 
 
 @dataclass(frozen=True)
@@ -54,6 +54,7 @@ def prepare_story_review(db: sqlite3.Connection, execution_id: str, trigger_acti
             raise ValueError("Previous review not applied")
         if last is not None and last[2] == "approve":
             raise ValueError("Story already approved")
+        _assert_writable(db, execution_id)
         current = db.execute("SELECT artifact_id, binding_revision FROM execution_bindings "
                              "WHERE execution_id=? AND slot='story'", (execution_id,)).fetchone()
         if current != (subject.artifact_id, binding_revision):
@@ -83,6 +84,7 @@ def bind_story_wait(db: sqlite3.Connection, execution_id: str, request_id: str,
         raise ValueError("Invalid wait binding")
     db.execute("BEGIN IMMEDIATE")
     try:
+        _assert_writable(db, execution_id)
         row = db.execute("SELECT checkpoint_id,task_id,interrupt_id,decision_id,applied_activation "
                          "FROM review_requests WHERE execution_id=? AND request_id=?",
                          (execution_id, request_id)).fetchone()
@@ -129,6 +131,7 @@ def accept_story_decision(db: sqlite3.Connection, execution_id: str, request_id:
                                  "AND kind='resume' AND source_id=?", (execution_id, request_id)).fetchone()[0]
             db.execute("COMMIT")
             return DecisionRef(old[0], work_id)
+        _assert_writable(db, execution_id)
         row = db.execute("SELECT request_digest,binding_revision,subject_artifact_id,subject_digest,"
                          "checkpoint_id,decision_id,applied_activation FROM review_requests "
                          "WHERE execution_id=? AND request_id=?", (execution_id, request_id)).fetchone()
@@ -150,7 +153,8 @@ def accept_story_decision(db: sqlite3.Connection, execution_id: str, request_id:
         db.execute("UPDATE review_requests SET decision_key=?,decision_digest=?,decision_id=?,"
                    "action=?,message=? WHERE request_id=?",
                    (command_key, payload, decision_id, action, message, request_id))
-        db.execute("INSERT INTO execution_work VALUES (?,?,?,?,?,?,?)",
+        db.execute("INSERT INTO execution_work (work_id,execution_id,kind,source_id,payload_digest,resume_ref,status) "
+                   "VALUES (?,?,?,?,?,?,?)",
                    (work_id, execution_id, "resume", request_id, payload, decision_id, "pending"))
         db.execute("COMMIT")
     except BaseException:
@@ -172,6 +176,7 @@ def apply_story_decision(db: sqlite3.Connection, execution_id: str, request_id: 
         if row[5] is not None:
             db.execute("COMMIT")
             return row[5]
+        _assert_writable(db, execution_id)
         current = db.execute("SELECT b.artifact_id,b.binding_revision,a.digest FROM execution_bindings b "
                              "JOIN artifacts a ON a.artifact_id=b.artifact_id "
                              "WHERE b.execution_id=? AND b.slot='story'", (execution_id,)).fetchone()
@@ -180,6 +185,11 @@ def apply_story_decision(db: sqlite3.Connection, execution_id: str, request_id: 
         next_activation = _digest("kinodel.story-review-apply.v1", request_id, decision_id, row[1])
         db.execute("UPDATE review_requests SET applied_activation=? WHERE request_id=?",
                    (next_activation, request_id))
+        if row[1] == "approve":
+            # Approval and completion are one business commit, before graph END.
+            read_story(db, execution_id, artifact_id=row[2])
+            db.execute("INSERT INTO execution_outcomes VALUES (?,?,?,?)",
+                       (execution_id, "completed", request_id, row[2]))
         db.execute("COMMIT")
     except BaseException:
         db.execute("ROLLBACK")

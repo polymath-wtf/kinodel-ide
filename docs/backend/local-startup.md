@@ -1,6 +1,6 @@
 # Local Startup And Ownership
 
-Status: **Accepted rules; data-root lock, application SQLite preflight and process-death bootstrap/journal recovery implemented and tested on Windows. Saver preflight and launcher/shutdown integration pending.** This page owns safe process/data lifetime. Installation tasks, package versions and all first-build checks live in [Local MVP](../roadmap-mvp.md).
+Status: **Accepted rules; data-root lock, application/saver SQLite preflight and internal Story runtime shutdown tested on Windows. Launcher/HTTP lifespan and process-death Story recovery pending.** This page owns safe process/data lifetime. Installation tasks, package versions and all first-build checks live in [Local MVP](../roadmap-mvp.md).
 
 ## First Launch
 

@@ -12,7 +12,7 @@ from langgraph.graph import START, StateGraph
 from langgraph.types import Command, interrupt
 from typing_extensions import TypedDict
 
-from backend.database import BUSY_TIMEOUT_MS, open_database
+from backend.database import BUSY_TIMEOUT_MS, SCHEMA_VERSION, open_database
 from backend.domain import StoryV1, make_operation_id
 from backend.saver import SAVER_ID, SAVER_NAME, open_saver
 from backend.story_store import create_test_execution, read_story, save_story
@@ -91,14 +91,14 @@ class SaverTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_missing_saver_on_future_application_version_is_not_created(self):
         with open_database(self.root) as db:
-            db.execute("PRAGMA user_version=6")
+            db.execute(f"PRAGMA user_version={SCHEMA_VERSION + 1}")
             try:
                 with self.assertRaisesRegex(ValueError, "Missing saver"):
                     async with open_saver(self.root, db):
                         pass
                 self.assertFalse(self.path.exists())
             finally:
-                db.execute("PRAGMA user_version=5")
+                db.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
     async def test_failed_publish_does_not_leave_empty_saver(self):
         with open_database(self.root) as db:

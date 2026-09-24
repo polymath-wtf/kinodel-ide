@@ -15,7 +15,7 @@ import tempfile
 import aiosqlite
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
-from backend.database import APPLICATION_ID, BUSY_TIMEOUT_MS, DATABASE_NAME, _check_file, _check_journal, _schema, _sync_directory
+from backend.database import APPLICATION_ID, BUSY_TIMEOUT_MS, DATABASE_NAME, SCHEMA_VERSION, _check_file, _check_journal, _schema, _sync_directory
 
 
 SAVER_NAME = "checkpoints.sqlite3"
@@ -96,9 +96,10 @@ async def open_saver(root: Path, application_db: sqlite3.Connection) -> AsyncIte
         _check_file(path)
     except FileNotFoundError:
         if (sidecars or application_db.in_transaction
-                or application_db.execute("PRAGMA user_version").fetchone()[0] != 5
-                or application_db.execute("SELECT 1 FROM story_operations LIMIT 1").fetchone() is not None
-                or application_db.execute("SELECT 1 FROM review_requests LIMIT 1").fetchone() is not None):
+                 or application_db.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION
+                 or application_db.execute("SELECT 1 FROM story_operations LIMIT 1").fetchone() is not None
+                 or application_db.execute("SELECT 1 FROM review_requests LIMIT 1").fetchone() is not None
+                 or application_db.execute("SELECT 1 FROM execution_work LIMIT 1").fetchone() is not None):
             raise ValueError("Missing saver with runtime records, sidecars or active transaction")
         # Only a legacy test root with no graph-owned operation or review may
         # acquire a new saver; never replace one that might contain checkpoints.

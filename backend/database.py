@@ -15,7 +15,7 @@ from backend.ownership import own_data_root
 
 DATABASE_NAME = "application.sqlite3"
 APPLICATION_ID = 0x4B494E4F  # KINO; SQLite header identity, not a business record.
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 8
 BUSY_TIMEOUT_MS = 1000
 INITIALIZING = ".kinodel-initializing-v1"
 READY = ".kinodel-ready-v1"
@@ -96,6 +96,36 @@ CREATE TABLE execution_work (
     UNIQUE(execution_id, kind, source_id)
 );
 """
+START_SCHEMA = """
+ALTER TABLE executions ADD COLUMN client_key TEXT;
+ALTER TABLE executions ADD COLUMN start_digest TEXT;
+ALTER TABLE executions ADD COLUMN graph_id TEXT;
+ALTER TABLE executions ADD COLUMN graph_version TEXT;
+ALTER TABLE executions ADD COLUMN graph_digest TEXT;
+CREATE UNIQUE INDEX one_start_per_project_key ON executions(project_id, client_key);
+"""
+RUNNER_SCHEMA = """
+ALTER TABLE execution_work ADD COLUMN settled_checkpoint_id TEXT;
+ALTER TABLE execution_work ADD COLUMN blocked_reason TEXT;
+CREATE TABLE execution_outcomes (
+    execution_id TEXT PRIMARY KEY REFERENCES executions(execution_id),
+    outcome TEXT NOT NULL CHECK(outcome IN ('completed','cancelled','failed')),
+    source_id TEXT NOT NULL,
+    subject_artifact_id TEXT REFERENCES artifacts(artifact_id)
+);
+"""
+CONTROL_SCHEMA = """
+ALTER TABLE execution_work ADD COLUMN work_version INTEGER NOT NULL DEFAULT 0;
+CREATE TABLE execution_controls (
+    execution_id TEXT NOT NULL REFERENCES executions(execution_id),
+    command_key TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK(kind IN ('cancel','retry')),
+    work_id TEXT NOT NULL REFERENCES execution_work(work_id),
+    expected_version INTEGER,
+    PRIMARY KEY(execution_id, command_key)
+);
+CREATE UNIQUE INDEX one_cancel_per_execution ON execution_controls(execution_id) WHERE kind='cancel';
+"""
 
 
 def _schema(db: sqlite3.Connection) -> list[tuple[str, str, str]]:
@@ -107,8 +137,14 @@ def _schema(db: sqlite3.Connection) -> list[tuple[str, str, str]]:
 def _expected_schema(version: int) -> list[tuple[str, str, str]]:
     with closing(sqlite3.connect(":memory:")) as candidate:
         candidate.executescript(V2_SCHEMA if version == 2 else STORY_SCHEMA +
-                                (OPERATION_SCHEMA if version >= 4 else "") +
-                                (REVIEW_SCHEMA if version >= 5 else ""))
+                                 (OPERATION_SCHEMA if version >= 4 else "") +
+                                 (REVIEW_SCHEMA if version >= 5 else ""))
+        if version >= 6:
+            candidate.executescript(START_SCHEMA)
+        if version >= 7:
+            candidate.executescript(RUNNER_SCHEMA)
+        if version >= 8:
+            candidate.executescript(CONTROL_SCHEMA)
         return _schema(candidate)
 
 
@@ -127,7 +163,7 @@ def _validate(db: sqlite3.Connection) -> None:
     if db.execute("PRAGMA application_id").fetchone()[0] != APPLICATION_ID:
         raise ValueError("Unknown application database identity")
     version = db.execute("PRAGMA user_version").fetchone()[0]
-    if version not in (1, 2, 3, 4, SCHEMA_VERSION):
+    if version not in (1, 2, 3, 4, 5, 6, 7, SCHEMA_VERSION):
         raise ValueError("Unsupported application database version; maintenance required")
     if _schema(db) != ([] if version == 1 else _expected_schema(version)):
         raise ValueError("Unexpected application database schema")
@@ -332,7 +368,25 @@ def open_database(root: Path) -> Iterator[sqlite3.Connection]:
             if db.execute("PRAGMA user_version").fetchone()[0] == 4:
                 db.execute("PRAGMA synchronous=FULL")
                 db.executescript(
-                    f"BEGIN IMMEDIATE; {REVIEW_SCHEMA} PRAGMA user_version={SCHEMA_VERSION}; COMMIT;"
+                    f"BEGIN IMMEDIATE; {REVIEW_SCHEMA} PRAGMA user_version=5; COMMIT;"
+                )
+                _validate(db)
+            if db.execute("PRAGMA user_version").fetchone()[0] == 5:
+                db.execute("PRAGMA synchronous=FULL")
+                db.executescript(
+                    f"BEGIN IMMEDIATE; {START_SCHEMA} PRAGMA user_version=6; COMMIT;"
+                )
+                _validate(db)
+            if db.execute("PRAGMA user_version").fetchone()[0] == 6:
+                db.execute("PRAGMA synchronous=FULL")
+                db.executescript(
+                    f"BEGIN IMMEDIATE; {RUNNER_SCHEMA} PRAGMA user_version=7; COMMIT;"
+                )
+                _validate(db)
+            if db.execute("PRAGMA user_version").fetchone()[0] == 7:
+                db.execute("PRAGMA synchronous=FULL")
+                db.executescript(
+                    f"BEGIN IMMEDIATE; {CONTROL_SCHEMA} PRAGMA user_version={SCHEMA_VERSION}; COMMIT;"
                 )
                 _validate(db)
             _marker(root / READY, create=True)

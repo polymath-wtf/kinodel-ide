@@ -26,13 +26,20 @@ def _root(db: sqlite3.Connection) -> Path:
     return Path(db.execute("PRAGMA database_list").fetchone()[2]).parent
 
 
-def create_test_execution(
-    db: sqlite3.Connection, project_id: str, execution_id: str,
-    input_message: str, shot_ids: list[str],
-) -> None:
-    """A private text fixture, never a partial cinematic Brief/Run."""
+def _assert_writable(db: sqlite3.Connection, execution_id: str) -> None:
+    version = db.execute("PRAGMA user_version").fetchone()[0]
+    if version >= 8 and db.execute(
+        "SELECT 1 FROM execution_controls WHERE execution_id=? AND kind='cancel'", (execution_id,)
+    ).fetchone():
+        raise ValueError("Execution is cancelling")
+    if version >= 7 and db.execute(
+        "SELECT 1 FROM execution_outcomes WHERE execution_id=?", (execution_id,)
+    ).fetchone():
+        raise ValueError("Execution already has a terminal outcome")
+
+
+def _validated_test_inputs(project_id: str, input_message: str, shot_ids: list[str]) -> None:
     _uuid(project_id)
-    _uuid(execution_id)
     if not isinstance(input_message, str) or not 0 < len(input_message) <= 131072:
         raise ValueError("Invalid test input")
     if not isinstance(shot_ids, list) or not 1 <= len(shot_ids) <= 128 or any(
@@ -42,10 +49,19 @@ def create_test_execution(
     input_message.encode("utf-8")
     for key in shot_ids:
         key.encode("utf-8")
+
+
+def create_test_execution(
+    db: sqlite3.Connection, project_id: str, execution_id: str,
+    input_message: str, shot_ids: list[str],
+) -> None:
+    """A private text fixture, never a partial cinematic Brief/Run."""
+    _uuid(execution_id)
+    _validated_test_inputs(project_id, input_message, shot_ids)
     db.execute("BEGIN IMMEDIATE")
     try:
         db.execute(
-            "INSERT INTO executions VALUES (?,?,?,?)",
+            "INSERT INTO executions (execution_id,project_id,input_message,shot_ids) VALUES (?,?,?,?)",
             (execution_id, project_id, input_message, json.dumps(shot_ids, ensure_ascii=False)),
         )
         db.execute("COMMIT")
@@ -96,6 +112,7 @@ def _publish(destination: Path, body: bytes) -> None:
 
 def _bind_story(db: sqlite3.Connection, execution_id: str, artifact_id: str,
                 expected_revision: int | None) -> None:
+    _assert_writable(db, execution_id)
     if expected_revision is None:
         db.execute("INSERT INTO execution_bindings VALUES (?,?,?,?)", (execution_id, "story", artifact_id, 1))
     else:
@@ -146,7 +163,10 @@ def prepare_story_operation(
             raise ValueError("Operation activation or prepared inputs conflict")
         result = ((read_story(db, execution_id, artifact_id=existing[4])[0], existing[5])
                   if existing[4] is not None else None)
+        if result is None:
+            _assert_writable(db, execution_id)
         return operation_id, digest, result
+    _assert_writable(db, execution_id)
     if prior_ref is not None:
         if read_story(db, execution_id, artifact_id=prior_ref.artifact_id)[0] != prior_ref:
             raise ValueError("Prior Story ref mismatch")
@@ -160,6 +180,7 @@ def prepare_story_operation(
         raise ValueError("Stale or missing expected Story binding revision")
     db.execute("BEGIN IMMEDIATE")
     try:
+        _assert_writable(db, execution_id)
         db.execute(
             "INSERT INTO story_operations VALUES (?,?,?,?,?,?,?,?)",
             (operation_id, execution_id, activation_id, digest, prepared, expected_revision, None, None),
@@ -188,6 +209,7 @@ def commit_story_operation(
         raise ValueError("Prepared input digest mismatch")
     if committed_id is not None:
         return read_story(db, execution_id, artifact_id=committed_id)[0], next_activation
+    _assert_writable(db, execution_id)
     _uuid(artifact_id)
     body = canonical_json(story)
     story = parse_json_model(body, StoryV1)
@@ -260,6 +282,7 @@ def save_story(
         if committed[0] != execution_id or committed[2] != digest:
             raise ValueError("Operation replay conflicts with committed Story")
         return read_story(db, execution_id, artifact_id=committed[1])[0]
+    _assert_writable(db, execution_id)
     current = db.execute(
         "SELECT binding_revision FROM execution_bindings WHERE execution_id=? AND slot='story'",
         (execution_id,),
