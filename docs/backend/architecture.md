@@ -1,6 +1,6 @@
 # Architecture
 
-Status: **Accepted boundaries; steps 0–1 local config, ownership and first Story storage implemented and tested on Windows. Runtime implementation pending.**
+Status: **Accepted boundaries; steps 0–1 and step-2 Story revision/prepared operation/review records/separate SQLite saver slices tested on Windows. Graph, runner and HITL runtime pending.**
 
 Kinodel is a **runtime-vibe-factory for creators**. A creator follows a pipeline from an idea through story, characters, storyboard and video, or another production scheme, inspecting and revising results through human-in-the-loop decisions. Cinematic is one pipeline, not the definition of the entire product.
 

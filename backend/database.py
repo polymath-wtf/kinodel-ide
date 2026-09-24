@@ -15,13 +15,13 @@ from backend.ownership import own_data_root
 
 DATABASE_NAME = "application.sqlite3"
 APPLICATION_ID = 0x4B494E4F  # KINO; SQLite header identity, not a business record.
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 5
 BUSY_TIMEOUT_MS = 1000
 INITIALIZING = ".kinodel-initializing-v1"
 READY = ".kinodel-ready-v1"
 JOURNAL_MAGIC = bytes.fromhex("d9d505f920a163d7")
 
-STORY_SCHEMA = """
+BASE_SCHEMA = """
 CREATE TABLE executions (
     execution_id TEXT PRIMARY KEY, project_id TEXT NOT NULL,
     input_message TEXT NOT NULL CHECK(length(input_message)>0),
@@ -34,12 +34,66 @@ CREATE TABLE artifacts (
     schema_version TEXT NOT NULL CHECK(schema_version='1'),
     produced_by_stage TEXT NOT NULL CHECK(produced_by_stage='storytell')
 );
+"""
+BINDING_SCHEMA = """
 CREATE TABLE execution_bindings (
     execution_id TEXT NOT NULL REFERENCES executions(execution_id),
     slot TEXT NOT NULL CHECK(slot='story'),
     artifact_id TEXT NOT NULL REFERENCES artifacts(artifact_id),
-    binding_revision INTEGER NOT NULL CHECK(binding_revision=1),
+    binding_revision INTEGER NOT NULL CHECK(binding_revision>=1),
     PRIMARY KEY(execution_id, slot)
+);
+"""
+STORY_SCHEMA = BASE_SCHEMA + BINDING_SCHEMA
+V2_SCHEMA = BASE_SCHEMA + BINDING_SCHEMA.replace("CHECK(binding_revision>=1)", "CHECK(binding_revision=1)")
+OPERATION_SCHEMA = """
+CREATE TABLE story_operations (
+    operation_id TEXT PRIMARY KEY,
+    execution_id TEXT NOT NULL REFERENCES executions(execution_id),
+    activation_id TEXT NOT NULL,
+    input_digest TEXT NOT NULL,
+    prepared_inputs TEXT NOT NULL,
+    expected_revision INTEGER CHECK(expected_revision>=1),
+    artifact_id TEXT REFERENCES artifacts(artifact_id),
+    next_activation TEXT,
+    UNIQUE(execution_id, activation_id),
+    CHECK((artifact_id IS NULL) = (next_activation IS NULL))
+);
+"""
+REVIEW_SCHEMA = """
+CREATE TABLE review_requests (
+    request_id TEXT PRIMARY KEY,
+    execution_id TEXT NOT NULL REFERENCES executions(execution_id),
+    trigger_activation TEXT NOT NULL,
+    subject_artifact_id TEXT NOT NULL REFERENCES artifacts(artifact_id),
+    subject_digest TEXT NOT NULL,
+    binding_revision INTEGER NOT NULL CHECK(binding_revision>=1),
+    request_revision INTEGER NOT NULL CHECK(request_revision>=1),
+    previous_request_id TEXT REFERENCES review_requests(request_id),
+    request_digest TEXT NOT NULL,
+    checkpoint_id TEXT, task_id TEXT, interrupt_id TEXT,
+    decision_key TEXT, decision_digest TEXT, decision_id TEXT,
+    action TEXT CHECK(action IN ('approve','revise','clarify')),
+    message TEXT, applied_activation TEXT,
+    UNIQUE(execution_id, trigger_activation),
+    UNIQUE(execution_id, request_revision),
+    UNIQUE(execution_id, decision_key),
+    CHECK((checkpoint_id IS NULL) = (task_id IS NULL)),
+    CHECK((checkpoint_id IS NULL) = (interrupt_id IS NULL)),
+    CHECK((decision_id IS NULL) = (decision_key IS NULL)),
+    CHECK((decision_id IS NULL) = (decision_digest IS NULL)),
+    CHECK((decision_id IS NULL) = (action IS NULL)),
+    CHECK(applied_activation IS NULL OR decision_id IS NOT NULL)
+);
+CREATE UNIQUE INDEX one_open_story_review ON review_requests(execution_id)
+    WHERE applied_activation IS NULL;
+CREATE TABLE execution_work (
+    work_id TEXT PRIMARY KEY,
+    execution_id TEXT NOT NULL REFERENCES executions(execution_id),
+    kind TEXT NOT NULL CHECK(kind IN ('start','resume','reconcile','cancel')),
+    source_id TEXT NOT NULL, payload_digest TEXT NOT NULL,
+    resume_ref TEXT, status TEXT NOT NULL CHECK(status IN ('pending','claimed','completed','blocked','failed','obsolete')),
+    UNIQUE(execution_id, kind, source_id)
 );
 """
 
@@ -50,9 +104,11 @@ def _schema(db: sqlite3.Connection) -> list[tuple[str, str, str]]:
     ).fetchall()
 
 
-def _expected_schema() -> list[tuple[str, str, str]]:
+def _expected_schema(version: int) -> list[tuple[str, str, str]]:
     with closing(sqlite3.connect(":memory:")) as candidate:
-        candidate.executescript(STORY_SCHEMA)
+        candidate.executescript(V2_SCHEMA if version == 2 else STORY_SCHEMA +
+                                (OPERATION_SCHEMA if version >= 4 else "") +
+                                (REVIEW_SCHEMA if version >= 5 else ""))
         return _schema(candidate)
 
 
@@ -71,11 +127,11 @@ def _validate(db: sqlite3.Connection) -> None:
     if db.execute("PRAGMA application_id").fetchone()[0] != APPLICATION_ID:
         raise ValueError("Unknown application database identity")
     version = db.execute("PRAGMA user_version").fetchone()[0]
-    if version not in (1, SCHEMA_VERSION):
+    if version not in (1, 2, 3, 4, SCHEMA_VERSION):
         raise ValueError("Unsupported application database version; maintenance required")
-    if _schema(db) != ([] if version == 1 else _expected_schema()):
+    if _schema(db) != ([] if version == 1 else _expected_schema(version)):
         raise ValueError("Unexpected application database schema")
-    if version == SCHEMA_VERSION and db.execute("PRAGMA foreign_key_check").fetchone():
+    if version != 1 and db.execute("PRAGMA foreign_key_check").fetchone():
         raise ValueError("Application database foreign key check failed")
 
 
@@ -254,7 +310,29 @@ def open_database(root: Path) -> Iterator[sqlite3.Connection]:
                 # v1 has no business rows. DDL and version stamp commit together.
                 db.execute("PRAGMA synchronous=FULL")
                 db.executescript(
-                    f"BEGIN IMMEDIATE; {STORY_SCHEMA} PRAGMA user_version={SCHEMA_VERSION}; COMMIT;"
+                    f"BEGIN IMMEDIATE; {STORY_SCHEMA} PRAGMA user_version=3; COMMIT;"
+                )
+                _validate(db)
+            if db.execute("PRAGMA user_version").fetchone()[0] == 2:
+                db.execute("PRAGMA synchronous=FULL")
+                db.executescript(
+                    "BEGIN IMMEDIATE; ALTER TABLE execution_bindings RENAME TO old_bindings;"
+                    f"{BINDING_SCHEMA}"
+                    "INSERT INTO execution_bindings SELECT * FROM old_bindings;"
+                    "DROP TABLE old_bindings;"
+                    "PRAGMA user_version=3; COMMIT;"
+                )
+                _validate(db)
+            if db.execute("PRAGMA user_version").fetchone()[0] == 3:
+                db.execute("PRAGMA synchronous=FULL")
+                db.executescript(
+                    f"BEGIN IMMEDIATE; {OPERATION_SCHEMA} PRAGMA user_version=4; COMMIT;"
+                )
+                _validate(db)
+            if db.execute("PRAGMA user_version").fetchone()[0] == 4:
+                db.execute("PRAGMA synchronous=FULL")
+                db.executescript(
+                    f"BEGIN IMMEDIATE; {REVIEW_SCHEMA} PRAGMA user_version={SCHEMA_VERSION}; COMMIT;"
                 )
                 _validate(db)
             _marker(root / READY, create=True)
