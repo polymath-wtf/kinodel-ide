@@ -20,7 +20,7 @@ Kinodel is a **runtime-vibe-factory for creators**: a user follows a production 
 | Storage/module layout and startup | [Implementation](backend/implementation.md), [local startup](backend/local-startup.md) |
 | Agents | [Catalog](agents/README.md), individual craft contracts |
 | Generation and other side effects | [Tools](tools/tools.md), [ComfyUI](backend/comfyui.md) |
-| Node types, boundaries and later composition | [Nodes](backend/node.md), [Web UI](frontend/webui.md) |
+| Node types, nested inspection and later composition | [Nodes](backend/node.md), [Web UI / stack](frontend/webui.md), [Pipeline / Chat wireframe](frontend/uiux-wireframe.md) |
 | Explicit context and future memory/search | [Context](context/context.md), [RAG](rag/rag.md), [chunks](rag/chunks.md) |
 | Database/hosted decisions | [Database](database/README.md) |
 | Later features | [Product roadmap](roadmap.md), [future topics](features/future.md) |

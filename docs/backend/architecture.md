@@ -28,7 +28,7 @@ Graph coordinates. Agents reason. Tools perform side effects. Artifacts preserve
 | API / validation | FastAPI, Pydantic v2, Uvicorn ASGI server | Typed commands and reads, no graph invocation inside HTTP handlers |
 | Local persistence | SQLite application records + `AsyncSqliteSaver` | Separate business/checkpoint ownership, even if files share one root |
 | Media | Managed immutable files; generation tools and ffmpeg | Provider-specific payloads/transport stay in adapters |
-| UI | React, TypeScript, React Flow, typed HTTP client | Own local fixed-node workspace first; graph editing and node-packs later |
+| UI | React, TypeScript, Vite, React Flow UI + Tailwind/shadcn, typed HTTP client | Pipeline/Chat views and fixed nested-node inspection; graph editing and executable composition later |
 | Hosted profile | PostgreSQL + PostgreSQL saver; Supabase identity, private GCS | Separate activation, not local installation dependencies |
 
 Installed versions, missing dependencies, installation commands and release checks belong to [Local MVP](../roadmap-mvp.md#repository-and-dependencies), not this architecture. No ORM, Redis, Celery, event bus, generic plugin system or LangGraph Agent Server is required by these boundaries.
@@ -65,6 +65,8 @@ Use modules for actual responsibilities, not empty scaffolding:
 - `api`: authorized command/read handlers. `worker`: invocation, recovery and tool-job lifetime.
 
 Application migrations and checkpointer setup have separate ownership. Use concrete functions until real duplication warrants an abstraction. [Implementation](implementation.md) records storage layout; [Local MVP](../roadmap-mvp.md) owns build order.
+
+Frontend organization is separate from these Python modules: `web/` currently builds a standalone mock HTML, not the production client. For the real client use incremental Feature-Sliced Design boundaries around actual workspace/review/read-projection responsibilities after the visual design is agreed; do not pre-create empty layers. [Web UI](../frontend/webui.md#10-структура-приложения-и-fsd) owns the client layout decision.
 
 ## Configuration Boundary
 

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101012">
+  <title>The Magic begin — Kinodel</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="prototype.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <span class="brand">KINODEL</span>
+    <span class="project-name">The Magic begin</span>
+    <span class="demo-label">Interactive demo · no execution</span>
+  </header>
+  <main class="workspace">
+    <div class="workspace-head">
+      <nav class="breadcrumbs" aria-label="Scope" id="breadcrumbs"></nav>
+    </div>
+    <div class="workspace-body">
+      <section class="canvas" id="canvas" aria-label="Production canvas">
+        <div class="canvas-top">
+          <div>
+            <h1 id="scope-title">Pipeline</h1>
+            <p id="scope-hint"></p>
+          </div>
+        </div>
+        <div class="world" id="world">
+          <svg class="connections" id="connections" aria-hidden="true" width="2200" height="1200"></svg>
+          <div id="nodes"></div>
+        </div>
+        <div class="canvas-bottom">
+          <div class="controls" aria-label="Canvas controls">
+            <button type="button" id="zoom-out" aria-label="Zoom out">−</button>
+            <span class="zoom-value" id="zoom-value">100%</span>
+            <button type="button" id="zoom-in" aria-label="Zoom in">+</button>
+            <button type="button" id="fit">Fit</button>
+            <button type="button" id="current">Current stage</button>
+          </div>
+          <span class="canvas-tip">Click: details · double-click: inside · right-click: back · middle drag: pan</span>
+        </div>
+      </section>
+      <aside class="inspector" id="inspector" aria-label="Node details" hidden>
+        <div class="inspector-head">
+          <div><span class="eyebrow" id="detail-kind"></span><h2 id="detail-title"></h2></div>
+          <button type="button" id="close-details" aria-label="Close details">×</button>
+        </div>
+        <div id="detail-body" class="inspector-body"></div>
+      </aside>
+    </div>
+  </main>
+</body>
+</html>

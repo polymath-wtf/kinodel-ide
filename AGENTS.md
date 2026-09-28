@@ -74,6 +74,11 @@ These rules govern the coding assistant, not Kinodel's application agents.
 | Frontend concepts | `docs/frontend/webui.md` |
 | ComfyUI/provider work | `docs/backend/comfyui.md`, `skills/comfyui-skill/` |
 | Legacy migration question | `docs/refactoring.md`, then a targeted search in `legacy/` |
+
+### Frontend Screenshot Check
+
+- After each UI design change, capture and inspect browser screenshots of every affected screen/state (desktop and mobile where relevant). Save them as `screen-state-desktop|mobile.png` in a new `test-results/screenshots/<prototype>/vNN-<change>/` folder, update `test-results/README.md`, and leave Playwright's `test-results/prototype/` output separate.
+
 ## Engineering Rules
 
 - Build the smallest restart-safe vertical slice before generic infrastructure.

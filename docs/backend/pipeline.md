@@ -17,7 +17,7 @@ A pipeline is a versioned LangGraph definition with declared node inputs, result
 
 The visible node instance uses `stage_id`; its type selects a known capability/tool/gate. Every new output has a unique declared binding slot. Multiple instances of one capability require different slots, operations, context and review subjects. A source supplies an exact context ref, not a mandatory source agent.
 
-Connections declare input bindings and approval requirements, not automatic `add_edge` calls. The authored graph determines control flow. HITL internally uses prepare/wait/apply; a generation tool uses submit/wait/collect. These details are not separate user-facing nodes. MVP has individual fixed nodes; UI grouping and constrained sequential composition come later.
+Connections declare input bindings and approval requirements, not automatic `add_edge` calls. The authored graph determines control flow. HITL internally uses prepare/wait/apply; a generation tool uses submit/wait/collect. These details are not separate user-facing stages. MVP executes individual fixed stages; the UI may collapse known stages into [nested-node views](node.md#матрёшка-и-исполнение) without changing their identities or review barriers. User-authored grouping and constrained sequential composition come later.
 
 ## Activation And Repair
 
