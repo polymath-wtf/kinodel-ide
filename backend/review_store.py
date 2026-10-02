@@ -9,6 +9,9 @@ from backend.domain import ArtifactRef, sha256_digest
 from backend.story_store import _assert_writable, _uuid, read_story
 
 
+REVIEW_ACTION_LIMIT = 5
+
+
 @dataclass(frozen=True)
 class ReviewRef:
     request_id: str
@@ -157,7 +160,7 @@ def accept_story_decision(db: sqlite3.Connection, execution_id: str, request_id:
         if action in ("revise", "clarify"):
             count = db.execute("SELECT COUNT(*) FROM review_requests WHERE execution_id=? AND action=?",
                                (execution_id, action)).fetchone()[0]
-            if count >= 5:
+            if count >= REVIEW_ACTION_LIMIT:
                 raise ValueError(f"Story {action} limit reached")
         decision_id = _digest("kinodel.story-decision-id.v1", request_id, command_key)
         work_id = _digest("kinodel.story-resume-work.v1", decision_id)

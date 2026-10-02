@@ -7,14 +7,14 @@ const { readFileSync, mkdirSync } = require('node:fs');
 (async () => {
   const browser = await chromium.launch({ headless: true });
   const errors = [];
-  const shots = resolve('..', 'test-results/screenshots/standalone-html/v11-workspace-clarity');
+  const shots = resolve(__dirname, '..', '..', 'test-results/screenshots/standalone-html/v11-workspace-clarity');
   if (process.env.CAPTURE_SCREENSHOTS) mkdirSync(shots, { recursive: true });
   try {
     for (const [size, width, height] of [['desktop', 1600, 1000], ['mobile', 390, 844]]) {
       const page = await browser.newPage({ viewport: { width, height }, reducedMotion: 'reduce' });
       page.on('pageerror', error => errors.push(error.message));
       await page.context().setOffline(true);
-      await page.goto(pathToFileURL(resolve('index.html')).href);
+       await page.goto(pathToFileURL(resolve(__dirname, 'index.html')).href);
       const capture = async name => {
         await page.waitForFunction(() => [...document.images].every(image => image.complete));
         assert.deepEqual(await page.locator('img').evaluateAll(images => images.filter(i => !i.naturalWidth).map(i => i.src)), [], 'local previews load offline');

@@ -10,20 +10,23 @@ from pathlib import Path
 import secrets
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import Field
 
 from backend.config import resolve_data_root
 from backend.domain import ArtifactRef, CanonicalUUID, Digest, DomainModel, Narrative, OwnerResponseV1, StoryV1, Text, UnitKey
 from backend.story_control import open_story_runtime
 from backend.story_start import GRAPH_ID
+from backend.story_reads import recent_story_executions, story_projection
 from backend.story_store import read_story
 
 
 COOKIE = "kinodel_session"
 PORT = 8765
+DIST_ROOT = Path(__file__).resolve().parent.parent / "web" / "dist"
 log = logging.getLogger(__name__)
+ExecutionStatus = Literal["running", "waiting_review", "blocked", "cancelling", "completed", "cancelled", "failed"]
 
 
 class TestStart(DomainModel):
@@ -88,12 +91,85 @@ class DiscussionState(DomainModel):
 class ExecutionState(DomainModel):
     execution_id: CanonicalUUID
     project_id: CanonicalUUID
-    status: Literal["running", "waiting_review", "blocked", "cancelling", "completed", "cancelled", "failed"]
+    status: ExecutionStatus
     outcome: OutcomeState | None
     review: ReviewState | None
     work: list[WorkState]
     stories: list[StoryState]
     discussion: list[DiscussionState]
+
+
+class SubmittedState(DomainModel):
+    input_message: Narrative
+    shot_ids: list[UnitKey]
+    client_key: str | None
+    start_digest: Digest | None
+
+
+class GraphState(DomainModel):
+    id: str
+    version: str | None
+    digest: str | None
+
+
+class StoryRefState(DomainModel):
+    ref: ArtifactRef
+    version: int | None
+    current: bool
+
+
+class ReviewResultState(DomainModel):
+    kind: Literal["revised_story", "owner_response", "approved_subject"]
+    ref: ArtifactRef | None
+    response: OwnerResponseV1 | None
+
+
+class ReviewHistoryState(DomainModel):
+    request_id: str
+    digest: Digest
+    revision: int
+    binding_revision: int
+    previous_request_id: str | None
+    base_ref: ArtifactRef
+    accepted: bool
+    applied: bool
+    decision_id: str | None
+    work_id: str | None
+    action: Literal["approve", "revise", "clarify"] | None
+    message: str | None
+    result: ReviewResultState | None
+
+
+class RemainingActions(DomainModel):
+    revise: int
+    clarify: int
+
+
+class StoryProjection(DomainModel):
+    execution_id: CanonicalUUID
+    project_id: CanonicalUUID
+    status: ExecutionStatus
+    outcome: OutcomeState | None
+    submitted: SubmittedState
+    graph: GraphState
+    work: list[WorkState]
+    stories: list[StoryRefState]
+    reviews: list[ReviewHistoryState]
+    review: ReviewState | None
+    remaining_actions: RemainingActions
+    allowed_actions: list[Literal["approve", "revise", "clarify"]]
+
+
+class RecentStory(DomainModel):
+    execution_id: CanonicalUUID
+    project_id: CanonicalUUID
+    input_preview: str
+    status: ExecutionStatus
+    current_story: StoryRefState | None
+
+
+class RecentStories(DomainModel):
+    items: list[RecentStory]
 
 
 def fixture_story(message: str, shots: list[str], prior: StoryV1 | None, feedback: str | None,
@@ -112,31 +188,17 @@ def fixture_story(message: str, shots: list[str], prior: StoryV1 | None, feedbac
 
 
 def _state(db, execution_id: str) -> dict:
-    execution = db.execute("SELECT project_id FROM executions WHERE execution_id=? AND graph_id=?",
-                           (execution_id, GRAPH_ID)).fetchone()
-    if execution is None:
+    metadata = story_projection(db, execution_id)
+    if metadata is None:
         raise HTTPException(404, "Unknown internal Story execution")
-    outcome = db.execute("SELECT outcome,source_id,subject_artifact_id FROM execution_outcomes WHERE execution_id=?",
-                         (execution_id,)).fetchone()
-    cancelling = db.execute("SELECT 1 FROM execution_controls WHERE execution_id=? AND kind='cancel'",
-                            (execution_id,)).fetchone() is not None
-    rows = db.execute("SELECT work_id,kind,status,blocked_reason,work_version FROM execution_work "
-                      "WHERE execution_id=? ORDER BY rowid", (execution_id,)).fetchall()
-    work = [dict(zip(("work_id", "kind", "status", "blocked_reason", "work_version"), row)) for row in rows]
-    request = db.execute("SELECT request_id,request_digest,request_revision,binding_revision,subject_artifact_id "
-                         "FROM review_requests WHERE execution_id=? AND checkpoint_id IS NOT NULL "
-                         "AND decision_id IS NULL ORDER BY request_revision DESC LIMIT 1", (execution_id,)).fetchone()
-    review = dict(zip(("request_id", "digest", "revision", "binding_revision", "subject_artifact_id"), request)) if (
-        request and not outcome and not cancelling
-    ) else None
-    current = db.execute("SELECT artifact_id FROM execution_bindings WHERE execution_id=? AND slot='story'",
-                         (execution_id,)).fetchone()
     stories = []
-    for (artifact_id,) in db.execute("SELECT artifact_id FROM artifacts WHERE execution_id=? ORDER BY rowid",
-                                     (execution_id,)).fetchall():
-        ref, body = read_story(db, execution_id, artifact_id=artifact_id)
+    for item in metadata["stories"]:
+        try:
+            ref, body = read_story(db, execution_id, artifact_id=item["ref"]["artifact_id"])
+        except FileNotFoundError as error:
+            raise ValueError("Committed Story file is missing") from error
         stories.append({"ref": ref.model_dump(mode="json"), "story": body.model_dump(mode="json"),
-                         "current": current is not None and current[0] == artifact_id})
+                         "current": item["current"]})
     discussion = [dict(zip(("request_id", "action", "message", "response"),
                            (row[0], row[1], row[2], json.loads(row[3]) if row[3] else None)))
                   for row in db.execute(
@@ -145,19 +207,9 @@ def _state(db, execution_id: str) -> dict:
                       "AND o.activation_id=r.applied_activation "
                       "WHERE r.execution_id=? AND r.action IN ('revise','clarify') "
                       "ORDER BY r.request_revision", (execution_id,)).fetchall()]
-    if outcome:
-        status = outcome[0]
-    elif cancelling:
-        status = "cancelling"
-    elif any(item["status"] == "blocked" for item in work):
-        status = "blocked"
-    elif review:
-        status = "waiting_review"
-    else:
-        status = "running"
-    return {"execution_id": execution_id, "project_id": execution[0], "status": status,
-            "outcome": dict(zip(("outcome", "source_id", "subject_artifact_id"), outcome)) if outcome else None,
-            "review": review, "work": work, "stories": stories, "discussion": discussion}
+    return {"execution_id": execution_id, "project_id": metadata["project_id"], "status": metadata["status"],
+            "outcome": metadata["outcome"], "review": metadata["review"], "work": metadata["work"],
+            "stories": stories, "discussion": discussion}
 
 
 def create_app(root: Path | None = None, produce_story=fixture_story) -> FastAPI:
@@ -226,6 +278,29 @@ def create_app(root: Path | None = None, produce_story=fixture_story) -> FastAPI
         response.set_cookie(COOKIE, session, httponly=True, samesite="strict", path="/")
         return response
 
+    @app.get("/", include_in_schema=False)
+    @app.get("/index.html", include_in_schema=False)
+    async def ui_index():
+        index = DIST_ROOT / "index.html"
+        if DIST_ROOT.is_symlink() or index.is_symlink():
+            raise HTTPException(404)
+        if not index.is_file():
+            return HTMLResponse("<!doctype html><html lang='ru'><meta charset='utf-8'>"
+                                "<title>Kinodel</title><body>Frontend-сборка отсутствует. "
+                                "Выполните npm ci и npm run build в web/.</body></html>", status_code=503)
+        return FileResponse(index)
+
+    @app.get("/assets/{filename}", include_in_schema=False)
+    async def ui_asset(filename: str):
+        # Only Vite's flat asset directory is public. No SPA fallback or source tree mounts.
+        if filename.startswith(".") or not filename or DIST_ROOT.is_symlink() or (DIST_ROOT / "assets").is_symlink():
+            raise HTTPException(404)
+        assets = (DIST_ROOT / "assets").resolve()
+        path = assets / filename
+        if not path.is_file() or path.is_symlink() or path.resolve().parent != assets:
+            raise HTTPException(404)
+        return FileResponse(path)
+
     @app.post("/api/executions/internal-story", status_code=202)
     async def start(body: TestStart, request: Request):
         try:
@@ -234,6 +309,23 @@ def create_app(root: Path | None = None, produce_story=fixture_story) -> FastAPI
         except ValueError as error:
             raise HTTPException(409, str(error)) from error
         return {"execution_id": receipt.execution_id, "work_id": receipt.work_id}
+
+    @app.get("/api/executions", response_model=RecentStories)
+    async def recent_executions(request: Request, limit: int = Query(20, ge=1, le=100)):
+        try:
+            return {"items": recent_story_executions(request.app.state.runtime.db, limit)}
+        except ValueError as error:
+            raise HTTPException(409, str(error)) from error
+
+    @app.get("/api/executions/{execution_id}/projection", response_model=StoryProjection)
+    async def read_projection(execution_id: CanonicalUUID, request: Request):
+        try:
+            projection = story_projection(request.app.state.runtime.db, execution_id)
+        except ValueError as error:
+            raise HTTPException(409, str(error)) from error
+        if projection is None:
+            raise HTTPException(404, "Unknown internal Story execution")
+        return projection
 
     @app.get("/api/executions/{execution_id}", response_model=ExecutionState)
     async def read_execution(execution_id: CanonicalUUID, request: Request):
@@ -249,7 +341,7 @@ def create_app(root: Path | None = None, produce_story=fixture_story) -> FastAPI
             raise HTTPException(404, "Unknown internal Story execution")
         try:
             ref, body = read_story(db, execution_id, artifact_id=artifact_id)
-        except ValueError as error:
+        except (ValueError, FileNotFoundError) as error:
             raise HTTPException(404, str(error)) from error
         return {"ref": ref.model_dump(mode="json"), "story": body.model_dump(mode="json")}
 

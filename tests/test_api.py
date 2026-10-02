@@ -2,6 +2,7 @@
 
 import asyncio
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -13,6 +14,8 @@ from backend.api import create_app, fixture_story
 from backend.database import open_database
 from backend.saver import open_saver
 from backend.story_start import start_test_story
+from backend.story_store import create_test_execution, save_story
+from backend.domain import sha256_digest
 from tests.test_story_runner import produce_story
 
 
@@ -164,6 +167,10 @@ class StoryAPITests(unittest.TestCase):
                                               "expected_revision": 1, "command_key": f"{action}-excess",
                                               "action": action, "message": message}, headers=headers).status_code, 409)
             self.assertEqual(len(self.state(client, execution, "waiting_review")["stories"]), 1)
+            exhausted = client.get(f"/api/executions/{execution}/projection")
+            self.assertEqual(exhausted.status_code, 200, exhausted.text)
+            self.assertEqual(exhausted.json()["remaining_actions"], {"revise": 0, "clarify": 0})
+            self.assertEqual(exhausted.json()["allowed_actions"], ["approve"])
             self.assertEqual(client.post(route, json={"request_digest": review["digest"],
                                           "expected_revision": 1, "command_key": "approved",
                                           "action": "approve"}, headers=headers).status_code, 202)
@@ -239,10 +246,274 @@ class StoryAPITests(unittest.TestCase):
             headers = self.session(client)
             blocked = self.state(client, execution, "blocked")
             self.assertIn("unsupported", blocked["work"][0]["blocked_reason"])
+            projection = client.get(f"/api/executions/{execution}/projection")
+            self.assertEqual(projection.status_code, 200, projection.text)
+            self.assertEqual(projection.json()["graph"]["digest"], "unsupported")
+            self.assertEqual(projection.json()["status"], "blocked")
+            listed = client.get("/api/executions")
+            self.assertEqual(listed.status_code, 200, listed.text)
+            self.assertEqual(listed.json()["items"][0]["status"], "blocked")
             response = client.post(f"/api/executions/{execution}/cancel", json={"command_key": "stop"},
-                                   headers=headers)
+                                    headers=headers)
             self.assertEqual(response.status_code, 202, response.text)
             self.state(client, execution, "cancelled")
+            self.assertEqual(client.get(f"/api/executions/{execution}/projection").json()["status"], "cancelled")
+
+    def test_list_is_not_held_hostage_by_unrelated_corrupt_review(self):
+        with self.client(fixture_story) as client:
+            headers = self.session(client)
+            ids = []
+            for key in ("bad", "good"):
+                receipt = client.post('/api/executions/internal-story', json={
+                    'project_id': str(uuid4()), 'client_key': key,
+                    'input_message': key, 'shot_ids': ['s1']}, headers=headers)
+                ids.append(receipt.json()['execution_id'])
+            for execution in ids:
+                self.state(client, execution, 'waiting_review')
+        with open_database(self.root) as db:
+            db.execute('UPDATE review_requests SET subject_digest=? WHERE execution_id=?',
+                       ('sha256:' + '0' * 64, ids[0]))
+        with self.client(fixture_story) as client:
+            self.session(client)
+            result = client.get('/api/executions')
+            self.assertEqual(result.status_code, 200, result.text)
+            self.assertEqual([item['execution_id'] for item in result.json()['items']], ids[::-1])
+            bad, good = result.json()['items'][1], result.json()['items'][0]
+            self.assertNotEqual(bad['status'], 'waiting_review')
+            self.assertEqual(good['status'], 'waiting_review')
+            self.assertEqual(client.get(f'/api/executions/{ids[0]}/projection').status_code, 409)
+
+    def test_storage_only_historical_story_has_no_invented_version(self):
+        async def prepare():
+            with open_database(self.root) as db:
+                async with open_saver(self.root, db) as saver:
+                    receipt = await start_test_story(db, saver, str(uuid4()), 'start', 'Fox', ['s1'])
+                    story = fixture_story('Fox', ['s1'], None, None)
+                    save_story(db, receipt.execution_id, sha256_digest(b'first'), str(uuid4()), story)
+                    save_story(db, receipt.execution_id, sha256_digest(b'second'), str(uuid4()), story,
+                               expected_revision=1)
+                    return receipt.execution_id
+
+        execution = asyncio.run(prepare())
+        with self.client() as client:
+            self.session(client)
+            response = client.get(f'/api/executions/{execution}/projection')
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual([s['version'] for s in response.json()['stories']], [None, 2])
+
+    def test_projection_list_bounds_security_and_missing_execution(self):
+        legacy_id = str(uuid4())
+        with open_database(self.root) as db:
+            create_test_execution(db, str(uuid4()), legacy_id, 'Legacy', ['s1'])
+        with self.client() as client:
+            self.assertEqual(client.get('/api/executions').status_code, 401)
+            self.session(client)
+            self.assertEqual(client.get('/api/executions').json(), {'items': []})
+            for limit in ('0', '101', 'abc'):
+                self.assertEqual(client.get(f'/api/executions?limit={limit}').status_code, 422)
+            self.assertEqual(client.get(f'/api/executions/{uuid4()}/projection').status_code, 404)
+            ids = []
+            project = str(uuid4())
+            for index in range(3):
+                receipt = client.post('/api/executions/internal-story', headers=self.session(client), json={
+                    'project_id': project, 'client_key': f'list-{index}',
+                    'input_message': f'Fox {index}', 'shot_ids': ['s1']})
+                self.assertEqual(receipt.status_code, 202, receipt.text)
+                ids.append(receipt.json()['execution_id'])
+            self.state(client, ids[-1], 'waiting_review')
+            listed = client.get('/api/executions?limit=2').json()['items']
+            self.assertEqual([item['execution_id'] for item in listed], ids[::-1][:2])
+            self.assertEqual(listed[0]['input_preview'], 'Fox 2')
+            self.assertEqual(listed[0]['status'], 'waiting_review')
+            self.assertEqual(listed[0]['current_story']['version'], 1)
+            self.assertEqual(client.get('/api/executions', headers={'Origin': 'http://evil.example'}).status_code, 403)
+            # Storage-only rows are not runnable internal executions.
+            self.assertEqual(client.get(f'/api/executions/{legacy_id}/projection').status_code, 404)
+            self.assertEqual(len(client.get('/api/executions').json()['items']), 3)
+
+    def test_projection_exact_review_history_budgets_and_reopen(self):
+        project = str(uuid4())
+        with self.client(fixture_story) as client:
+            headers = self.session(client)
+            receipt = client.post('/api/executions/internal-story', headers=headers, json={
+                'project_id': project, 'client_key': 'projection', 'input_message': 'A fox', 'shot_ids': ['s1']})
+            execution = receipt.json()['execution_id']
+            self.state(client, execution, 'waiting_review')
+
+            def projection():
+                response = client.get(f'/api/executions/{execution}/projection')
+                self.assertEqual(response.status_code, 200, response.text)
+                return response.json()
+
+            def send(review, action, message, key):
+                return client.post(f"/api/executions/{execution}/reviews/{review['request_id']}/respond",
+                                   headers=headers, json={'request_digest': review['digest'],
+                                                         'expected_revision': review['binding_revision'],
+                                                         'command_key': key, 'action': action, 'message': message})
+
+            first = projection()
+            self.assertEqual(first['submitted']['input_message'], 'A fox')
+            self.assertEqual(first['submitted']['shot_ids'], ['s1'])
+            self.assertEqual(first['graph']['id'], 'kinodel.internal-story')
+            self.assertEqual(first['stories'][0]['version'], 1)
+            self.assertEqual(first['review']['request_id'], first['reviews'][0]['request_id'])
+            self.assertEqual(first['reviews'][0]['base_ref'], first['stories'][0]['ref'])
+            self.assertEqual(first['remaining_actions'], {'revise': 5, 'clarify': 5})
+            self.assertEqual(first['allowed_actions'], ['approve', 'revise', 'clarify'])
+            self.assertEqual(send(first['review'], 'clarify', 'Why?', 'ask').status_code, 202)
+            until = time.monotonic() + 5
+            while time.monotonic() < until:
+                second = projection()
+                if second['review'] and second['review']['request_id'] != first['review']['request_id']:
+                    break
+                time.sleep(0.05)
+            else:
+                self.fail('No new bound review after clarification')
+            self.assertEqual(len(second['stories']), 1)
+            old = second['reviews'][0]
+            self.assertEqual((old['accepted'], old['applied'], old['action']), (True, True, 'clarify'))
+            self.assertEqual(old['result']['kind'], 'owner_response')
+            self.assertEqual(old['result']['response']['status'], 'clarified')
+            self.assertEqual(old['base_ref'], second['reviews'][1]['base_ref'])
+            self.assertEqual(second['remaining_actions'], {'revise': 5, 'clarify': 4})
+            self.assertEqual(send(second['review'], 'revise', 'Darker', 'edit').status_code, 202)
+            until = time.monotonic() + 5
+            while time.monotonic() < until:
+                third = projection()
+                if third['review'] and third['review']['request_id'] != second['review']['request_id']:
+                    break
+                time.sleep(0.05)
+            else:
+                self.fail('No new bound review after revision')
+            self.assertEqual([s['version'] for s in third['stories']], [1, 2])
+            self.assertEqual([s['current'] for s in third['stories']], [False, True])
+            revised = third['reviews'][1]
+            self.assertEqual(revised['base_ref'], third['stories'][0]['ref'])
+            self.assertEqual(revised['result'], {'kind': 'revised_story', 'ref': third['stories'][1]['ref'], 'response': None})
+            self.assertEqual(revised['work_id'], send(second['review'], 'revise', 'Darker', 'edit').json()['work_id'])
+            self.assertEqual(third['remaining_actions'], {'revise': 4, 'clarify': 4})
+            current = third['review']
+            self.assertEqual(third['reviews'][2]['base_ref'], third['stories'][1]['ref'])
+            self.assertEqual(send(current, 'approve', None, 'approve').status_code, 202)
+            self.state(client, execution, 'completed')
+            until = time.monotonic() + 5
+            while time.monotonic() < until:
+                finished = projection()
+                if finished['work'][-1]['status'] == 'completed':
+                    break
+                time.sleep(0.05)
+            else:
+                self.fail('Approval work never settled')
+            self.assertIsNone(finished['review'])
+            self.assertEqual(finished['allowed_actions'], [])
+            self.assertEqual(finished['reviews'][2]['result'], {
+                'kind': 'approved_subject', 'ref': third['stories'][1]['ref'], 'response': None})
+            self.assertEqual(finished['outcome']['subject_artifact_id'], third['stories'][1]['ref']['artifact_id'])
+        with self.client(fixture_story) as client:
+            self.session(client)
+            self.assertEqual(client.get(f'/api/executions/{execution}/projection').json(), finished)
+
+    def test_projection_and_cancel_survive_missing_historical_and_current_body(self):
+        with self.client(fixture_story) as client:
+            headers = self.session(client)
+            execution = client.post('/api/executions/internal-story', headers=headers, json={
+                'project_id': str(uuid4()), 'client_key': 'lost-file',
+                'input_message': 'Fox', 'shot_ids': ['s1']}).json()['execution_id']
+            first = self.state(client, execution, 'waiting_review')
+            review = first['review']
+            self.assertEqual(client.post(f"/api/executions/{execution}/reviews/{review['request_id']}/respond",
+                                         headers=headers, json={'request_digest': review['digest'],
+                                                               'expected_revision': 1, 'command_key': 'edit',
+                                                               'action': 'revise', 'message': 'Darker'}).status_code, 202)
+            second = self.state(client, execution, 'waiting_review')
+            paths = []
+            for item in second['stories']:
+                ref = item['ref']
+                paths.append(self.root / 'projects' / ref['project_id'] / 'artifacts' / (
+                    f"{ref['artifact_id']}.{ref['digest'][7:]}.json"))
+            paths[1].write_text('invalid', encoding='utf-8')
+            self.assertEqual(client.get(f"/api/executions/{execution}/stories/{second['stories'][1]['ref']['artifact_id']}").status_code, 404)
+            paths[0].unlink()
+            self.assertEqual(client.get(f'/api/executions/{execution}').status_code, 409)
+            projection = client.get(f'/api/executions/{execution}/projection')
+            self.assertEqual(projection.status_code, 200, projection.text)
+            self.assertEqual(projection.json()['status'], 'waiting_review')
+            self.assertEqual(len(projection.json()['stories']), 2)
+            self.assertEqual(client.get('/api/executions').json()['items'][0]['status'], 'waiting_review')
+            self.assertEqual(client.get(f"/api/executions/{execution}/stories/{second['stories'][0]['ref']['artifact_id']}").status_code, 404)
+            self.assertEqual(client.post(f'/api/executions/{execution}/cancel', headers=headers,
+                                         json={'command_key': 'cancel'}).status_code, 202)
+            until = time.monotonic() + 5
+            while time.monotonic() < until:
+                if client.get(f'/api/executions/{execution}/projection').json()['status'] == 'cancelled':
+                    break
+                time.sleep(0.05)
+            else:
+                self.fail('Cancellation not observed without Story files')
+
+    def test_applied_revision_can_have_no_owner_result_yet(self):
+        entered, release = threading.Event(), threading.Event()
+
+        async def slow_revision(message, shots, prior, feedback, *, discussion=None):
+            if feedback is not None:
+                entered.set()
+                await asyncio.to_thread(release.wait, 4)
+            return fixture_story(message, shots, prior, feedback, discussion=discussion)
+
+        with self.client(slow_revision) as client:
+            headers = self.session(client)
+            execution = client.post('/api/executions/internal-story', headers=headers, json={
+                'project_id': str(uuid4()), 'client_key': 'slow-revision',
+                'input_message': 'Fox', 'shot_ids': ['s1']}).json()['execution_id']
+            first = self.state(client, execution, 'waiting_review')
+            review = first['review']
+            try:
+                accepted = client.post(f"/api/executions/{execution}/reviews/{review['request_id']}/respond",
+                                       headers=headers, json={'request_digest': review['digest'],
+                                                             'expected_revision': 1, 'command_key': 'slow-edit',
+                                                             'action': 'revise', 'message': 'Darker'})
+                self.assertEqual(accepted.status_code, 202)
+                self.assertTrue(entered.wait(5))
+                middle = client.get(f'/api/executions/{execution}/projection').json()
+                self.assertTrue(middle['reviews'][0]['accepted'])
+                self.assertTrue(middle['reviews'][0]['applied'])
+                self.assertEqual(middle['reviews'][0]['work_id'], accepted.json()['work_id'])
+                self.assertIsNone(middle['reviews'][0]['result'])
+                self.assertIsNone(middle['review'])
+                self.assertEqual(middle['remaining_actions']['revise'], 4)
+                self.assertEqual(len(middle['stories']), 1)
+            finally:
+                release.set()
+            self.state(client, execution, 'waiting_review')
+            finished = client.get(f'/api/executions/{execution}/projection').json()
+            self.assertEqual(finished['reviews'][0]['result']['kind'], 'revised_story')
+
+    def test_nonready_revision_consumes_budget_without_new_story(self):
+        with self.client(fixture_story) as client:
+            headers = self.session(client)
+            execution = client.post('/api/executions/internal-story', headers=headers, json={
+                'project_id': str(uuid4()), 'client_key': 'needs-input',
+                'input_message': 'Fox', 'shot_ids': ['s1']}).json()['execution_id']
+            review = self.state(client, execution, 'waiting_review')['review']
+            route = f"/api/executions/{execution}/reviews/{review['request_id']}/respond"
+            body = {'request_digest': review['digest'], 'expected_revision': 1,
+                    'command_key': 'not-ready', 'action': 'revise', 'message': 'needs_input: color?'}
+            accepted = client.post(route, headers=headers, json=body)
+            self.assertEqual(accepted.status_code, 202)
+            self.assertEqual(client.post(route, headers=headers, json=body).json(), accepted.json())
+            until = time.monotonic() + 5
+            while time.monotonic() < until:
+                state = client.get(f'/api/executions/{execution}/projection').json()
+                if state['review'] and state['review']['request_id'] != review['request_id']:
+                    break
+                time.sleep(0.05)
+            else:
+                self.fail('No new bound review after nonready response')
+            self.assertEqual(len(state['stories']), 1)
+            self.assertEqual(state['remaining_actions'], {'revise': 4, 'clarify': 5})
+            self.assertEqual(state['reviews'][0]['result']['kind'], 'owner_response')
+            self.assertEqual(state['reviews'][0]['result']['response']['status'], 'needs_input')
+            self.assertEqual(state['reviews'][1]['base_ref'], state['reviews'][0]['base_ref'])
 
 
 if __name__ == "__main__":

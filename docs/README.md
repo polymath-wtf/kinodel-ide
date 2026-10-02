@@ -21,6 +21,7 @@ Kinodel is a **runtime-vibe-factory for creators**: a user follows a production 
 | Agents | [Catalog](agents/README.md), individual craft contracts |
 | Generation and other side effects | [Tools](tools/tools.md), [ComfyUI](backend/comfyui.md) |
 | Node types, nested inspection and later composition | [Nodes](backend/node.md), [Web UI / stack](frontend/webui.md), [Pipeline / Chat wireframe](frontend/uiux-wireframe.md) |
+| First connected Story frontend, approved build | [Story workspace preproduction](frontend/story-workspace-preproduction.md), [bounded subagent assignments](frontend/story-workspace-tasks.md); work checklist remains in Local MVP step 6 |
 | Explicit context and future memory/search | [Context](context/context.md), [RAG](rag/rag.md), [chunks](rag/chunks.md) |
 | Database/hosted decisions | [Database](database/README.md) |
 | Later features | [Product roadmap](roadmap.md), [future topics](features/future.md) |

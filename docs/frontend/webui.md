@@ -1,10 +1,12 @@
 # Web UI — Kinodel Workspace
 
-**[Текущий HTML-макет](../../web/index.html) · [Запуск — web/README.md](../../web/README.md).** Интерактивный **MOCK, без backend**, HTML/CSS/JS: Pipeline, отдельный Canvas проекта, mock Inputs/Outputs и provider inspection. Предыдущий React Flow эксперимент удалён; описанный ниже React-стек остаётся целевым.
+**[Standalone HTML-макет](../../web/prototype/index.html) · [Запуск — web/prototype/README.md](../../web/prototype/README.md).** Интерактивный **MOCK, без backend**, HTML/CSS/JS: Pipeline, отдельный Canvas проекта, mock Inputs/Outputs и provider inspection. Отдельный [React shell](../../web/README.md) собирается с FastAPI origin, но пока без Story reads/commands; React Flow остаётся целевым.
 
-Статус: **прототип собран, целевой дизайн и production UI ещё не утверждены/не интегрированы**. `web/` — исходники одноразового HTML-эксперимента, не обязательный фундамент приложения. Макеты и промпты — [UI/UX wireframe](uiux-wireframe.md). Порядок сборки, pins и приёмка — только в [Local MVP](../roadmap-mvp.md). Эта страница задаёт целевой стек, визуальный язык и правила взаимодействия.
+Статус: **прототип сохранён отдельно, production shell пока без Story reads/commands**. `web/prototype/` — исходники HTML-эксперимента, не обязательный фундамент приложения. Макеты и промпты — [UI/UX wireframe](uiux-wireframe.md). Порядок сборки, pins и приёмка — только в [Local MVP](../roadmap-mvp.md). Эта страница задаёт целевой стек, визуальный язык и правила взаимодействия.
 
 ## First UI Slice
+
+Ниже описан целевой cinematic UI и отдельный standalone mock, **не функциональность текущего Story shell**: сейчас в production доступны только пустые Pipeline/Chat без чтения runs или команд.
 
 **Один запуск: Pipeline для производства, Canvas для медиа, Chat как альтернативный вид процесса.** Pipeline — горизонтальная дорожка из семи компактных нод с превью и краткими описаниями; зелёные галочки показывают завершённые Brief/Storytell, оранжевая рамка — текущий Wardrobe review, будущие ноды остаются waiting. Матрёшка раскрывает агента, generation tool и review. Полные изображения/видео собраны в отдельном Canvas. В standalone v10 Canvas ровно три горизонтальные строки **Anchors / Images / Video** без внешних рамок: 3 anchors, 9 start-frame attempts в одну строку, 2 pending clips. Все 14 слотов видны на 1600×1000 и 1440×900 при закрытой панели и Fit (карточки ~150/136px); при открытой панели минимум 120px, Fit сохраняет 100% и дальние Images доступны pan. Полные подписи остаются в aria-label и tooltip при сокращении текста на карточке. Отдельного shot-фильтра нет: S01/S02 подписаны на самих карточках. Единый фон всех рабочих видов — локальный `refs/zbs ref v1/background v2.png` без второй сетки точек; `New shot · coming soon` отключён. Правый клик по asset на Canvas открывает Wardrobe / Storyboard / Filmmaker по категории, по пустому полю — последний Pipeline scope и viewport; rail и breadcrumbs обеспечивают клавиатурный путь. Проект и breadcrumbs объединены в одной верхней строке; Canvas не дублирует заголовок. Левый rail: Pipeline / Canvas / Brief / Review / Final. Правая панель закрыта по умолчанию; выбор материала открывает компактный contained preview, табличные Details / Prompt / Settings / Lineage и кнопку workflow. В standalone Pipeline / Chat показывает хронологию mock-проекта; сообщения — локальные неотправленные черновики, backend не подключён.
 
@@ -44,8 +46,8 @@ SSR у React Flow возможен, но требует размеров нод 
 
 ### Что проверено сейчас
 
-- В `web/` находится standalone HTML/CSS/JS MOCK; запуск — в [README](../../web/README.md). React Flow эксперимент удалён вместе с его frontend-сборкой; `package.json`, lockfile и `web/src` сейчас отсутствуют.
-- React 19.3.0, React Flow 12.11.6 и Vite 8.0.16 использовались в удалённом эксперименте. Это историческая проверка, не установленные зависимости текущего `web/` и не готовая production-сборка.
+- В `web/prototype/` находится standalone HTML/CSS/JS MOCK; stock-фотографии сохранены отдельно в `web/assets/` (`../assets/` из прототипа), без включения в сборку shell. Запуск — в [README](../../web/prototype/README.md). В `web/` установлен React/Vite shell с lockfile; React Flow и подключение Story ещё ожидают следующего среза.
+- React 19.3.0, React Flow 12.11.6 и Vite 8.0.16 использовались в удалённом эксперименте. Это историческая проверка, а не pins текущего shell: Vite сейчас 8.0.10, React Flow ещё не установлен; текущая сборка проверена отдельно.
 - Текущие Tailwind 4.3.3 и Vite plugin 4.3.3 поддерживают Vite 8; Query 5.103.2 поддерживает React 19; Zod 4.6.5 не обнаруживает конфликта в metadata. shadcn CLI 4.21.0 проходит Node requirement.
 - React Flow UI официально поддерживает React 19 / Tailwind 4. Интеграция целевого production-стека и его проверки ещё нужны на шаге 6; standalone build и registry metadata их не заменяют.
 
@@ -216,7 +218,7 @@ Story approval завершает **fixture**, а не запускает Wardro
 
 Primary — главное действие, sky — selection, coral — `Your decision`, red — ошибки; текст и иконки различают состояния без цвета. Completed достаточно check + текста. Нейтральные провода — порядок этапов; sky/violet применяются к media/conditioning связям. Light-значения целевые: текущий standalone проверяется только в dark.
 
-- **Шрифт:** self-hosted `IBM Plex Sans` с реальным Cyrillic subset, если интерфейс русскоязычный; моноширинный для refs/revisions при необходимости. Основной текст 14/20, вторичный не меньше 12/16 при рабочем масштабе, node title 14/20 semibold, section title 18/24. В текущем mock импортирован только Latin subset — это пока не доказательство готовности кириллицы.
+- **Шрифт:** целевой self-hosted `IBM Plex Sans` с реальным Cyrillic subset, если интерфейс русскоязычный; моноширинный для refs/revisions при необходимости. Основной текст 14/20, вторичный не меньше 12/16 при рабочем масштабе, node title 14/20 semibold, section title 18/24. В текущем standalone `styles.css` используется `Segoe UI`, system-ui, sans-serif, без font imports; IBM Plex пока не подключён.
 - **Геометрия:** 4px spacing grid; 10–12px node radius, 6–8px controls; rail 84px с подписями, header 60px, breadcrumbs 50px. Media node 260px, inspector 376px; mobile rail снизу, inspector full-screen. Основные controls не меньше 44px на touch.
 - **Workspace:** в standalone одна готовая texture `background v2.png` уже содержит точки и blue/coral grain; повторный dot overlay не нужен. Она покрывает все рабочие виды, но не непрозрачные панели и ноды. Edges 1.5px нейтральные, named handles 8px. Нет декоративных пунктирных потоков по всему экрану. MiniMap только по запросу, controls — zoom / fit / current stage.
 - **Media:** `object-fit: contain` на review, ratio box без обрезки важных частей; маленький cover-thumbnail допустим на внешней карточке. Video не autoplay; сеть не перегружается десятками mounted players.
@@ -396,13 +398,15 @@ Workspace задаёт canvas реальную высоту через `100dvh` 
 
 ## 10. Структура приложения и FSD
 
-Сейчас `web/index.html`, `prototype.js` и `styles.css` — standalone HTML-эксперимент, не шаблон структуры production; прежний `web/src` удалён. Нужно создать FSD перед утверждением дизайна, чтобы писать код в заведомо известной архитектуре. Прежний минимальный webui прямо откладывал обязательную шестислойную Mini-FSD, но пора заняться ей.
+`web/prototype/index.html`, `prototype.js` и `styles.css` — standalone HTML-эксперимент, не шаблон структуры production; `web/src` содержит только shell. Владельцы первого Story-среза появляются вместе с поведением, не отдельным scaffolding.
 
 Для production принимаем **принцип Feature-Sliced Design**: экран/workspace собирает виджеты, пользовательское действие (`review`, обсуждение) владеет своим UI и запросом, `execution`/`artifact` — только типизированными read projections, общие низкоуровневые примитивы лежат отдельно. Не создаём `pages/widgets/features/entities/shared` заранее ради дерева папок: выделяем срез, когда появляется реальный Story review с API и второй потребитель того же поведения в Pipeline/Chat. Размещение данных определяется их владельцем, не названием картинки или типа ноды. Разрешённые зависимости направлены к более общим слоям; экран не становится местом хранения mock runtime и команд всех фич. FSD описывает организацию клиентского кода, не меняет backend route и ownership.
 
 ## 11. Граница следующей сборки
 
-Сначала утвердить компактный HTML-дизайн без дублирующей панели; затем собрать React Flow shell по макету и подключить общий Story review и Chat/Pipeline к реальному fixture. Готового React shell в `web/` больше нет. Mock-данные, копирайтинг, CSS и локальные scripted действия не являются production-контрактом. Дальше расширять workspace по мере готовности cinematic projection. Фиксированные матрёшки — view navigation первого концепта; произвольная упаковка, graph editor, palette, общий project chat и ComfyUI editor не нужны для этого прохода.
+Компактный React shell без фиктивных результатов уже собирается в `web/`; следующий срез подключит React Flow, Story reads и Chat/Pipeline к реальному fixture. Mock-данные и локальные scripted действия не являются production-контрактом. Дальше расширять workspace по мере готовности cinematic projection. Фиксированные матрёшки — view navigation первого концепта; произвольная упаковка, graph editor, palette, общий project chat и ComfyUI editor не нужны для этого прохода.
+
+[Препродакшн Story workspace](story-workspace-preproduction.md) от 2 октября — согласованные границы первого подключённого среза, минимальные read projections, recovery и сохранение текущего mock; апрув получен, реализация начата по [bounded заданиям](story-workspace-tasks.md). Dark-first/system-font — принятый вариант первой приёмки, не реализация всех целевых тем/типографики выше. 6A read seam и статический React shell проверены; connected browser integration ещё впереди.
 
 Все рабочие задачи/критерии находятся в [шаге 6 и приёмке roadmap](../roadmap-mvp.md#remaining-steps). Здесь не ведём второй checklist. Минимальные browser checks должны подтвердить одинаковый exact review в двух видах, сохранение scope при навигации, отсутствие duplicate command при reconnect, явное отличие candidate/selected/approved и доступность на узком экране.
 

@@ -1,4 +1,4 @@
-// View-only demo: positions and navigation are local UI state, never pipeline execution.
+// View-only standalone demo: positions and navigation are local UI state, never pipeline execution.
 const idea = 'Mira returns to a quiet island before the last ferry. She finds the lighthouse dark, but sees a light move inside.';
 const groups = {
   storytell: {
@@ -61,9 +61,9 @@ scopes.pipeline = { title: 'Pipeline', hint: '', nodes: outer,
   edges: path.slice(1).map((title, i) => [path[i].toLowerCase(), title.toLowerCase(), null, null, 'route']) };
 
 const media = [
-  n('hero_face', 'Portrait', 'Candidate', 443, 495, { kind: 'Anchor image', image: 'assets/portrait.jpg', workflow: 't2i', ports: ports([], ['image']), detail: [['Prompt', 'Portrait of Mira on a windswept island. Dark bob, sea spray, weathered face, soft overcast daylight.'], ['Reference', 'hero_face · attempt 2'], ['Lineage', 'First character anchor. Illustrative stock image.']] }),
-  n('hero_sheet', 'Wardrobe sheet', 'Candidate', 633, 495, { kind: 'Anchor image', image: 'assets/wardrobe.jpg', workflow: 'i2i', ports: ports(['image'], ['image']), detail: [['Prompt', 'Full-body wardrobe sheet for the exact selected Mira portrait: worn ochre raincoat, canvas satchel, practical boots. Preserve the face and silhouette from hero_face.'], ['Reference', 'hero_sheet · attempt 2'], ['Lineage', 'Parent: hero_face attempt 2. Illustrative stock image.']] }),
-  n('location', 'Island location', 'Candidate', 823, 495, { kind: 'Anchor image', image: 'assets/coast.jpg', workflow: 't2i', ports: ports([], ['image']), detail: [['Prompt', 'Empty island coast under a low grey sky. Wet shoreline and a distant unlit lighthouse, no people.'], ['Reference', 'location · attempt 1'], ['Lineage', 'Independent of character anchors. Illustrative stock image.']] })
+  n('hero_face', 'Portrait', 'Candidate', 443, 495, { kind: 'Anchor image', image: '../assets/portrait.jpg', workflow: 't2i', ports: ports([], ['image']), detail: [['Prompt', 'Portrait of Mira on a windswept island. Dark bob, sea spray, weathered face, soft overcast daylight.'], ['Reference', 'hero_face · attempt 2'], ['Lineage', 'First character anchor. Illustrative stock image.']] }),
+  n('hero_sheet', 'Wardrobe sheet', 'Candidate', 633, 495, { kind: 'Anchor image', image: '../assets/wardrobe.jpg', workflow: 'i2i', ports: ports(['image'], ['image']), detail: [['Prompt', 'Full-body wardrobe sheet for the exact selected Mira portrait: worn ochre raincoat, canvas satchel, practical boots. Preserve the face and silhouette from hero_face.'], ['Reference', 'hero_sheet · attempt 2'], ['Lineage', 'Parent: hero_face attempt 2. Illustrative stock image.']] }),
+  n('location', 'Island location', 'Candidate', 823, 495, { kind: 'Anchor image', image: '../assets/coast.jpg', workflow: 't2i', ports: ports([], ['image']), detail: [['Prompt', 'Empty island coast under a low grey sky. Wet shoreline and a distant unlit lighthouse, no people.'], ['Reference', 'location · attempt 1'], ['Lineage', 'Independent of character anchors. Illustrative stock image.']] })
 ];
 
 const frames = Array.from({ length: 9 }, (_, i) => {
@@ -71,12 +71,12 @@ const frames = Array.from({ length: 9 }, (_, i) => {
   const title = `${shot} · take ${i < 5 ? i + 1 : i - 4}`;
   return n(`frame:${i + 1}`, title, i < 2 ? 'Example image' : i === 2 ? 'Generating…' : 'Queued',
     120 + i % 3 * 235, 175 + Math.floor(i / 3) * 245,
-    { kind: 'Start-frame attempt', ports: ports(['anchors'], ['image']), image: i < 2 ? ['assets/coast.jpg', 'assets/portrait.jpg'][i] : null,
+    { kind: 'Start-frame attempt', ports: ports(['anchors'], ['image']), image: i < 2 ? ['../assets/coast.jpg', '../assets/portrait.jpg'][i] : null,
       placeholder: i >= 2, workflow: 't2i', editable: true, prompt: `${shot}: ${i < 5 ? 'Mira steps onto a wet pier; dark lighthouse in the distance.' : 'Mira at the start of the shoreline path; closed door ahead.'} Opening of the shot, not its ending.`, seed: 41001 + i, generatedSeed: 41001 + i,
       detail: [['Shot', `${shot} · candidate ${i < 5 ? i + 1 : i - 4}`], ['Settings', 'Krea2 example · 1024 × 1024 · 8 steps · Euler ancestral'], ['References', 'Approved face, wardrobe sheet and location required before real submission.']] });
 });
 const clips = ['S01', 'S02'].map((shot, i) => n(`clip:${shot}`, `${shot} clip`, 'Waiting on approved frame', 160 + i * 280, 245,
-  { kind: 'Video attempt', ports: ports(['start image', 'motion'], ['video']), placeholder: true, poster: ['assets/coast.jpg', 'assets/portrait.jpg'][i], workflow: 'i2v',
+  { kind: 'Video attempt', ports: ports(['start image', 'motion'], ['video']), placeholder: true, poster: ['../assets/coast.jpg', '../assets/portrait.jpg'][i], workflow: 'i2v',
     detail: [['Start image', `${shot} · exact approved start frame required`], ['Motion prompt', i ? 'Follow Mira slowly until she stops at the closed door.' : 'Mira steps off the ferry; wind lifts her coat; the lighthouse light moves.'], ['Duration', '6s planned · example MiniMax workflow is set to 5s; adapter mapping requires reconciliation. No video in this example.']] }));
 
 // Subsets of the actual API-prompt graphs: ids, class_type and displayed links come from the JSON files.

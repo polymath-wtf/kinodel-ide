@@ -1,6 +1,6 @@
 # UI/UX Wireframe — Pipeline / Canvas / Chat
 
-**[Текущий HTML-макет](../../web/index.html) · [Запуск — web/README.md](../../web/README.md).** Интерактивный **MOCK, без backend**, на HTML/CSS/JS. Отдельный [React Flow эксперимент](prototype/index.html) — предыдущая ветка дизайна, не текущая сборка `web/`.
+**[Standalone HTML-макет](../../web/prototype/index.html) · [Запуск — web/prototype/README.md](../../web/prototype/README.md).** Интерактивный **MOCK, без backend**, на HTML/CSS/JS. Отдельный [React Flow эксперимент](prototype/index.html) — предыдущая ветка дизайна, не production shell `web/`.
 
 Статус: **v0-прототип собран, дизайн пересматривается до production UI**. Ниже целевые wireframe/промпты для следующей итерации, а не описание уже реализованного HTML. Стек, tokens и backend-границы — [webui.md](webui.md). Все названия фильма, версии и счётчики ниже — **mock data** для одного согласованного примера.
 

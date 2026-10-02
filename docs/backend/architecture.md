@@ -1,6 +1,6 @@
 # Architecture
 
-Status: **Accepted boundaries; steps 0–2 internal Story foundation tested on Windows, including localhost discussion/revise/approve/retry/cancel and forced-process-death recovery. Live agents, public cinematic API, rendering and production UI pending. Evidence: Local MVP.**
+Status: **Accepted boundaries; steps 0–2 internal Story foundation tested on Windows, including localhost discussion/revise/approve/retry/cancel and forced-process-death recovery. A built Story UI shell is served locally; connected Story UI, live agents, public cinematic API and rendering remain pending. Evidence: Local MVP.**
 
 Kinodel is a **runtime-vibe-factory for creators**. A creator follows a pipeline from an idea through story, characters, storyboard and video, or another production scheme, inspecting and revising results through human-in-the-loop decisions. Cinematic is one pipeline, not the definition of the entire product.
 
@@ -66,7 +66,7 @@ Use modules for actual responsibilities, not empty scaffolding:
 
 Application migrations and checkpointer setup have separate ownership. Use concrete functions until real duplication warrants an abstraction. [Implementation](implementation.md) records storage layout; [Local MVP](../roadmap-mvp.md) owns build order.
 
-Frontend organization is separate from these Python modules: `web/` currently builds a standalone mock HTML, not the production client. For the real client use incremental Feature-Sliced Design boundaries around actual workspace/review/read-projection responsibilities after the visual design is agreed; do not pre-create empty layers. [Web UI](../frontend/webui.md#10-структура-приложения-и-fsd) owns the client layout decision.
+Frontend organization is separate from these Python modules: `web/` builds a React/TypeScript/Vite Story shell served from the FastAPI origin, without connected reads or commands yet. The standalone mock lives in `web/prototype/`; its binary photos remain in `web/assets/` and are not bundled into the client. Grow Feature-Sliced Design boundaries only with actual workspace/review/read-projection responsibilities, not empty layers. [Web UI](../frontend/webui.md#10-структура-приложения-и-fsd) owns the client layout decision.
 
 ## Configuration Boundary
 
