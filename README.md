@@ -28,6 +28,8 @@ The workspace is a readable sequence of **nodes**, not one endless chat. Each no
 
 First: a fixed, useful production route. Later: configurable nodes, a sequential composer and visual groups when the workspace needs them. [Node contract →](docs/backend/node.md)
 
+<img src="docs/frontend/refs/zbs%20ref%20v1/pipeline%20zbs%20nodes%20kaif.png" alt="Kinodel IDE pipeline workspace" width="720">
+
 ## Meet the crew
 
 | Specialist | What they bring to the table | Scope |
