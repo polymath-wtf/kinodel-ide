@@ -1,12 +1,12 @@
 # Web UI — Kinodel Workspace
 
-**[Standalone HTML-макет](../../web/prototype/index.html) · [Запуск — web/prototype/README.md](../../web/prototype/README.md).** Интерактивный **MOCK, без backend**, HTML/CSS/JS: Pipeline, отдельный Canvas проекта, mock Inputs/Outputs и provider inspection. Отдельный [React shell](../../web/README.md) собирается с FastAPI origin, но пока без Story reads/commands; React Flow остаётся целевым.
+**[Standalone HTML-макет](../../web/prototype/index.html) · [Запуск — web/prototype/README.md](../../web/prototype/README.md).** Интерактивный **MOCK, без backend**, HTML/CSS/JS: Pipeline, отдельный Canvas проекта, mock Inputs/Outputs и provider inspection. Отдельный [React workspace](../../web/README.md) читает реальные internal Story executions с FastAPI origin (6C); команды остаются выключены до 6D.
 
-Статус: **прототип сохранён отдельно, production shell пока без Story reads/commands**. `web/prototype/` — исходники HTML-эксперимента, не обязательный фундамент приложения. Макеты и промпты — [UI/UX wireframe](uiux-wireframe.md). Порядок сборки, pins и приёмка — только в [Local MVP](../roadmap-mvp.md). Эта страница задаёт целевой стек, визуальный язык и правила взаимодействия.
+Статус: **прототип сохранён отдельно; production workspace подключён к read-only Story foundation (6C), не к live cinematic**. `web/prototype/` — исходники HTML-эксперимента, не обязательный фундамент приложения. Макеты и промпты — [UI/UX wireframe](uiux-wireframe.md). Порядок сборки, pins и приёмка — только в [Local MVP](../roadmap-mvp.md). Эта страница задаёт целевой стек, визуальный язык и правила взаимодействия.
 
 ## First UI Slice
 
-Ниже описан целевой cinematic UI и отдельный standalone mock, **не функциональность текущего Story shell**: сейчас в production доступны только пустые Pipeline/Chat без чтения runs или команд.
+Ниже описан целевой cinematic UI и отдельный standalone mock, **не полный функционал текущего Story workspace**. Production 6C: список/URL execution; React Flow «ввод → Storytell → fixture result», внутренний result/review scope; Chat из сохранённого ввода/reviews/ответов; общий lazy exact Story reader, версии и неприменённый адресный черновик. Metadata/body ошибки независимы; request revision не считается output version. Команды, media/providers и остальные cinematic stages не активированы. Точные проверки — [web/README](../../web/README.md).
 
 **Один запуск: Pipeline для производства, Canvas для медиа, Chat как альтернативный вид процесса.** Pipeline — горизонтальная дорожка из семи компактных нод с превью и краткими описаниями; зелёные галочки показывают завершённые Brief/Storytell, оранжевая рамка — текущий Wardrobe review, будущие ноды остаются waiting. Матрёшка раскрывает агента, generation tool и review. Полные изображения/видео собраны в отдельном Canvas. В standalone v10 Canvas ровно три горизонтальные строки **Anchors / Images / Video** без внешних рамок: 3 anchors, 9 start-frame attempts в одну строку, 2 pending clips. Все 14 слотов видны на 1600×1000 и 1440×900 при закрытой панели и Fit (карточки ~150/136px); при открытой панели минимум 120px, Fit сохраняет 100% и дальние Images доступны pan. Полные подписи остаются в aria-label и tooltip при сокращении текста на карточке. Отдельного shot-фильтра нет: S01/S02 подписаны на самих карточках. Единый фон всех рабочих видов — локальный `refs/zbs ref v1/background v2.png` без второй сетки точек; `New shot · coming soon` отключён. Правый клик по asset на Canvas открывает Wardrobe / Storyboard / Filmmaker по категории, по пустому полю — последний Pipeline scope и viewport; rail и breadcrumbs обеспечивают клавиатурный путь. Проект и breadcrumbs объединены в одной верхней строке; Canvas не дублирует заголовок. Левый rail: Pipeline / Canvas / Brief / Review / Final. Правая панель закрыта по умолчанию; выбор материала открывает компактный contained preview, табличные Details / Prompt / Settings / Lineage и кнопку workflow. В standalone Pipeline / Chat показывает хронологию mock-проекта; сообщения — локальные неотправленные черновики, backend не подключён.
 
@@ -46,8 +46,8 @@ SSR у React Flow возможен, но требует размеров нод 
 
 ### Что проверено сейчас
 
-- В `web/prototype/` находится standalone HTML/CSS/JS MOCK; stock-фотографии сохранены отдельно в `web/assets/` (`../assets/` из прототипа), без включения в сборку shell. Запуск — в [README](../../web/prototype/README.md). В `web/` установлен React/Vite shell с lockfile; React Flow и подключение Story ещё ожидают следующего среза.
-- React 19.3.0, React Flow 12.11.6 и Vite 8.0.16 использовались в удалённом эксперименте. Это историческая проверка, а не pins текущего shell: Vite сейчас 8.0.10, React Flow ещё не установлен; текущая сборка проверена отдельно.
+- В `web/prototype/` находится standalone HTML/CSS/JS MOCK; stock-фотографии остаются в `web/assets/` (`../assets/` из прототипа), без включения в runtime. В `web/` установлен React/Vite workspace с exact lockfile, React Flow 12.11.6, Query 5.103.2, Zod 4.6.5 и реальным read-only Story API; командный journal — следующий срез 6D.
+- React 19.3.0, React Flow 12.11.6 и Vite 8.0.16 использовались в удалённом эксперименте. Это историческая проверка; текущий Vite baseline остаётся 8.0.10. Pins и проверки connected workspace — в [web/README](../../web/README.md).
 - Текущие Tailwind 4.3.3 и Vite plugin 4.3.3 поддерживают Vite 8; Query 5.103.2 поддерживает React 19; Zod 4.6.5 не обнаруживает конфликта в metadata. shadcn CLI 4.21.0 проходит Node requirement.
 - React Flow UI официально поддерживает React 19 / Tailwind 4. Интеграция целевого production-стека и его проверки ещё нужны на шаге 6; standalone build и registry metadata их не заменяют.
 
@@ -173,14 +173,14 @@ ComfyUI — **Tool с раскрытием внутри `anchor-gen` / `frames-g
 
 ## 7. API: реальность и необходимые проекции
 
-По коду `backend/api.py` доступен **internal Story fixture**: session bootstrap, start, execution read, immutable Story read, respond (`approve/revise/clarify`), retry и cancel. Discussion с typed owner responses реализован; Windows process-death приёмка foundation закрыта 2 октября — evidence в [шаге 2 roadmap](../roadmap-mvp.md#step-2). Живой cinematic и frontend-интеграция ещё не проверены.
+По коду `backend/api.py` доступен **internal Story fixture**: session bootstrap, start, list/projection/execution read, immutable Story read, respond (`approve/revise/clarify`), retry и cancel. Discussion с typed owner responses реализован; Windows process-death приёмка foundation закрыта 2 октября — evidence в [шаге 2 roadmap](../roadmap-mvp.md#step-2). Read-only frontend 6C проверен на реальном fixture; командный клиент 6D и живой cinematic ещё не активированы.
 
 | Уже можно проверить на fixture | Ещё требуется для полного экрана |
 |---|---|
 | Story versions, current review, request digest, work/status, persisted discussion | Cinematic stage projection и public Brief start |
 | Exact approve/revise/clarify; retry/cancel | Model/profile readiness и разрешённые настройки |
 | Poll/reconnect того же execution | Jobs, assets/previews, candidate manifests/selection, workflow inspection |
-| `review.revision` отдельно от `binding_revision` | Allowed actions/remaining budgets, полная review history и base-result refs discussion |
+| `review.revision` отдельно от `binding_revision`, allowed actions/budgets, ordered review history и exact base/result refs | Cinematic/media review projection, не перенос internal Story DTO без контракта |
 
 Story approval завершает **fixture**, а не запускает Wardrobe. Нельзя рисовать остальные этапы как реально выполненные. Отдельный visual specimen всего cinematic маркируется `Demo data`. Наличие `cinematic.v1.json` не означает наличие исполняемого frontend/backend compiler.
 
@@ -398,7 +398,7 @@ Workspace задаёт canvas реальную высоту через `100dvh` 
 
 ## 10. Структура приложения и FSD
 
-`web/prototype/index.html`, `prototype.js` и `styles.css` — standalone HTML-эксперимент, не шаблон структуры production; `web/src` содержит только shell. Владельцы первого Story-среза появляются вместе с поведением, не отдельным scaffolding.
+`web/prototype/index.html`, `prototype.js` и `styles.css` — standalone HTML-эксперимент, не шаблон структуры production. В `web/src`: workspace composition/URL, Pipeline/Chat/details widgets, общий Story reader/review draft, execution schemas/queries и shared HTTP/session. Владельцы появляются вместе с поведением, без пустых слоёв; command features появятся в 6D.
 
 Для production принимаем **принцип Feature-Sliced Design**: экран/workspace собирает виджеты, пользовательское действие (`review`, обсуждение) владеет своим UI и запросом, `execution`/`artifact` — только типизированными read projections, общие низкоуровневые примитивы лежат отдельно. Не создаём `pages/widgets/features/entities/shared` заранее ради дерева папок: выделяем срез, когда появляется реальный Story review с API и второй потребитель того же поведения в Pipeline/Chat. Размещение данных определяется их владельцем, не названием картинки или типа ноды. Разрешённые зависимости направлены к более общим слоям; экран не становится местом хранения mock runtime и команд всех фич. FSD описывает организацию клиентского кода, не меняет backend route и ownership.
 

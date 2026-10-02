@@ -67,7 +67,7 @@ if (process.argv[2]) {
         }
       },
       newPage: async ({ viewport }) => {
-        let selected = viewport.width < 768 ? 'Chat' : 'Pipeline', focused = 'Pipeline', tabs = 0, authenticated = false;
+        let selected = viewport.width < 768 ? 'Chat' : 'Pipeline', focused = 'Pipeline', tabs = 0, authenticated = true;
         const locator = name => ({
           first() { return this; },
           waitFor: async () => { if (scenario === 'check-error') throw new Error('shell assertion failed'); },
@@ -102,7 +102,7 @@ if (process.argv[2]) {
     const result = spawnSync(process.execPath, [__filename, scenario], {
       encoding: 'utf8', timeout: 9000,
       env: { ...process.env, PLAYWRIGHT_MODULE: 'mock-playwright', SHELL_CHECK_PORT: '8766',
-        CAPTURE_SCREENSHOTS: ['capture', 'overwrite'].includes(scenario) ? '1' : '', SCREENSHOT_DIR: 'unused-evidence' },
+        CAPTURE_SCREENSHOTS: ['capture', 'overwrite'].includes(scenario) ? '1' : '', SCREENSHOT_DIR: 'unused-evidence', SHELL_CHECK_BASELINE_ONLY: '1' },
     });
     assert.ifError(result.error); // Timeout is a failure, not a passing diagnostic.
     const success = ['success', 'capture', 'force-kill'].includes(scenario);

@@ -34,7 +34,7 @@ async function bounded(promise, milliseconds, message) {
     folder = resolve(process.env.SCREENSHOT_DIR);
     mkdirSync(folder); // Exclusive creation: never replace curated evidence, even in an empty folder.
   }
-  const data = mkdtempSync(join(tmpdir(), 'kinodel-6b-'));
+  const data = mkdtempSync(join(tmpdir(), 'kinodel-6c-'));
   let browser, server, exited, stopped = false, startupError, log = '', listening = false;
   const checkServer = () => {
     if (startupError) throw startupError;
@@ -42,7 +42,8 @@ async function bounded(promise, milliseconds, message) {
       throw new Error(`Backend exited: ${server.exitCode ?? server.signalCode}\n${log}`);
     }
   };
-  try {
+  const startServer = async () => {
+    stopped = false; listening = false; startupError = undefined; log = '';
     const python = resolve(root, '.venv313/Scripts/python.exe');
     // Port override is confined to this disposable subprocess; production policy stays unchanged.
     server = spawn(python, ['-B', '-c', "import sys; import backend.api as api; import uvicorn; api.PORT = int(sys.argv[1]); uvicorn.run(api.app, host='127.0.0.1', port=api.PORT, workers=1, proxy_headers=False)", String(port)], {
@@ -74,6 +75,16 @@ async function bounded(promise, milliseconds, message) {
       await new Promise(r => setTimeout(r, 100));
     }
     assert.ok(ready, `Backend not ready on ${origin}\n${log}`);
+  };
+  const stopServer = async () => {
+    if (server && !stopped) {
+      server.kill();
+      try { await bounded(exited, 3000, 'Backend shutdown timed out'); }
+      catch { server.kill('SIGKILL'); await bounded(exited, 3000, `Backend cleanup failed; data preserved at ${data}`); }
+    }
+  };
+  try {
+    await startServer();
     const { chromium } = require(process.env.PLAYWRIGHT_MODULE);
     browser = await chromium.launch({ headless: true });
     for (const [name, width, height] of [['desktop', 1440, 900], ['tablet-820', 820, 900], ['tablet-768', 768, 900], ['mobile', 390, 844]]) {
@@ -88,7 +99,7 @@ async function bounded(promise, milliseconds, message) {
       page.on('response', response => { if (response.status() >= 400) failures.push([response.url(), response.status()]); });
       page.on('requestfailed', request => failures.push([request.url(), request.failure()]));
       await page.goto(origin);
-      await page.waitForLoadState('networkidle');
+      await page.getByText('Сохранённых запусков нет.', { exact: false }).waitFor();
       await page.getByText('Story foundation · тестовая модель').waitFor();
       const bounds = async () => assert.deepEqual(await page.evaluate(() => {
         const failures = document.documentElement.scrollWidth > innerWidth ? ['document overflow'] : [];
@@ -102,7 +113,7 @@ async function bounded(promise, milliseconds, message) {
       await page.getByRole('heading', { name: width < 768 ? 'Chat' : 'Pipeline', exact: true }).waitFor();
       await bounds();
       const api = path => page.request.get(`${origin}${path}`).then(r => r.status());
-      assert.equal(await api('/api/executions'), 401);
+      assert.equal(await api('/api/executions'), 200); // The connected UI bootstraps the session.
       assert.equal(await api('/api/session'), 200);
       assert.equal(await api('/api/executions'), 200);
       assert.equal(await api('/api/missing'), 404);
@@ -119,7 +130,7 @@ async function bounded(promise, milliseconds, message) {
         assert.ok(await focused.evaluate((element, index) => element.closest(index < 2 ? '.view-switch' : '.rail') !== null, index), 'focus stays on the expected navigation surface');
         await bounds();
         assert.equal(await page.getByRole('button', { name: view, exact: true }).first().getAttribute('aria-pressed'), 'true');
-        if (folder && name === 'desktop' && index < 2) {
+        if (folder && process.env.SHELL_CHECK_BASELINE_ONLY === '1' && name === 'desktop' && index < 2) {
           mkdirSync(join(folder, view.toLowerCase()));
           await page.screenshot({ path: join(folder, view.toLowerCase(), 'screen-state-desktop.png') });
         }
@@ -137,20 +148,17 @@ async function bounded(promise, milliseconds, message) {
       assert.deepEqual(mutations, [], 'no POST or other mutations');
       await page.close();
     }
+    if (process.env.SHELL_CHECK_BASELINE_ONLY !== '1') {
+      await require('./connected-check.cjs')({ browser, origin, data, folder,
+        restart: async () => { await stopServer(); await startServer(); } });
+    }
     checkServer();
   } finally {
     try {
       if (browser) await bounded(browser.close(), 3000, 'Browser cleanup timed out');
     } finally {
       try {
-        if (server && !stopped) {
-          server.kill();
-          try { await bounded(exited, 3000, 'Backend shutdown timed out'); }
-          catch {
-            server.kill('SIGKILL');
-            await bounded(exited, 3000, `Backend cleanup failed; data preserved at ${data}`);
-          }
-        }
+        await stopServer();
       } finally {
         if (!server || stopped) rmSync(data, { recursive: true, force: true });
         else {
@@ -160,6 +168,6 @@ async function bounded(promise, milliseconds, message) {
       }
     }
   }
-  console.log('OK: built shell, same-origin API/session, desktop/tablet/mobile bounds, Tab/Enter/Space, local assets, zero mutations/errors; owned backend stopped and disposable root removed');
+  console.log('OK: read-only connected Story, same-origin/session, desktop/mobile, zero browser mutations; owned backend stopped and disposable root removed');
 // This is a CLI: after bounded cleanup, even a broken browser connection must not keep it alive.
 })().catch(error => { console.error(error); process.exit(1); });

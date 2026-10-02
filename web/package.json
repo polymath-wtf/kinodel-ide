@@ -6,12 +6,17 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build": "tsc --noEmit && vite build",
-    "build:watch": "vite build --watch"
+    "build:watch": "vite build --watch",
+    "check:schemas": "node schema-check.cjs",
+    "check:browser": "node shell-check.cjs"
   },
   "dependencies": {
+    "@tanstack/react-query": "5.103.2",
+    "@xyflow/react": "12.11.6",
     "lucide-react": "1.49.0",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "zod": "4.6.5"
   },
   "devDependencies": {
     "@types/react": "19.3.0",

@@ -7,7 +7,7 @@
 
 Шаги 0–2 закрыты на Windows: локальное хранение, immutable Story, durable start, вопросы/правки, exact approval, retry/cancel и process-death recovery. Это `kinodel.internal-story` с детерминированной заменой модели. Approval завершает этот execution, не запускает Wardrobe. Живой Storytell — следующий backend-шаг 3; первый подключённый UI можно собрать сейчас внутри шага 6.
 
-Самостоятельный HTML/CSS/JS mock сохранён в `web/prototype/`; shell с Vite размещён отдельно в `web/`. Состояния и scripted действия прототипа не являются runtime.
+Самостоятельный HTML/CSS/JS mock сохранён в `web/prototype/`; connected read-only workspace 6C с Vite размещён отдельно в `web/`. Pipeline/Chat читают сохранённые runs, версии и reviews; активация команд и persistence drafts остаются 6D. Состояния и scripted действия прототипа не являются runtime.
 
 Проверка 2 октября:
 
@@ -45,7 +45,7 @@ Canvas, Wardrobe, Storyboard, Filmmaker и Montage подключаются по
 
 Команды `internal-story`, `respond`, `retry`, `cancel` уже реализованы в [backend/api.py](../../backend/api.py). Новые публичные cinematic команды этому срезу не нужны.
 
-Предложены **два read endpoints**, окончательные Pydantic DTO проверяются при реализации:
+Реализованы **два read endpoints** (6A), используемые workspace 6C; окончательные Pydantic DTO — в `backend/api.py`:
 
 | Read | Данные и смысл |
 |---|---|
@@ -64,7 +64,7 @@ Built assets раздаются FastAPI с `http://127.0.0.1:8765`, незави
 
 ## Клиент: стек и владельцы
 
-React 19 + TypeScript + **Vite 8.0.10** и Lucide уже установлены для статического shell; exact pins и `package-lock.json` — в `web/`. React Flow для фиксированной схемы, Tailwind 4, необходимые source-owned shadcn/React Flow UI primitives, React Query, typed fetch + Zod — целевой стек следующих подключённых срезов, устанавливается только с потребителем. Vite 8.0.16 — история удалённого эксперимента, не текущий baseline. Browser tooling остаётся внешним и не входит в frontend runtime.
+React 19 + TypeScript + **Vite 8.0.10** и Lucide установлены в 6B; React Flow для фиксированной схемы, React Query, typed fetch + Zod подключены в 6C. Exact pins и `package-lock.json` — в `web/`. Tailwind 4 и необходимые source-owned shadcn/React Flow UI primitives добавляются только с потребителем. Vite 8.0.16 — история удалённого эксперимента, не текущий baseline. Browser tooling остаётся внешним и не входит в frontend runtime.
 
 FSD применяется к реальным владельцам, без пустых слоёв:
 

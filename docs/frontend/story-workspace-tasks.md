@@ -47,6 +47,8 @@ Shell собран и проверен; формальная отметка ша
 
 ## 6C · Read-only connected Pipeline / Chat — coder
 
+Реализовано и принято как read-only workspace; результаты проверок — в roadmap. Ниже — границы выполненного задания; активация команд остаётся 6D.
+
 **Goal:** открыть реальный сохранённый execution, читать версии, review и discussion в двух видах без клиентской симуляции.
 
 **Edit scope:** реальные FSD modules под `web/src`, только нужные frontend test/browser files и package scripts, frontend docs/screenshots. Backend read seam read-only; отсутствующий контракт вернуть primary.
