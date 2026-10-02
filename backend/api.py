@@ -12,7 +12,7 @@ from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from backend.config import resolve_data_root
 from backend.domain import ArtifactRef, CanonicalUUID, Digest, DomainModel, Narrative, OwnerResponseV1, StoryV1, Text, UnitKey
@@ -122,6 +122,16 @@ class ReviewResultState(DomainModel):
     kind: Literal["revised_story", "owner_response", "approved_subject"]
     ref: ArtifactRef | None
     response: OwnerResponseV1 | None
+
+    @model_validator(mode="after")
+    def validate_result(self):
+        if self.kind == "owner_response":
+            valid = self.ref is None and self.response is not None
+        else:
+            valid = self.ref is not None and self.response is None
+        if not valid:
+            raise ValueError("Recorded review result does not match its kind")
+        return self
 
 
 class ReviewHistoryState(DomainModel):
@@ -313,25 +323,25 @@ def create_app(root: Path | None = None, produce_story=fixture_story) -> FastAPI
     @app.get("/api/executions", response_model=RecentStories)
     async def recent_executions(request: Request, limit: int = Query(20, ge=1, le=100)):
         try:
-            return {"items": recent_story_executions(request.app.state.runtime.db, limit)}
-        except ValueError as error:
+            return RecentStories.model_validate({"items": recent_story_executions(request.app.state.runtime.db, limit)})
+        except (ValueError, TypeError) as error:
             raise HTTPException(409, str(error)) from error
 
     @app.get("/api/executions/{execution_id}/projection", response_model=StoryProjection)
     async def read_projection(execution_id: CanonicalUUID, request: Request):
         try:
             projection = story_projection(request.app.state.runtime.db, execution_id)
-        except ValueError as error:
+            if projection is None:
+                raise HTTPException(404, "Unknown internal Story execution")
+            return StoryProjection.model_validate(projection)
+        except (ValueError, TypeError) as error:
             raise HTTPException(409, str(error)) from error
-        if projection is None:
-            raise HTTPException(404, "Unknown internal Story execution")
-        return projection
 
     @app.get("/api/executions/{execution_id}", response_model=ExecutionState)
     async def read_execution(execution_id: CanonicalUUID, request: Request):
         try:
-            return _state(request.app.state.runtime.db, execution_id)
-        except ValueError as error:
+            return ExecutionState.model_validate(_state(request.app.state.runtime.db, execution_id))
+        except (ValueError, TypeError) as error:
             raise HTTPException(409, str(error)) from error
 
     @app.get("/api/executions/{execution_id}/stories/{artifact_id}")

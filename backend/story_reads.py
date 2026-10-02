@@ -3,6 +3,7 @@
 import json
 import sqlite3
 
+from backend.domain import OwnerResponseV1, make_operation_id, sha256_digest
 from backend.review_store import REVIEW_ACTION_LIMIT
 from backend.story_start import GRAPH_ID
 
@@ -76,30 +77,72 @@ def story_projection(db: sqlite3.Connection, execution_id: str) -> dict | None:
     requests = _rows(db, "SELECT r.request_id,r.request_digest,r.request_revision,r.binding_revision,"
                      "r.subject_artifact_id,r.subject_digest,r.previous_request_id,r.checkpoint_id,"
                      "r.decision_id,r.action,r.message,r.applied_activation,"
-                     "w.work_id,o.artifact_id AS result_artifact_id,o.operation_id AS result_operation_id,"
-                     "o.owner_response "
+                     "w.work_id,w.status AS work_status,o.artifact_id AS result_artifact_id,"
+                     "o.operation_id AS result_operation_id,o.owner_response,o.prepared_inputs,"
+                     "o.input_digest,o.expected_revision,o.next_activation,o.discussion_activation "
                      "FROM review_requests r LEFT JOIN execution_work w ON w.execution_id=r.execution_id "
                      "AND w.kind='resume' AND w.source_id=r.request_id "
                      "LEFT JOIN story_operations o ON o.execution_id=r.execution_id "
                      "AND o.activation_id=r.applied_activation "
                      "WHERE r.execution_id=? ORDER BY r.request_revision", (execution_id,))
     reviews = []
+    continued = {request["previous_request_id"] for request in requests}
     for request in requests:
         base = refs.get(request["subject_artifact_id"])
         if base is None or base["digest"] != request["subject_digest"]:
             raise ValueError("Recorded review subject does not match its artifact")
         result = None
         if request["applied_activation"] is not None:
-            if (request["action"] == "approve" and outcome and outcome["outcome"] == "completed"
-                    and outcome["source_id"] == request["request_id"]
-                    and outcome["subject_artifact_id"] == base["artifact_id"]):
+            activation = sha256_digest(json.dumps(
+                ["kinodel.story-review-apply.v1", request["request_id"], request["decision_id"], request["action"]],
+                ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+            if request["applied_activation"] != activation:
+                raise ValueError("Recorded review activation does not match its decision")
+            if request["action"] == "approve":
+                if (not outcome or outcome["outcome"] != "completed"
+                        or outcome["source_id"] != request["request_id"]
+                        or outcome["subject_artifact_id"] != base["artifact_id"]
+                        or request["result_operation_id"] is not None):
+                    raise ValueError("Recorded approval does not match its outcome")
                 result = {"kind": "approved_subject", "ref": base, "response": None}
-            elif (request["action"] == "revise" and request["result_artifact_id"] in refs
-                  and refs[request["result_artifact_id"]]["operation_id"] == request["result_operation_id"]):
-                result = {"kind": "revised_story", "ref": refs[request["result_artifact_id"]], "response": None}
-            elif request["owner_response"] is not None:
-                result = {"kind": "owner_response", "ref": None,
-                          "response": json.loads(request["owner_response"])}
+            elif request["result_operation_id"] is not None:
+                operation = make_operation_id(execution_id, "storytell", activation, request["action"])
+                pinned = json.loads(request["prepared_inputs"])
+                # The stored owner-v2 tuple pins action, request, exact base, feedback and frozen discussion.
+                matching_inputs = (isinstance(pinned, list) and len(pinned) == 6
+                                   and pinned[:5] == ["test-story-owner-v2", request["action"], request["request_id"],
+                                                     base, request["message"]] and isinstance(pinned[5], list))
+                # Match the earlier tuple already supported by prepare_story_operation replay.
+                earlier_revision = (request["action"] == "revise" and request["owner_response"] is None
+                                    and pinned == ["test-story-revise-v1", base, request["message"]])
+                if (not (matching_inputs or earlier_revision) or request["result_operation_id"] != operation
+                        or request["expected_revision"] != request["binding_revision"]
+                        or request["input_digest"] != sha256_digest(request["prepared_inputs"].encode("utf-8"))):
+                    raise ValueError("Recorded owner operation does not match its review inputs")
+                if request["result_artifact_id"] is not None:
+                    revised = refs.get(request["result_artifact_id"])
+                    trigger = sha256_digest(json.dumps(
+                        ["kinodel.story-transition.v1", operation, "story-hitl"], separators=(",", ":")).encode("utf-8"))
+                    if (request["action"] != "revise" or revised is None or revised == base
+                            or revised["operation_id"] != operation or request["owner_response"] is not None
+                            or request["discussion_activation"] is not None or request["next_activation"] != trigger):
+                        raise ValueError("Recorded revised Story does not match its owner operation")
+                    result = {"kind": "revised_story", "ref": revised, "response": None}
+                elif request["owner_response"] is not None:
+                    response = OwnerResponseV1.model_validate_json(request["owner_response"])
+                    trigger = sha256_digest(json.dumps(
+                        ["kinodel.story-discussion.v1", operation, request["input_digest"]],
+                        separators=(",", ":")).encode("utf-8"))
+                    if (response.status not in ({"clarified"} if request["action"] == "clarify"
+                                                else {"needs_input", "out_of_scope"})
+                            or request["discussion_activation"] != trigger or request["next_activation"] is not None):
+                        raise ValueError("Recorded owner response does not match its review action")
+                    result = {"kind": "owner_response", "ref": None, "response": response.model_dump(mode="json")}
+                elif request["discussion_activation"] is not None or request["next_activation"] is not None:
+                    raise ValueError("Recorded owner transition has no committed result")
+            if (request["action"] in ("revise", "clarify") and result is None
+                    and (request["work_status"] == "completed" or request["request_id"] in continued)):
+                raise ValueError("Finished owner review has no committed result")
         reviews.append({"request_id": request["request_id"], "digest": request["request_digest"],
                         "revision": request["request_revision"], "binding_revision": request["binding_revision"],
                         "previous_request_id": request["previous_request_id"], "base_ref": base,

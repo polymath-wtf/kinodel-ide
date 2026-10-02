@@ -1,6 +1,7 @@
 """HTTP commands, loopback browser boundary and recovery on the real Story saver."""
 
 import asyncio
+import json
 import tempfile
 import threading
 import time
@@ -412,6 +413,143 @@ class StoryAPITests(unittest.TestCase):
         with self.client(fixture_story) as client:
             self.session(client)
             self.assertEqual(client.get(f'/api/executions/{execution}/projection').json(), finished)
+
+    def test_damaged_review_metadata_is_conflict_not_fabricated_result(self):
+        with self.client(fixture_story) as client:
+            headers = self.session(client)
+            execution = client.post('/api/executions/internal-story', headers=headers, json={
+                'project_id': str(uuid4()), 'client_key': 'corruption',
+                'input_message': 'Fox', 'shot_ids': ['s1']}).json()['execution_id']
+            self.state(client, execution, 'waiting_review')
+            for action, message in (('clarify', 'Why?'), ('revise', 'Darker'), ('approve', None)):
+                review = client.get(f'/api/executions/{execution}/projection').json()['review']
+                accepted = client.post(f"/api/executions/{execution}/reviews/{review['request_id']}/respond",
+                                       headers=headers, json={'request_digest': review['digest'],
+                                                             'expected_revision': review['binding_revision'],
+                                                             'command_key': action, 'action': action,
+                                                             'message': message})
+                self.assertEqual(accepted.status_code, 202, accepted.text)
+                until = time.monotonic() + 5
+                while time.monotonic() < until:
+                    healthy = client.get(f'/api/executions/{execution}/projection').json()
+                    if ((healthy['review'] and healthy['review']['request_id'] != review['request_id'])
+                            or (healthy['status'] == 'completed' and healthy['work'][-1]['status'] == 'completed')):
+                        break
+                    time.sleep(0.05)
+                else:
+                    self.fail('Review action did not finish')
+
+        # No unfinished owner work: reopen real persisted records, damage one field, then restore it.
+        with open_database(self.root) as db:
+            initial_activation = db.execute('SELECT activation_id FROM story_operations WHERE operation_id=?',
+                                            (healthy['stories'][0]['ref']['operation_id'],)).fetchone()[0]
+            question, edit = healthy['reviews'][:2]
+            owner = db.execute('SELECT operation_id,owner_response,prepared_inputs FROM story_operations '
+                               'WHERE execution_id=? AND activation_id=(SELECT applied_activation '
+                               'FROM review_requests WHERE request_id=?)',
+                               (execution, question['request_id'])).fetchone()
+            revision = db.execute('SELECT operation_id FROM story_operations WHERE execution_id=? '
+                                  'AND activation_id=(SELECT applied_activation FROM review_requests '
+                                  'WHERE request_id=?)', (execution, edit['request_id'])).fetchone()[0]
+            invalid_response = json.loads(owner[1])
+            invalid_response['explanation'] = ''
+            cases = [
+                ('request digest', 'review_requests', 'request_id', question['request_id'],
+                 'request_digest', 'broken'),
+                ('latest historical request digest', 'review_requests', 'request_id', healthy['reviews'][-1]['request_id'],
+                 'request_digest', 'broken'),
+                ('typed owner response', 'story_operations', 'operation_id', owner[0],
+                 'owner_response', json.dumps(invalid_response)),
+                ('JSON null owner response', 'story_operations', 'operation_id', owner[0],
+                 'owner_response', 'null'),
+                ('unrelated activation', 'review_requests', 'request_id', edit['request_id'],
+                 'applied_activation', initial_activation),
+                ('mismatched committed artifact', 'story_operations', 'operation_id', revision,
+                 'artifact_id', healthy['stories'][0]['ref']['artifact_id']),
+                ('wrong binding revision', 'story_operations', 'operation_id', revision,
+                 'expected_revision', 2),
+                ('lost finished owner response', 'story_operations', 'operation_id', owner[0],
+                 'owner_response', None),
+            ]
+            for index, value in ((1, 'revise'), (2, edit['request_id']), (3, healthy['stories'][1]['ref']),
+                                 (4, 'Unrelated feedback')):
+                pinned = json.loads(owner[2])
+                pinned[index] = value
+                cases.append((f'prepared identity {index}', 'story_operations', 'operation_id', owner[0],
+                              'prepared_inputs', json.dumps(pinned, ensure_ascii=False, separators=(',', ':'))))
+        for name, table, key, identity, column, damage in cases:
+            with self.subTest(name=name):
+                digest = discussion_activation = None
+                with open_database(self.root) as db:
+                    original = db.execute(f'SELECT {column} FROM {table} WHERE {key}=?', (identity,)).fetchone()[0]
+                    db.execute(f'UPDATE {table} SET {column}=? WHERE {key}=?', (damage, identity))
+                    if column == 'prepared_inputs':
+                        digest = db.execute('SELECT input_digest FROM story_operations WHERE operation_id=?',
+                                            (identity,)).fetchone()[0]
+                        # A coherent digest must not substitute for exact request/action/base identity.
+                        db.execute('UPDATE story_operations SET input_digest=? WHERE operation_id=?',
+                                   (sha256_digest(damage.encode('utf-8')), identity))
+                    if name == 'lost finished owner response':
+                        discussion_activation = db.execute('SELECT discussion_activation FROM story_operations '
+                                                           'WHERE operation_id=?', (identity,)).fetchone()[0]
+                        db.execute('UPDATE story_operations SET discussion_activation=NULL WHERE operation_id=?',
+                                   (identity,))
+                try:
+                    with TestClient(create_app(self.root, fixture_story), base_url=self.base_url,
+                                    client=('127.0.0.1', 50000), raise_server_exceptions=False) as client:
+                        self.session(client)
+                        response = client.get(f'/api/executions/{execution}/projection')
+                        self.assertEqual(response.status_code, 409, response.text)
+                        self.assertIn('detail', response.json())
+                        if name in ('typed owner response', 'JSON null owner response'):
+                            self.assertEqual(client.get(f'/api/executions/{execution}').status_code, 409)
+                        listed = client.get('/api/executions')
+                        self.assertEqual(listed.status_code, 200, listed.text)
+                        self.assertEqual(listed.json()['items'][0]['execution_id'], execution)
+                finally:
+                    with open_database(self.root) as db:
+                        db.execute(f'UPDATE {table} SET {column}=? WHERE {key}=?', (original, identity))
+                        if column == 'prepared_inputs':
+                            db.execute('UPDATE story_operations SET input_digest=? WHERE operation_id=?',
+                                       (digest, identity))
+                        if name == 'lost finished owner response':
+                            db.execute('UPDATE story_operations SET discussion_activation=? WHERE operation_id=?',
+                                       (discussion_activation, identity))
+        # The writer's existing replay protocol also accepts the earlier base/feedback revision tuple.
+        with open_database(self.root) as db:
+            prepared, digest = db.execute('SELECT prepared_inputs,input_digest FROM story_operations '
+                                          'WHERE operation_id=?', (revision,)).fetchone()
+            pinned = json.loads(prepared)
+            earlier = json.dumps(['test-story-revise-v1', pinned[3], pinned[4]],
+                                 ensure_ascii=False, separators=(',', ':'))
+            db.execute('UPDATE story_operations SET prepared_inputs=?,input_digest=? WHERE operation_id=?',
+                       (earlier, sha256_digest(earlier.encode('utf-8')), revision))
+        try:
+            with self.client(fixture_story) as client:
+                self.session(client)
+                response = client.get(f'/api/executions/{execution}/projection')
+                self.assertEqual(response.status_code, 200, response.text)
+                self.assertEqual(response.json(), healthy)
+        finally:
+            with open_database(self.root) as db:
+                db.execute('UPDATE story_operations SET prepared_inputs=?,input_digest=? WHERE operation_id=?',
+                           (prepared, digest, revision))
+
+    def test_invalid_current_review_dto_is_conflict_on_both_reads(self):
+        with self.client(fixture_story) as client:
+            execution = client.post('/api/executions/internal-story', headers=self.session(client), json={
+                'project_id': str(uuid4()), 'client_key': 'invalid-dto',
+                'input_message': 'Fox', 'shot_ids': ['s1']}).json()['execution_id']
+            self.state(client, execution, 'waiting_review')
+        with open_database(self.root) as db:
+            db.execute("UPDATE review_requests SET request_digest='broken' WHERE execution_id=?", (execution,))
+        with TestClient(create_app(self.root, fixture_story), base_url=self.base_url,
+                        client=('127.0.0.1', 50000), raise_server_exceptions=False) as client:
+            self.session(client)
+            for suffix in ('', '/projection'):
+                response = client.get(f'/api/executions/{execution}{suffix}')
+                self.assertEqual(response.status_code, 409, response.text)
+            self.assertEqual(client.get('/api/executions').status_code, 200)
 
     def test_projection_and_cancel_survive_missing_historical_and_current_body(self):
         with self.client(fixture_story) as client:
