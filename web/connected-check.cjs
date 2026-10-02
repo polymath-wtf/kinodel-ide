@@ -1,4 +1,4 @@
-// Real durable API fixtures are seeded by this harness, never by production browser code.
+// Browser command acceptance on a disposable real backend; special fixtures stay harness-only.
 const assert = require('node:assert/strict');
 const { randomUUID } = require('node:crypto');
 const { readFileSync, unlinkSync, writeFileSync, mkdirSync } = require('node:fs');
@@ -38,16 +38,15 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
     command_key: randomUUID(), action, message,
   });
   const message = 'Лис на закате ищет дорогу домой.';
-  const id = await start(message);
-  let p = await waitProjection(id, p => p.review);
-  const v1 = p.stories[0];
+  let id, p, v1;
   const second = await start('Другой запуск · маяк у моря');
   await waitProjection(second, p => p.review);
-  const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' });
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' });
+  const page = await context.newPage();
   const errors = [], mutations = [], foreign = [], reads = [];
   const audit = page => {
     page.on('pageerror', e => errors.push(e.message));
-    page.on('console', e => { if (e.type() === 'error' && !/Failed to load resource.*(?:401|404|409|422|ERR_INTERNET_DISCONNECTED|ERR_FAILED)/.test(e.text())) errors.push(e.text()); });
+    page.on('console', e => { if (e.type() === 'error' && !/Failed to load resource.*(?:401|404|409|422|ERR_INTERNET_DISCONNECTED|ERR_CONNECTION_REFUSED|ERR_FAILED)/.test(e.text())) errors.push(e.text()); });
     page.on('request', r => {
       if (!['GET', 'HEAD'].includes(r.method())) mutations.push(r.url());
       if (new URL(r.url()).origin !== origin) foreign.push(r.url());
@@ -60,8 +59,27 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
   const selectVersion = async value => page.getByLabel('Версия Story', { exact: true }).selectOption(value);
   try {
     await page.goto(origin);
-    await page.getByRole('button', { name: new RegExp(message) }).click();
+    await page.getByRole('button', { name: 'Новая тестовая Story', exact: true }).click();
+    await page.getByLabel('input_message', { exact: true }).fill(message);
+    await page.getByLabel('shot_ids', { exact: true }).fill('s1, s2');
+    const starts = [];
+    let lostStart = false;
+    await page.route('**/api/executions/internal-story', async route => {
+      starts.push(route.request().postData());
+      const response = await route.fetch(); assert.equal(response.status(), 202);
+      id = (await response.json()).execution_id;
+      if (!lostStart) { lostStart = true; await route.abort('failed'); }
+      else await route.fulfill({ response });
+    });
+    await page.getByRole('button', { name: 'Создать тестовую Story', exact: true }).click();
+    await expect(page.getByRole('region', { name: 'Доставка команд' })).toContainText('Ответ доставки потерян');
+    assert.equal(new URL(page.url()).searchParams.get('execution'), null, 'start opens only from receipt');
+    await page.reload();
     await expect(page.locator('.story-body')).toContainText(message);
+    assert.equal(starts.length, 2); assert.equal(starts[0], starts[1], 'lost start replays exact envelope');
+    await page.unroute('**/api/executions/internal-story');
+    p = await waitProjection(id, p => p.review); v1 = p.stories[0];
+    assert.equal((await (await harness.get('/api/executions?limit=100')).json()).items.filter(x => x.input_preview === message).length, 1);
     assert.equal(new URL(page.url()).searchParams.get('execution'), id);
     assert.equal(await subject(), v1.ref.artifact_id);
     await page.reload();
@@ -89,6 +107,10 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
     await switchView('Pipeline');
     await expect(page.locator('.pipeline-content')).toHaveAttribute('data-scope', 'storytell');
     await expect(page.locator('.react-flow__viewport')).toHaveAttribute('style', viewport);
+    await page.reload();
+    await expect(page.locator('.pipeline-content')).toHaveAttribute('data-scope', 'storytell');
+    await expect(page.locator('.react-flow__viewport')).toHaveAttribute('style', viewport);
+    await expect(page.getByLabel('Неприменённый черновик', { exact: true })).toHaveValue('Почему герой идёт домой?');
     await page.getByRole('button', { name: '← Back · Pipeline', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Storytell · Open inside', exact: true })).toBeFocused();
     await expect(page.locator('.react-flow__node.selected')).toHaveAttribute('data-id', 'pipeline-1');
@@ -103,19 +125,40 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
     await expect(page.getByRole('dialog')).toContainText(p.graph.id);
     await page.keyboard.press('Escape');
     await expect(details).toBeFocused();
-    // The harness submits the actual mutation. Production browser still only reads.
+    // Lose the response AFTER durable acceptance, even after a new review exists.
     await page.getByLabel('Неприменённый черновик', { exact: true }).focus();
-    await respond(p, 'clarify', 'Почему герой идёт домой?');
+    const responses = []; let lostRespond = false;
+    const respondPath = `**/api/executions/${id}/reviews/${encodeURIComponent(p.review.request_id)}/respond`;
+    await page.route(respondPath, async route => {
+      responses.push(route.request().postData());
+      const response = await route.fetch(); assert.equal(response.status(), 202);
+      if (!lostRespond) { lostRespond = true; await route.abort('failed'); }
+      else await route.fulfill({ response });
+    });
+    await page.getByRole('button', { name: 'Отправить вопрос', exact: true }).click();
+    await expect(page.getByRole('region', { name: 'Доставка команд' })).toContainText('Ответ доставки потерян');
     p = await waitProjection(id, next => next.review && next.review.request_id !== p.review.request_id);
+    await restart(); await bootstrap();
+    await page.reload();
+    await expect(page.getByRole('region', { name: 'Доставка команд' })).toContainText('Receipt: команда принята');
+    assert.equal(responses.length, 2); assert.equal(responses[0], responses[1]);
+    assert.equal(JSON.parse(responses[0]).expected_revision, 1, 'binding revision, not request revision');
+    await page.unroute(respondPath);
+    p = await projection(id);
+    assert.equal(p.reviews.filter(r => r.action === 'clarify').length, 1);
+    assert.equal(p.stories.length, 1, 'lost clarify never creates another logical result');
     assert.equal(p.review.subject_artifact_id, v1.ref.artifact_id);
     await expect(page.getByText('Review изменился.', { exact: false })).toBeVisible({ timeout: 10000 });
     await expect(page.getByLabel('Неприменённый черновик', { exact: true })).toHaveValue('Почему герой идёт домой?');
-    await expect(page.getByLabel('Неприменённый черновик', { exact: true })).toBeFocused();
     await expect(page.locator('.react-flow__viewport')).toHaveAttribute('style', viewport);
     await switchView('Chat');
     await page.locator('.history-details > summary').click();
     await expect(page.locator('.owner-response')).toContainText('The Story follows:');
-    await respond(p, 'revise', 'Лис видит свет маяка и возвращается домой.');
+    await expect(page.getByRole('button', { name: 'Отправить вопрос', exact: true })).toBeDisabled();
+    await page.getByRole('button', { name: 'Очистить черновик', exact: true }).click();
+    await page.getByRole('button', { name: 'Правка', exact: true }).click();
+    await page.getByLabel('Неприменённый черновик', { exact: true }).fill('Лис видит свет маяка и возвращается домой.');
+    await page.getByRole('button', { name: 'Отправить правку', exact: true }).click();
     p = await waitProjection(id, next => next.review && next.stories.length === 2);
     const v2 = p.stories.find(s => s.current);
     await expect(page.getByRole('heading', { name: 'Story v2', exact: true })).toBeVisible({ timeout: 10000 });
@@ -126,13 +169,38 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
     await switchView('Pipeline');
     assert.equal(await subject(), v1.ref.artifact_id);
     await expect(page.locator('.reader-state')).toContainText('Историческая');
+    await expect(page.getByRole('button', { name: 'Утвердить Story v1', exact: true })).toBeDisabled();
     await expect(page.locator('.react-flow__viewport')).toHaveAttribute('style', viewport);
     await selectVersion(v2.ref.artifact_id);
-    await respond(p, 'approve');
+    await page.getByRole('button', { name: 'Очистить черновик', exact: true }).click();
+    if (folder) {
+      await page.locator('.react-flow__controls-fitview').click();
+      await page.evaluate(() => scrollTo(0, 0)); mkdirSync(join(folder, 'pipeline'));
+      await page.screenshot({ path: join(folder, 'pipeline', 'screen-state-desktop.png'), fullPage: true });
+      await switchView('Chat');
+      await page.evaluate(() => scrollTo(0, 0)); mkdirSync(join(folder, 'chat'));
+      await page.screenshot({ path: join(folder, 'chat', 'screen-state-desktop.png'), fullPage: true });
+      await switchView('Pipeline');
+    }
+    const conflict = await page.context().newPage(); audit(conflict);
+    const staleSnapshot = structuredClone(p);
+    await conflict.route(`**/api/executions/${id}/projection`, route => route.fulfill({ json: staleSnapshot }));
+    await conflict.goto(`${origin}/?execution=${id}`);
+    await expect(conflict.locator('.story-body')).toContainText('Лис видит свет');
+    await conflict.getByLabel('Неприменённый черновик', { exact: true }).fill('Черновик второй вкладки');
+    await page.bringToFront();
+    await page.getByRole('button', { name: 'Утвердить Story v2', exact: true }).click();
     p = await waitProjection(id, next => next.status === 'completed');
     await expect(page.locator('.status')).toHaveText('Завершён', { timeout: 10000 });
     await expect(page.locator('.reader-state')).toContainText('Утверждена');
     await expect(page.getByRole('region', { name: 'Review и черновик', exact: true })).not.toContainText('Открыта историческая версия');
+    await conflict.getByRole('button', { name: 'Отправить вопрос', exact: true }).click();
+    await expect(conflict.getByRole('region', { name: 'Доставка команд' })).toContainText('409');
+    await expect(conflict.getByLabel('Неприменённый черновик', { exact: true })).toHaveValue('Черновик второй вкладки');
+    await conflict.unroute(`**/api/executions/${id}/projection`); await conflict.reload();
+    await expect(conflict.getByText('Review изменился.', { exact: false })).toBeVisible();
+    await expect(conflict.getByLabel('Неприменённый черновик', { exact: true })).toHaveValue('Черновик второй вкладки');
+    await conflict.close();
     const count = reads.filter(url => url.endsWith(`/${id}/projection`)).length;
     await page.waitForTimeout(4300);
     assert.equal(reads.filter(url => url.endsWith(`/${id}/projection`)).length, count, 'terminal projection polling stops');
@@ -202,16 +270,90 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
     await expect(page.locator('.status')).toHaveText('Завершён');
     await page.context().setOffline(false);
     await expect(page.locator('.execution .connection')).toContainText('Снимок проверен');
-    if (folder) {
-      await switchView('Pipeline');
-      await page.evaluate(() => scrollTo(0, 0));
-      mkdirSync(join(folder, 'pipeline'));
-      await page.screenshot({ path: join(folder, 'pipeline', 'screen-state-desktop.png') });
-      await switchView('Chat');
-      await page.evaluate(() => scrollTo(0, 0));
-      mkdirSync(join(folder, 'chat'));
-      await page.screenshot({ path: join(folder, 'chat', 'screen-state-desktop.png') });
+    assert.equal(mutations.length, 7, 'only start×2, clarify×2, revise, approve and stale-tab respond POSTs so far');
+    // Only this isolated subprocess has timeout/delay fixtures; production fixture stays unchanged.
+    const retryId = await start('harness:retry');
+    const blocked = await waitProjection(retryId, p => p.status === 'blocked');
+    const work = blocked.work.find(w => w.blocked_reason === 'owner_unavailable');
+    await page.goto(`${origin}/?execution=${retryId}`);
+    let retryPayload;
+    const retryRequest = page.waitForRequest(r => r.method() === 'POST' && r.url().endsWith(`/${retryId}/retry`));
+    await page.getByRole('button', { name: 'Retry · повторить work', exact: true }).click();
+    retryPayload = (await retryRequest).postDataJSON();
+    assert.equal(retryPayload.work_id, work.work_id); assert.equal(retryPayload.expected_version, work.work_version);
+    const retryReady = await waitProjection(retryId, p => p.review);
+    assert.equal(retryReady.stories.length, 1); assert.equal(retryReady.work.filter(w => w.kind === 'start').length, 1);
+    await expect(page.locator('.story-body')).toContainText('harness:retry');
+    await page.getByRole('button', { name: 'Правка', exact: true }).click();
+    await page.getByLabel('Неприменённый черновик', { exact: true }).fill('harness:slow');
+    await page.getByRole('button', { name: 'Отправить правку', exact: true }).click();
+    await expect(page.getByRole('region', { name: 'Доставка команд' })).toContainText('Receipt: команда принята');
+    await waitProjection(retryId, p => p.status === 'running' && p.work.some(w => w.kind === 'resume' && w.status === 'claimed'));
+    await expect(page.locator('.status')).toHaveText('В работе');
+    const cancels = []; let lostCancel = false;
+    await page.route(`**/api/executions/${retryId}/cancel`, async route => {
+      cancels.push(route.request().postData()); const response = await route.fetch(); assert.equal(response.status(), 202);
+      if (!lostCancel) { lostCancel = true; await route.abort('failed'); } else await route.fulfill({ response });
+    });
+    await page.getByRole('button', { name: 'Cancel · отменить запуск', exact: true }).click();
+    await expect(page.getByRole('region', { name: 'Доставка команд' })).toContainText('Ответ доставки потерян');
+    await expect(page.locator('.status')).toHaveText('Отменяется');
+    await waitProjection(retryId, p => p.status === 'cancelled');
+    await expect(page.locator('.status')).toHaveText('Отменён');
+    await expect(page.getByRole('button', { name: 'Повторить exact-доставку', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Повторить exact-доставку', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Повторить exact-доставку', exact: true })).toHaveCount(0);
+    assert.equal(cancels.length, 2); assert.equal(cancels[0], cancels[1], 'cancelled snapshot did not discard unresolved delivery');
+    assert.equal((await projection(retryId)).stories.length, 1, 'cancel prevents slow revision commit');
+    await page.unroute(`**/api/executions/${retryId}/cancel`);
+    // Real budget exhaustion is projected; a 422 rejection preserves address/text across reload.
+    let budget = await projection(second);
+    while (budget.remaining_actions.clarify > 0) {
+      const requestId = budget.review.request_id; await respond(budget, 'clarify', 'Вопрос о маяке');
+      budget = await waitProjection(second, p => p.review && p.review.request_id !== requestId);
     }
+    await page.goto(`${origin}/?execution=${second}`);
+    await expect(page.locator('.story-body')).toContainText('Другой запуск');
+    const currentRef = budget.stories.find(s => s.current).ref;
+    const currentFile = join(data, 'projects', currentRef.project_id, 'artifacts', `${currentRef.artifact_id}.${currentRef.digest.slice(7)}.json`);
+    const currentBytes = readFileSync(currentFile); unlinkSync(currentFile);
+    try {
+      await page.reload();
+      await expect(page.locator('.reader .error')).toContainText('Body недоступен');
+      await expect(page.getByRole('button', { name: 'Утвердить Story v1', exact: true })).toBeDisabled();
+      await expect(page.getByRole('button', { name: 'Cancel · отменить запуск', exact: true })).toBeEnabled();
+    } finally { writeFileSync(currentFile, currentBytes, { flag: 'wx' }); }
+    await page.reload(); await expect(page.locator('.story-body')).toContainText('Другой запуск');
+    await page.getByLabel('Неприменённый черновик', { exact: true }).fill('Сохранить после 422');
+    await expect(page.getByRole('button', { name: 'Отправить вопрос', exact: true })).toBeDisabled();
+    await page.getByRole('button', { name: 'Правка', exact: true }).click();
+    await page.route(`**/api/executions/${second}/reviews/*/respond`, route => route.fulfill({ status: 422, json: { detail: 'Harness validation rejection' } }));
+    await page.getByRole('button', { name: 'Отправить правку', exact: true }).click();
+    await expect(page.getByRole('region', { name: 'Доставка команд' })).toContainText('422');
+    await page.reload();
+    await expect(page.getByLabel('Неприменённый черновик', { exact: true })).toHaveValue('Сохранить после 422');
+    await page.unroute(`**/api/executions/${second}/reviews/*/respond`);
+    await page.context().setOffline(true);
+    await expect(page.getByRole('button', { name: 'Cancel · отменить запуск', exact: true })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Отправить правку', exact: true })).toBeDisabled();
+    await page.context().setOffline(false);
+    await expect(page.getByRole('button', { name: 'Отправить правку', exact: true })).toBeEnabled();
+    const beforeStorageFailure = mutations.length;
+    await page.evaluate(() => { Storage.prototype.setItem = () => { throw new DOMException('quota', 'QuotaExceededError'); }; });
+    await page.getByRole('button', { name: 'Отправить правку', exact: true }).click();
+    await expect(page.locator('.delivery-status')).toContainText('Browser storage недоступен');
+    assert.equal(mutations.length, beforeStorageFailure, 'failed persistence prevents POST');
+    await expect(page.getByRole('button', { name: 'Отправить правку', exact: true })).toBeDisabled();
+    // Fresh context loses local caches only: backend list still reopens canonical runs, no POST.
+    await page.reload();
+    const beforeReopen = mutations.length;
+    await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); });
+    await page.goto(origin);
+    await page.getByRole('button', { name: new RegExp(message) }).click();
+    await expect(page.locator('.reader-state')).toContainText('Утверждена');
+    await page.reload();
+    await expect(page.locator('.reader-state')).toContainText('Утверждена');
+    assert.equal(mutations.length, beforeReopen, 'storage-loss list/navigation/refetch do not POST');
     const mobile = await browser.newPage({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' }); audit(mobile);
     try {
       await mobile.addInitScript(() => {
@@ -220,6 +362,7 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
       await mobile.goto(`${origin}/?execution=${id}`);
       await expect(mobile.getByRole('heading', { name: 'Chat', exact: true })).toBeVisible();
       await expect(mobile.locator('.story-body')).toContainText('Лис видит свет');
+      await expect(mobile.locator('.delivery-status')).toContainText('Browser storage недоступен');
       assert.equal(await mobile.locator('.react-flow').count(), 0, 'Chat is readable without canvas');
       const detailButton = mobile.getByRole('button', { name: 'Details · Inputs / Outputs / Config', exact: true });
       await detailButton.click(); await expect(mobile.getByRole('dialog')).toBeVisible();
@@ -236,8 +379,8 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
       }), [], 'mobile geometry/touch targets');
     } finally { await mobile.close(); }
     assert.deepEqual(errors, [], 'no unexplained console/page errors');
-    assert.deepEqual(mutations, [], 'production browser is GET/HEAD only; harness POSTs excluded');
+    assert.equal(mutations.length, 12, 'exactly the requested browser commands/replays, no navigation POSTs');
     assert.deepEqual(foreign, [], 'local assets/API only');
-    console.log('PASS: real start→clarify same subject→revise/v2→approve, URL reopen/back/forward, shared exact reader/draft, scope/viewport, local body failure, malformed/409/422/intermediate DTOs, restart renewal, offline/mobile/focus, browser GET/HEAD only');
-  } finally { await page.close(); await harness.dispose(); }
+    console.log('PASS: browser start/lost-response→v1→clarify/lost-response/restart→same subject→revise/v2→exact approve, multi-tab OCC/draft retention, budgets/422, Retry/exact work, Cancel/cancelling/lost receipt after terminal, failed storage/no POST, storage-loss reopen, reload UI/scope/viewport, read errors, renewal, offline/mobile/keyboard; no navigation POSTs');
+  } finally { await context.close(); await harness.dispose(); }
 };

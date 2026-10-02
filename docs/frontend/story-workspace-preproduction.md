@@ -7,7 +7,7 @@
 
 Шаги 0–2 закрыты на Windows: локальное хранение, immutable Story, durable start, вопросы/правки, exact approval, retry/cancel и process-death recovery. Это `kinodel.internal-story` с детерминированной заменой модели. Approval завершает этот execution, не запускает Wardrobe. Живой Storytell — следующий backend-шаг 3; первый подключённый UI можно собрать сейчас внутри шага 6.
 
-Самостоятельный HTML/CSS/JS mock сохранён в `web/prototype/`; connected read-only workspace 6C с Vite размещён отдельно в `web/`. Pipeline/Chat читают сохранённые runs, версии и reviews; активация команд и persistence drafts остаются 6D. Состояния и scripted действия прототипа не являются runtime.
+Самостоятельный HTML/CSS/JS mock сохранён в `web/prototype/`; connected workspace с Vite размещён отдельно в `web/`. После read-only 6C реализован 6D: общий durable start/respond/approve/retry/cancel, receipt reconciliation и reload drafts/UI. Runnable evidence и ограничения — в `web/README.md`; независимая приёмка 6E остаётся следующим шагом. Состояния и scripted действия прототипа не являются runtime.
 
 Проверка 2 октября:
 

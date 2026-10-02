@@ -51,3 +51,22 @@ export async function getJson<T>(path: string, schema: z.ZodType<T>, signal?: Ab
   if (!result.success) throw new ReadError('schema', 'Ответ не соответствует контракту. Непроверенные данные не показаны.');
   return result.data;
 }
+
+export async function postJson(path: string, payload: string): Promise<unknown> {
+  const send = async (token: string) => {
+    try {
+      return await fetch(path, { method: 'POST', credentials: 'same-origin', cache: 'no-store',
+        signal: AbortSignal.timeout(10000), body: payload,
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-Kinodel-CSRF': token } });
+    } catch { throw new ReadError('network', 'Ответ доставки потерян. Повтор возможен только с сохранённым ключом.'); }
+  };
+  const usedSession = await ensureSession();
+  let response = await send(usedSession.csrf_token);
+  if (response.status === 401) {
+    if (session === usedSession) session = undefined;
+    response = await send((await ensureSession()).csrf_token); // One replay of the exact envelope.
+  }
+  const value = await json(response);
+  if (response.status !== 202) throw new ReadError('schema', 'Нет ожидаемого receipt (202). Доставка не подтверждена.');
+  return value;
+}

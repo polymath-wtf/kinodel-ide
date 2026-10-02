@@ -46,7 +46,8 @@ async function bounded(promise, milliseconds, message) {
     stopped = false; listening = false; startupError = undefined; log = '';
     const python = resolve(root, '.venv313/Scripts/python.exe');
     // Port override is confined to this disposable subprocess; production policy stays unchanged.
-    server = spawn(python, ['-B', '-c', "import sys; import backend.api as api; import uvicorn; api.PORT = int(sys.argv[1]); uvicorn.run(api.app, host='127.0.0.1', port=api.PORT, workers=1, proxy_headers=False)", String(port)], {
+    const fixture = "import sys, asyncio\nimport backend.api as api\nimport uvicorn\napi.PORT = int(sys.argv[1])\nseen = set()\nasync def fixture(message, shots, prior, feedback, *, discussion=None):\n    if message == 'harness:retry' and message not in seen:\n        seen.add(message)\n        raise TimeoutError('isolated harness timeout')\n    if feedback == 'harness:slow':\n        try:\n            await asyncio.sleep(8)\n        except asyncio.CancelledError:\n            await asyncio.sleep(4)  # Isolated slow owner cleanup, not production policy.\n            raise\n    return api.fixture_story(message, shots, prior, feedback, discussion=discussion)\nuvicorn.run(api.create_app(produce_story=fixture), host='127.0.0.1', port=api.PORT, workers=1, proxy_headers=False)";
+    server = spawn(python, ['-B', '-c', fixture, String(port)], {
       cwd: root, env: { ...process.env, KINODEL_DATA_ROOT: data }, stdio: 'pipe',
     });
     exited = new Promise(resolve => {
@@ -168,6 +169,6 @@ async function bounded(promise, milliseconds, message) {
       }
     }
   }
-  console.log('OK: read-only connected Story, same-origin/session, desktop/mobile, zero browser mutations; owned backend stopped and disposable root removed');
+  console.log('OK: connected Story commands, same-origin/session, desktop/mobile, zero navigation mutations; owned backend stopped and disposable root removed');
 // This is a CLI: after bounded cleanup, even a broken browser connection must not keep it alive.
 })().catch(error => { console.error(error); process.exit(1); });

@@ -69,6 +69,8 @@ Shell собран и проверен; формальная отметка ша
 
 ## 6D · Durable commands + активация пользовательского пути — coder
 
+Реализовано и принято; evidence и отметка — в roadmap. Receipt подтверждает доставку/acceptance, projection — дальнейшее выполнение. Финальная сквозная приёмка остаётся 6E.
+
 **Goal:** безопасно включить start/clarify/revise/approve/retry/cancel; lost response/reload/restart не создаёт дублей и не переназначает feedback.
 
 **Edit scope:** `web/src/features` и необходимые callers/shared transport, focused command/browser tests, startup/frontend docs/screenshots. Backend commands immutable; реальный gap вернуть primary, не строить новый receipt engine.

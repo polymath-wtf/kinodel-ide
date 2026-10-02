@@ -1,8 +1,8 @@
 # Web UI — Kinodel Workspace
 
-**[Standalone HTML-макет](../../web/prototype/index.html) · [Запуск — web/prototype/README.md](../../web/prototype/README.md).** Интерактивный **MOCK, без backend**, HTML/CSS/JS: Pipeline, отдельный Canvas проекта, mock Inputs/Outputs и provider inspection. Отдельный [React workspace](../../web/README.md) читает реальные internal Story executions с FastAPI origin (6C); команды остаются выключены до 6D.
+**[Standalone HTML-макет](../../web/prototype/index.html) · [Запуск — web/prototype/README.md](../../web/prototype/README.md).** Интерактивный **MOCK, без backend**, HTML/CSS/JS: Pipeline, отдельный Canvas проекта, mock Inputs/Outputs и provider inspection. Отдельный [React workspace](../../web/README.md) читает реальные internal Story executions с FastAPI origin и поддерживает durable команды (6D).
 
-Статус: **прототип сохранён отдельно; production workspace подключён к read-only Story foundation (6C), не к live cinematic**. `web/prototype/` — исходники HTML-эксперимента, не обязательный фундамент приложения. Макеты и промпты — [UI/UX wireframe](uiux-wireframe.md). Порядок сборки, pins и приёмка — только в [Local MVP](../roadmap-mvp.md). Эта страница задаёт целевой стек, визуальный язык и правила взаимодействия.
+Статус: **прототип сохранён отдельно; production workspace подключён к Story foundation с durable commands (6D), не к live cinematic; финальная приёмка — 6E**. `web/prototype/` — исходники HTML-эксперимента, не обязательный фундамент приложения. Макеты и промпты — [UI/UX wireframe](uiux-wireframe.md). Порядок сборки, pins и приёмка — только в [Local MVP](../roadmap-mvp.md). Эта страница задаёт целевой стек, визуальный язык и правила взаимодействия.
 
 ## First UI Slice
 
@@ -46,7 +46,7 @@ SSR у React Flow возможен, но требует размеров нод 
 
 ### Что проверено сейчас
 
-- В `web/prototype/` находится standalone HTML/CSS/JS MOCK; stock-фотографии остаются в `web/assets/` (`../assets/` из прототипа), без включения в runtime. В `web/` установлен React/Vite workspace с exact lockfile, React Flow 12.11.6, Query 5.103.2, Zod 4.6.5 и реальным read-only Story API; командный journal — следующий срез 6D.
+- В `web/prototype/` находится standalone HTML/CSS/JS MOCK; stock-фотографии остаются в `web/assets/` (`../assets/` из прототипа), без включения в runtime. В `web/` установлен React/Vite workspace с exact lockfile, React Flow 12.11.6, Query 5.103.2, Zod 4.6.5, реальным Story API и persist-before-POST command delivery (6D).
 - React 19.3.0, React Flow 12.11.6 и Vite 8.0.16 использовались в удалённом эксперименте. Это историческая проверка; текущий Vite baseline остаётся 8.0.10. Pins и проверки connected workspace — в [web/README](../../web/README.md).
 - Текущие Tailwind 4.3.3 и Vite plugin 4.3.3 поддерживают Vite 8; Query 5.103.2 поддерживает React 19; Zod 4.6.5 не обнаруживает конфликта в metadata. shadcn CLI 4.21.0 проходит Node requirement.
 - React Flow UI официально поддерживает React 19 / Tailwind 4. Интеграция целевого production-стека и его проверки ещё нужны на шаге 6; standalone build и registry metadata их не заменяют.
@@ -173,7 +173,7 @@ ComfyUI — **Tool с раскрытием внутри `anchor-gen` / `frames-g
 
 ## 7. API: реальность и необходимые проекции
 
-По коду `backend/api.py` доступен **internal Story fixture**: session bootstrap, start, list/projection/execution read, immutable Story read, respond (`approve/revise/clarify`), retry и cancel. Discussion с typed owner responses реализован; Windows process-death приёмка foundation закрыта 2 октября — evidence в [шаге 2 roadmap](../roadmap-mvp.md#step-2). Read-only frontend 6C проверен на реальном fixture; командный клиент 6D и живой cinematic ещё не активированы.
+По коду `backend/api.py` доступен **internal Story fixture**: session bootstrap, start, list/projection/execution read, immutable Story read, respond (`approve/revise/clarify`), retry и cancel. Discussion с typed owner responses реализован; Windows process-death приёмка foundation закрыта 2 октября — evidence в [шаге 2 roadmap](../roadmap-mvp.md#step-2). Frontend 6C reads и командный клиент 6D проверены на реальном fixture; живой cinematic ещё не активирован.
 
 | Уже можно проверить на fixture | Ещё требуется для полного экрана |
 |---|---|
@@ -398,7 +398,7 @@ Workspace задаёт canvas реальную высоту через `100dvh` 
 
 ## 10. Структура приложения и FSD
 
-`web/prototype/index.html`, `prototype.js` и `styles.css` — standalone HTML-эксперимент, не шаблон структуры production. В `web/src`: workspace composition/URL, Pipeline/Chat/details widgets, общий Story reader/review draft, execution schemas/queries и shared HTTP/session. Владельцы появляются вместе с поведением, без пустых слоёв; command features появятся в 6D.
+`web/prototype/index.html`, `prototype.js` и `styles.css` — standalone HTML-эксперимент, не шаблон структуры production. В `web/src`: workspace composition/URL, Pipeline/Chat/details widgets, общий Story reader/review draft, command delivery/run controls, execution schemas/queries и shared HTTP/session. Владельцы появляются вместе с поведением, без пустых слоёв.
 
 Для production принимаем **принцип Feature-Sliced Design**: экран/workspace собирает виджеты, пользовательское действие (`review`, обсуждение) владеет своим UI и запросом, `execution`/`artifact` — только типизированными read projections, общие низкоуровневые примитивы лежат отдельно. Не создаём `pages/widgets/features/entities/shared` заранее ради дерева папок: выделяем срез, когда появляется реальный Story review с API и второй потребитель того же поведения в Pipeline/Chat. Размещение данных определяется их владельцем, не названием картинки или типа ноды. Разрешённые зависимости направлены к более общим слоям; экран не становится местом хранения mock runtime и команд всех фич. FSD описывает организацию клиентского кода, не меняет backend route и ownership.
 

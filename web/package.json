@@ -8,6 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "build:watch": "vite build --watch",
     "check:schemas": "node schema-check.cjs",
+    "check:commands": "node command-check.cjs",
     "check:browser": "node shell-check.cjs"
   },
   "dependencies": {
