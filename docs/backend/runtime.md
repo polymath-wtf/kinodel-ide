@@ -1,14 +1,14 @@
 # Runtime
 
-Status: **Decided design; SQLite/PostgreSQL integration and crash tests #todo**
+Status: **Decided design; internal SQLite Story integration and process-death recovery tested on Windows. Full cinematic and PostgreSQL integration pending; evidence in Local MVP.**
 
-Decision, 2026-09-09: SQLite local and PostgreSQL server are selected. The [local profile](../database/local-vs-hosted.md) has one application process and one active graph runner per data directory; PostgreSQL supports multiple workers, with one invocation per execution. All durability/approval invariants apply to both; implementations and crash tests remain #todo, and PostgreSQL locks cannot be assumed on SQLite.
+Decision, 2026-09-09: SQLite local and PostgreSQL server are selected. The [local profile](../database/local-vs-hosted.md) has one application process and one active graph runner per data directory; PostgreSQL supports multiple workers, with one invocation per execution. All durability/approval invariants apply to both. The internal local Story route is implemented and process-death tested; the full cinematic route and PostgreSQL integration remain pending. PostgreSQL locks cannot be assumed on SQLite.
 
 The runtime reliably delivers authorized work to an explicit LangGraph graph. It does not independently choose production stages. The target is recoverable execution with idempotent business commits, not exactly-once model/provider calls.
 
 ## Deployment Profiles
 
-The first user build is local: CPython 3.13 (verified patch 3.13.15), FastAPI, Pydantic v2, Uvicorn, SQLite and a managed data directory; API and one background graph runner share one application process. Hosted is a later activation: PostgreSQL, managed server storage and separate API/worker entry points; begin with one worker and support multiple workers through execution ownership. The SQLite dependency smoke check passes; application ownership/recovery integration and PostgreSQL verification remain #todo. Redis, Celery, a graph compiler, and an event bus are not needed.
+The first user build is local: CPython 3.13 (verified patch 3.13.15), FastAPI, Pydantic v2, Uvicorn, SQLite and a managed data directory; API and one background graph runner share one application process. Hosted is a later activation: PostgreSQL, managed server storage and separate API/worker entry points; begin with one worker and support multiple workers through execution ownership. Local ownership/recovery is tested for internal Story; PostgreSQL verification remains pending. Redis, Celery, a graph compiler, and an event bus are not needed.
 
 | Component | Owns |
 |---|---|
@@ -57,7 +57,7 @@ Start idempotency is scoped to project and client key. Store a normalized payloa
 
 ## Single-Writer Ownership
 
-Local SQLite: one application holds exclusive OS-backed ownership before DB open/migrations and for its entire lifetime, including saver tasks. A second application refuses startup; heartbeat expiry never evicts a live owner. One active graph runner consumes durable work. Short serialized write transactions enforce OCC, current fence/activation and cancel checks; no write transaction spans model/network calls. API handlers enqueue work, never invoke the graph. Stop effects on ownership/DB failure; shutdown drains or stops tasks and flushes saver writes before releasing ownership. Recovery first reacquires directory ownership, then uses the common decision table. Network-share data directories and concurrent writable restored copies are unsupported. [Local startup](local-startup.md) proposes permanent-file stdlib OS locks, alias/child-process rules and bounded busy handling; platform selection and actual crash/saver tests remain #todo.
+Local SQLite: one application holds exclusive OS-backed ownership before DB open/migrations and for its entire lifetime, including saver tasks. A second application refuses startup; heartbeat expiry never evicts a live owner. One active graph runner consumes durable work. Short serialized write transactions enforce OCC, current fence/activation and cancel checks; no write transaction spans model/network calls. API handlers enqueue work, never invoke the graph. Stop effects on ownership/DB failure; shutdown drains or stops tasks and flushes saver writes before releasing ownership. Recovery first reacquires directory ownership, then uses the common decision table. Network-share data directories and concurrent writable restored copies are unsupported. [Local startup](local-startup.md) defines permanent-file stdlib OS locks, alias/child-process rules and bounded busy handling; Windows internal Story crash/saver evidence is recorded in [Local MVP](../roadmap-mvp.md#step-2).
 
 The numbered protocol below is **PostgreSQL server only**. References elsewhere to execution-row serialization mean short SQLite write transactions locally, row locks on server; the invariant is atomic control/commit ordering, not portable lock syntax.
 

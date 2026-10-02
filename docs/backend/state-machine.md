@@ -1,8 +1,8 @@
 # Execution State Machine
 
-Status: **Decided design; executable schemas pending**
+Status: **Decided design; compact StoryState and local business lifecycles implemented, process-death recovery tested on Windows. Full cinematic ExecutionStateV1 and media/job schemas pending.**
 
-Deployment decision: SQLite local / PostgreSQL server. Advisory-session mechanisms refer only to server; the [local profile](../database/local-vs-hosted.md) uses one application and one active graph runner with exclusive data-directory ownership. Both must prove the same durable-outcome invariants; saver integration and verification remain #todo.
+Deployment decision: SQLite local / PostgreSQL server. Advisory-session mechanisms refer only to server; the [local profile](../database/local-vs-hosted.md) uses one application and one active graph runner with exclusive data-directory ownership. Both must prove the same durable-outcome invariants. Internal Story saver/recovery is verified on Windows under [Local MVP step 2](../roadmap-mvp.md#step-2); full cinematic and server integration remain pending.
 
 There is one production transition graph, authored in LangGraph. Database lifecycles describe work, approvals, jobs, and outcomes; they are not a second switch statement that selects creative stages.
 
@@ -48,7 +48,7 @@ The [freeze layers](artifacts.md#freeze-layers) distinguish Run/submitted Brief/
 
 ## Checkpoint Projection
 
-Implement `ExecutionStateV1` as a Python `TypedDict`; boundary DTO use Pydantic. The target contract is a compact JSON-serializable projection; the application schema is not implemented yet:
+Implement `ExecutionStateV1` as a Python `TypedDict`; boundary DTO use Pydantic. The table is the full cinematic target, not yet implemented; the internal Story graph already uses compact `StoryState` from `backend/story_graph.py` and persisted application records:
 
 | Field | Content |
 |---|---|

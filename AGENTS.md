@@ -51,10 +51,23 @@ First-build tasks, dependencies and acceptance belong in `docs/roadmap-mvp.md`. 
 
 These rules govern the coding assistant, not Kinodel's application agents.
 
-- Keep task scope, architectural decisions and final integration in the primary session. Delegate dependency/environment inventories, broad documentation or legacy audits, and independent external research to subagents via delegate `task`; handle small local checks directly.
-- Give each subagent a bounded question, relevant paths, constraints and verification criteria; research is read-only unless edits are explicitly assigned. Request a concise report (normally at most 30 lines): findings, evidence paths/lines or commands, uncertainties and blockers—not raw logs or full documents.
-- Do not duplicate delegated research or re-read its entire source set. Inspect only evidence needed to resolve a conflict or verify a consequential finding; parallelize independent assignments.
-- Read/search only the relevant sections and request targeted command output. After edits, inspect the diff rather than re-reading whole files; keep full inventories, long logs and documentation pages out of the primary session unless necessary to resolve the task.
+- The primary agent owns requirements, architecture, task scope and final acceptance. Delegate substantial implementation to `coder` via `task` when it spans related components or requires substantial code investigation and verification; handle small, obvious edits and local checks directly.
+- Delegate dependency/environment inventories, broad documentation or legacy audits, and independent external research to research subagents. Research is read-only unless edits are explicitly assigned. Use one coding subagent at a time by default; parallelize independent research.
+- Give bounded assignments using the template below. Pass paths, contracts and decisions, not conversation dumps or line-by-line implementation instructions. The coder locates relevant code and callers within the assigned module and chooses implementation details; return scope changes or unresolved product/architecture decisions to the primary agent. Delegation does not expand the user's authorization.
+- Request a concise report (normally at most 30 lines): findings/changed files, evidence paths or exact checks and results, and blockers. Review the diff and consequential evidence without repeating delegated investigation; reuse the same `task_id` for follow-ups on that assignment.
+- Read/search relevant sections and request targeted output. Keep full source files, inventories, logs and documentation pages out of the primary session unless needed to resolve a conflict or verify correctness.
+
+Assignment template (omit inapplicable fields for research):
+
+```text
+Goal: expected behavior and important edge cases.
+Edit scope: allowed files/modules, including tests; read-only for research.
+Context: relevant contracts, known entry points and accepted decisions.
+Invariants: behavior and boundaries that must remain valid.
+Acceptance: observable completion criteria.
+Verify: exact check commands, or ask the coder to identify applicable checks.
+Return: changed files/findings, check results and unresolved issues.
+```
 
 ### Framework Documentation
 
@@ -77,7 +90,7 @@ These rules govern the coding assistant, not Kinodel's application agents.
 
 ### Frontend Screenshot Check
 
-- After each UI design change, capture and inspect browser screenshots of every affected screen/state (desktop and mobile where relevant). Save them as `screen-state-desktop|mobile.png` in a new `test-results/screenshots/<prototype>/vNN-<change>/` folder, update `test-results/README.md`, and leave Playwright's `test-results/prototype/` output separate.
+- After completing a UI task, capture and inspect one desktop screenshot of each page actually changed (not every state or intermediate edit). Save it as `screen-state-desktop.png` in a new `test-results/screenshots/<prototype>/vNN-<change>/` folder, update `test-results/README.md`, and leave Playwright's `test-results/prototype/` output separate.
 
 ## Engineering Rules
 

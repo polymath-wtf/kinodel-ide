@@ -1,6 +1,6 @@
 # Architecture
 
-Status: **Accepted boundaries; steps 0–1, internal Story runner and localhost HTTP revise/approve/retry/cancel tested on Windows. Clarification, process-death acceptance and public cinematic API pending.**
+Status: **Accepted boundaries; steps 0–2 internal Story foundation tested on Windows, including localhost discussion/revise/approve/retry/cancel and forced-process-death recovery. Live agents, public cinematic API, rendering and production UI pending. Evidence: Local MVP.**
 
 Kinodel is a **runtime-vibe-factory for creators**. A creator follows a pipeline from an idea through story, characters, storyboard and video, or another production scheme, inspecting and revising results through human-in-the-loop decisions. Cinematic is one pipeline, not the definition of the entire product.
 

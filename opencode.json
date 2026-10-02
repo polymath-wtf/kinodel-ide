@@ -28,7 +28,7 @@
           "enabled": true
       }
   },
-  "default_agent": "safe-build",
+  "default_agent": "auto-build",
   "agent": {
     "safe-build": {
       "mode": "primary",
@@ -43,6 +43,22 @@
           "docker compose exec -T backend ./vendor/bin/pint*": "allow"
         }
       }
+    },
+    "coder": {
+      "description": "Implements bounded coding tasks spanning related components or requiring substantial investigation and verification.",
+      "mode": "subagent",
+      "model": "openai/gpt-6.1-sol",
+      "variant": "high",
+      "permission": {
+        "edit": "allow",
+        "bash": {
+          "*": "allow",
+          "git push*": "deny",
+          "git * push*": "deny"
+        },
+        "task": "deny"
+      },
+      "prompt": "Implement the assigned task using AGENTS.md and relevant contracts. Inspect implementation and callers; preserve existing user changes. Choose implementation details within the assigned scope. If broader edits or unresolved product/architecture decisions are required, report the blocker to the primary agent. Make the smallest correct change, run applicable checks and return the concise report specified in AGENTS.md. Do not commit, push or bypass tool permissions."
     },
     "auto-build": {
         "mode": "primary",

@@ -1,14 +1,16 @@
 # Web UI — Kinodel Workspace
 
-**[Открыть standalone-прототип](prototype/index.html) · [Запуск и сборка — web/README.md](../../web/README.md).** Живой интерактивный **MOCK, без backend**: настоящий React Flow, адаптация публичного BaseNode и semantic CSS; полный shadcn/Tailwind app не установлен. 22 scope, mock Inputs/Outputs каждого этапа, внутренние схемы агентов в стиле LangGraph и пути раскрытия ComfyUI — демонстрация навигации, не исполнения.
+**[Текущий HTML-макет](../../web/index.html) · [Запуск — web/README.md](../../web/README.md).** Интерактивный **MOCK, без backend**, HTML/CSS/JS: Pipeline, отдельный Canvas проекта, mock Inputs/Outputs и provider inspection. Предыдущий React Flow эксперимент удалён; описанный ниже React-стек остаётся целевым.
 
 Статус: **прототип собран, целевой дизайн и production UI ещё не утверждены/не интегрированы**. `web/` — исходники одноразового HTML-эксперимента, не обязательный фундамент приложения. Макеты и промпты — [UI/UX wireframe](uiux-wireframe.md). Порядок сборки, pins и приёмка — только в [Local MVP](../roadmap-mvp.md). Эта страница задаёт целевой стек, визуальный язык и правила взаимодействия.
 
 ## First UI Slice
 
-**Один запуск, два вида: `Pipeline` и `Chat`.** Снаружи — короткая дорожка творческих этапов. Каждый составной этап раскрывается в матрёшку: агент, generation tools и точный review. Canvas и результаты видны сразу; правая панель **закрыта по умолчанию** и открывается по явному запросу деталей конкретной ноды/фотографии. Решение по полному набору доступно в контексте review, без обязательной постоянной панели.
+**Один запуск: Pipeline для производства, Canvas для медиа, Chat как альтернативный вид процесса.** Pipeline — горизонтальная дорожка из семи компактных нод с превью и краткими описаниями; зелёные галочки показывают завершённые Brief/Storytell, оранжевая рамка — текущий Wardrobe review, будущие ноды остаются waiting. Матрёшка раскрывает агента, generation tool и review. Полные изображения/видео собраны в отдельном Canvas. В standalone v10 Canvas ровно три горизонтальные строки **Anchors / Images / Video** без внешних рамок: 3 anchors, 9 start-frame attempts в одну строку, 2 pending clips. Все 14 слотов видны на 1600×1000 и 1440×900 при закрытой панели и Fit (карточки ~150/136px); при открытой панели минимум 120px, Fit сохраняет 100% и дальние Images доступны pan. Полные подписи остаются в aria-label и tooltip при сокращении текста на карточке. Отдельного shot-фильтра нет: S01/S02 подписаны на самих карточках. Единый фон всех рабочих видов — локальный `refs/zbs ref v1/background v2.png` без второй сетки точек; `New shot · coming soon` отключён. Правый клик по asset на Canvas открывает Wardrobe / Storyboard / Filmmaker по категории, по пустому полю — последний Pipeline scope и viewport; rail и breadcrumbs обеспечивают клавиатурный путь. Проект и breadcrumbs объединены в одной верхней строке; Canvas не дублирует заголовок. Левый rail: Pipeline / Canvas / Brief / Review / Final. Правая панель закрыта по умолчанию; выбор материала открывает компактный contained preview, табличные Details / Prompt / Settings / Lineage и кнопку workflow. В standalone Pipeline / Chat показывает хронологию mock-проекта; сообщения — локальные неотправленные черновики, backend не подключён.
 
 UI показывает сохранённое производство и отправляет команды. LangGraph маршрутизирует; агенты создают планы; tools выполняют эффекты; backend хранит результаты и применяет approval. Переключение вида, вход внутрь ноды и закрытие браузера не запускают работу.
+
+**Standalone v11 (после v10, только mock):** Rail теперь Pipeline / Canvas / Brief / Review / **Montage**; Final остаётся output-карточкой в Pipeline. Montage показывает два *планируемых* shot-слота, 6 s каждый, illustrative scrub и выбранный shot; файлов и export нет. Brief — отдельная форма будущего run с idea, explicit refs/context, demo character selection и видимыми примерными output-настройками. Submitted example immutable, `Save local draft` валидирует текст и не отправляет Run. Canvas — галерея без портов/проводов; portrait → sheet виден как lineage, не workflow wire. Inspector начинает с seed/prompt/preview; API-prompt model/size/sampler/steps убраны в Settings с явным «example, not render receipt». Pipeline L0 показывает краткие именованные boundary-порты и отдельно стрелки порядка approval; L1 — exact `brief/story/wardrobe_plan/anchor_frames/storyboard_plan/story_frames/video_plan/shot_videos/final_video` и непроводные context/profile inputs по контрактам [cinematic](../pipelines/cinematic.md) и [JSON](../pipelines/cinematic.v1.json). Provider-порты остались отдельными проверяемыми API mappings. Chat оставляет один текущий review и owner-bound unsent drafts без симуляции ответа.
 
 ## 1. Стек и проверка React Flow UI
 
@@ -42,8 +44,8 @@ SSR у React Flow возможен, но требует размеров нод 
 
 ### Что проверено сейчас
 
-- В `web/` собран standalone React Flow MOCK; исходники, зависимости и команды — в [README](../../web/README.md). Таблица выше описывает целевой production-стек, а не полный набор установленных в прототипе библиотек.
-- В прототипе установлены React 19.3.0, React Flow 12.11.6 и Vite 8.0.16 (исправленный patch вместо устаревшего кандидата 8.0.10 из roadmap). Это не выбор структуры production-приложения.
+- В `web/` находится standalone HTML/CSS/JS MOCK; запуск — в [README](../../web/README.md). React Flow эксперимент удалён вместе с его frontend-сборкой; `package.json`, lockfile и `web/src` сейчас отсутствуют.
+- React 19.3.0, React Flow 12.11.6 и Vite 8.0.16 использовались в удалённом эксперименте. Это историческая проверка, не установленные зависимости текущего `web/` и не готовая production-сборка.
 - Текущие Tailwind 4.3.3 и Vite plugin 4.3.3 поддерживают Vite 8; Query 5.103.2 поддерживает React 19; Zod 4.6.5 не обнаруживает конфликта в metadata. shadcn CLI 4.21.0 проходит Node requirement.
 - React Flow UI официально поддерживает React 19 / Tailwind 4. Интеграция целевого production-стека и его проверки ещё нужны на шаге 6; standalone build и registry metadata их не заменяют.
 
@@ -53,9 +55,9 @@ SSR у React Flow возможен, но требует размеров нод 
 
 | Референс | Берём | Уточняем для Kinodel |
 |---|---|---|
-| [React Flow template](refs/react%20flow%20ui%20workflow%20template.png) | Основная палитра: нейтральный near-black, серо-белые controls; Base Node, тонкие рамки, именованные handles, model selector | Формы живут внутри раскрытого этапа/инспектора, а не в каждой внешней карточке |
+| [React Flow template](refs/react%20flow%20ui%20workflow%20template.png), [canvas mb](refs/canvas%20mb.png) | Near-black, голубое выделение, фиолетовый и коралловый accents; тонкие рамки, handles, правый инспектор | Формы в инспекторе; Canvas — отдельный пункт навигации |
 | [Pipeline zbs](refs/zbs%20ref%20v1/pipeline%20zbs.png), [pipeline kaif](refs/zbs%20ref%20v1/pipiline%20kaif.png) | Короткая дорожка, простор, фон с точками, спокойный левый rail | Без постоянного инспектора и дублирования media; review виден на этапе, подробности открываются отдельно. Живописный фон — необязательный материал проекта при достаточном контрасте |
-| [Wardrobe zbs](refs/zbs%20ref%20v1/wardrobe%20zbs.png) | Три ясных шага, фото непосредственно под Anchor generation | Не повторять те же фото справа; там только выбранная фотография и её детали. Portrait → sheet зависит от exact portrait, location независима |
+| [Wardrobe zbs](refs/zbs%20ref%20v1/wardrobe%20zbs.png), [pipeline preview](refs/pipeline%20preview.png) | Три ясных шага, компактные thumbnails внутри generation | Полный набор только в Canvas; portrait → sheet зависит от exact portrait, location независима |
 | [ComfyUI zbs](refs/zbs%20ref%20v1/comfyui%20zbs.png), [zbss](refs/zbs%20ref%20v1/comfyui%20zbss.png) | Минимализм первого и удобочитаемость графа второго | Панель закрыта по умолчанию; связи/порты только из проверенного workflow, не из txt2img-фантазии |
 | [Chat zbs](refs/zbs%20ref%20v1/chat%20zbs.png) | Узкая хронология и крупные визуальные результаты | Один actionable review, компактный адресный composer, без повторной правой панели |
 | [Project hz](refs/zbs%20ref%20v1/project%20hz.png) | Чистая иерархия идеи → Run | Референс пока не утверждён: меньше формы и фиктивных профилей, подробнее — в wireframe |
@@ -112,13 +114,15 @@ Summary берётся из активного вложенного этапа: 
 | Review | `Your decision`, exact subject, отдельный request revision | Полный предмет review → approved selection; явное решение рядом с результатом или в review sheet |
 | Output | Результат, version, thumbnail/player | Только input; selected/approved/candidate подписываются раздельно |
 
-В L0 карточка компактна: имя, один понятный status, действие раскрытия; summary только если добавляет новую информацию. В L1/L2 — читабельное имя, состояние и при необходимости один preview; не повторять там же полный результат. Длинные prompts, job IDs и advanced parameters скрыты в `Details`, без обрезанного микротекста и одинаковых play/delete-кнопок на каждой ноде. Важные labels читаемы на **начальном рабочем масштабе**: не делать 65% zoom стартовым только ради `Fit`; overview допускает панорамирование, а текстовые подробности остаются в `Details`.
+В L0 карточка компактна: имя, status, превью внутреннего содержимого и действие раскрытия. Brief/Storytell — текстовая выдержка; Wardrobe/Storyboard — strip миниатюр; video stages — poster при наличии файла либо честный waiting placeholder. В L1 generation показывает краткий preview и View in Canvas с нужным фильтром, без вложенной галереи. Полные prompts и metadata остаются в Details. Важные labels читаемы на начальном рабочем масштабе; Fit — обзор, а не способ ужать рабочие ноды до микротекста.
 
-Порты снаружи — краткое резюме boundary, не исчерпывающий список зависимостей. Полные exact inputs доступны в Inputs. Линия L0 обозначает порядок этапов; dependency lines внутри scope обозначают конкретные named inputs и имеют подписи. Провод не является командой.
+Порты снаружи — краткое резюме boundary, не исчерпывающий список зависимостей. Полные exact inputs доступны в Inputs. Линия L0 обозначает порядок этапов, **не соединяет выбранный artifact с произвольным входом следующей группы**; dependency lines внутри scope обозначают конкретные named inputs и имеют подписи. Провод не является командой.
 
 ## 5. Инспектор, настройки и действия
 
 **Контекстная правая панель, закрыта по умолчанию:** открывается только для выбранного фото или по `Details` ноды. В ней header и нужный для предмета раздел `Config / Inputs / Outputs`; desktop около 360px, на узком экране — sheet. Не показываем все три раздела одновременно и не повторяем contact sheet/preview, уже видимые на canvas. Review нескольких фото разворачивается в широкий sheet; кнопка Approve связана с полным точным предметом, а не с выбором одного фото.
+
+Для медиа в standalone Canvas — инспектор 376px: contained preview и вкладки **Details / Prompt / Settings / Lineage**; Details содержит важные seed/prompt и honest status, технический *пример* API-workflow раскрывается в Settings. Размер, модель, steps и sampler не являются metadata stock-файла или job receipt; неизвестный seed подписан `Not recorded`. Open in workflow виден без прокрутки на 1440×900. Mock frame prompt/seed — локальный draft; Regenerate · mock не отправляет job. Смена вкладки/вида сохраняет draft до reload.
 
 | Вкладка | Содержимое | Редактирование |
 |---|---|---|
@@ -147,7 +151,7 @@ Wardrobe сохраняет `wardrobe_plan`; `anchor-gen` делает ренд�
 
 Contact sheet показывает, например, `hero_face`, `hero_sheet`, `location`. Это **пример**, не фиксированное число: keys/count приходят из плана. Sheet хранит ссылку на exact face; несовместимый выбор объясняется рядом с парой. Генерация MVP последовательная, даже если схема показывает независимую location. Новый face требует нового sheet; location может сохраниться.
 
-Внутри Wardrobe фото/слоты находятся **под Anchor generation прямо на canvas**, без второго такого же набора в sidebar. Во время работы незаполненный слот показывает компактный spinner + `Generating…` и реальное состояние (`Waiting on portrait`, `Queued`, `Verifying`); после verified import — candidate image. При ошибке показать причину вместо бесконечного спиннера. Click/Enter по конкретной фотографии открывает справа только её крупный preview, exact ref/lineage и доступные действия. Отдельный review полный набор сверяет и подтверждает вместе.
+Все полные фото/слоты находятся в **Canvas → Anchors / Images / Video**; generation-ноды ведут туда через View in Canvas. S01/S02 остаются у отдельных assets, без shot-групп и ложных рёбер между independent takes. Слот показывает candidate image либо подписанное ожидание/spinner/ошибку. Click/Enter открывает справа один ресурс; Open in workflow в инспекторе ведёт в provider scope с возвратом в тот же Canvas. Отдельный review сверяет и подтверждает полный exact набор.
 
 ComfyUI — **Tool с раскрытием внутри `anchor-gen` / `frames-gen` / `video-gen`**, если закреплённый provider именно ComfyUI. Workflow scope относится к выбранному job/unit; разные роли могут использовать разные workflows. В L0 нет обязательной глобальной ноды ComfyUI.
 
@@ -167,7 +171,7 @@ ComfyUI — **Tool с раскрытием внутри `anchor-gen` / `frames-g
 
 ## 7. API: реальность и необходимые проекции
 
-По коду `backend/api.py` на 25 сентября доступен **internal Story fixture**: session bootstrap, start, execution read, immutable Story read, respond (`approve/revise/clarify`), retry и cancel. Discussion с typed owner responses уже есть в исходниках. Некоторые статусы backend-документов ещё описывают clarify как pending; это расхождение с кодом, не повод убирать его из концепта. Полная runtime-приёмка не проводилась этим frontend-аудитом.
+По коду `backend/api.py` доступен **internal Story fixture**: session bootstrap, start, execution read, immutable Story read, respond (`approve/revise/clarify`), retry и cancel. Discussion с typed owner responses реализован; Windows process-death приёмка foundation закрыта 2 октября — evidence в [шаге 2 roadmap](../roadmap-mvp.md#step-2). Живой cinematic и frontend-интеграция ещё не проверены.
 
 | Уже можно проверить на fixture | Ещё требуется для полного экрана |
 |---|---|
@@ -190,30 +194,31 @@ Story approval завершает **fixture**, а не запускает Wardro
 6. HTTP 202 означает принятие; UI показывает `Applying…`, затем читает committed state. Запретить повторную отправку с той же карточки в обоих видах. Не делать optimistic approval/result.
 7. Stale/conflict/budget exhaustion — refetch, сохранить draft и показать причину. Не переназначать старое сообщение новому review автоматически. При offline/reconnecting действия заблокированы; чтение последнего snapshot доступно.
 
-## 8. Визуальная система — Quiet Graphite
+## 8. Визуальная система — Graphite / Sky / Violet / Coral
 
-**Нейтральный near-black и графит, ясная геометрия, сдержанное серо-белое выделение** по React Flow template. Цвет в основном дают кадры фильма; только фон canvas допускает мягкие рассеянные blue-gray / warm stone поля с тонким зерном, вдохновлённые colour-field graphic art. Интенсивность атмосферы регулируется вплоть до отключения. Без свечения нод/проводов, стекла, serif-заголовков и медной editorial-темы. Внешний pipeline компактный; пространство оставляем вокруг пути, а не внутри пустых карточек.
+**Near-black и графит с дозированными голубыми, фиолетовыми и коралловыми акцентами.** Голубой — selection/media/navigation, фиолетовый — agents/video, коралловый — human review; primary button насыщенно-синий. В standalone v10 общая фоновая текстура охватывает рабочее поле Pipeline, Canvas, Chat и вложенных scopes; панели и ноды непрозрачные, без glow. Превью внутри pipeline-ноды помогает узнать содержимое, полноценный media Canvas открывается отдельно.
 
 | Token | Dark (основной концепт) | Light |
 |---|---|---|
 | Canvas/background | `#101012` | `#F5F6F7` |
-| Card / panel | `#19191C` | `#FFFFFF` |
+| Card / panel | `#171B23` | `#FFFFFF` |
 | Secondary surface | `#23272C` | `#E8EBEE` |
-| Structural border | `#383E46` | `#D0D5DA` |
+| Structural border | `#303846` | `#D0D5DA` |
 | Text | `#F1F3F5` | `#171A1E` |
 | Muted text | `#A5ADB8` | `#535D68` |
-| Primary / selection | `#E4E4E7` | `#3F3F46` |
-| Primary text | `#18181B` | `#FFFFFF` |
+| Selection / media | `#76B9FF` | `#225DA8` |
+| Primary button / text | `#366BDC` / `#FFFFFF` | `#285CC4` / `#FFFFFF` |
+| Agent / video accent | `#B6A0FF` | `#7053BA` |
 | Canvas atmosphere (low-opacity only) | Blue-gray `#647080`, warm stone `#8A8075` | Те же приглушённые оттенки |
 | Focus/control outline | `#89939F` | `#63707D` |
 | Error text | `#FF9B9B` | `#A51D2D` |
-| Review text | `#EBCB82` | `#765300` |
+| Review text | `#FF998D` | `#A53E34` |
 
-Primary зарезервирован для выбора и главного действия, amber — `Your decision`, red — ошибки. Completed достаточно check + текста; завершённые провода остаются нейтральными. Neutral border разделяет поверхности; focus/control outline используется там, где граница нужна для распознавания интерактивного элемента.
+Primary — главное действие, sky — selection, coral — `Your decision`, red — ошибки; текст и иконки различают состояния без цвета. Completed достаточно check + текста. Нейтральные провода — порядок этапов; sky/violet применяются к media/conditioning связям. Light-значения целевые: текущий standalone проверяется только в dark.
 
 - **Шрифт:** self-hosted `IBM Plex Sans` с реальным Cyrillic subset, если интерфейс русскоязычный; моноширинный для refs/revisions при необходимости. Основной текст 14/20, вторичный не меньше 12/16 при рабочем масштабе, node title 14/20 semibold, section title 18/24. В текущем mock импортирован только Latin subset — это пока не доказательство готовности кириллицы.
-- **Геометрия:** 4px spacing grid; 12px node/panel radius, 8px controls; rail 56px, header 56px, breadcrumbs 40px. Controls 36px desktop / минимум 44px touch.
-- **Canvas:** деликатные точки поверх регулируемого grainy gradient, как в `pipiline kaif.png`; полноэкранный scenic background необязателен, не должен съедать контраст нод. Атмосфера только на canvas, панели и ноды непрозрачные, без glow. Edges 1.5px нейтральные, named handles 8px. Нет декоративных пунктирных потоков по всему экрану. MiniMap только по запросу, controls — zoom / fit / current stage.
+- **Геометрия:** 4px spacing grid; 10–12px node radius, 6–8px controls; rail 84px с подписями, header 60px, breadcrumbs 50px. Media node 260px, inspector 376px; mobile rail снизу, inspector full-screen. Основные controls не меньше 44px на touch.
+- **Workspace:** в standalone одна готовая texture `background v2.png` уже содержит точки и blue/coral grain; повторный dot overlay не нужен. Она покрывает все рабочие виды, но не непрозрачные панели и ноды. Edges 1.5px нейтральные, named handles 8px. Нет декоративных пунктирных потоков по всему экрану. MiniMap только по запросу, controls — zoom / fit / current stage.
 - **Media:** `object-fit: contain` на review, ratio box без обрезки важных частей; маленький cover-thumbnail допустим на внешней карточке. Video не autoplay; сеть не перегружается десятками mounted players.
 - **Motion:** 120–160ms opacity/transform для панели/selection. Не анимировать сам layout нод при polling, не делать постоянные pulses. Reduced motion отключает переходы; progress — текст, когда процент неизвестен.
 - **Responsive:** ≥1280 rail + canvas/chat, панель только по запросу; 768–1279 details/review как sheet; <768 Chat по умолчанию, детали full-screen, Pipeline доступен с pan/zoom. Ниже 1280 не сжимать одновременно ноды и панель до нечитаемости.
@@ -221,7 +226,7 @@ Primary зарезервирован для выбора и главного д�
 
 ## 9. React Flow UI: публичный код и Kinodel shell
 
-Ниже **reference для целевой production-реализации** с Tailwind/shadcn; собранный прототип использует адаптацию BaseNode с semantic CSS (см. [атрибуцию](../../web/README.md#public-component-attribution)). Использованы настоящие exports публичного [Base Node registry](https://ui.reactflow.dev/base-node): `BaseNode`, `BaseNodeHeader`, `BaseNodeHeaderTitle`, `BaseNodeContent`, `BaseNodeFooter`. Варианты Kinodel и callbacks — наша адаптация, не код платного шаблона.
+Ниже **reference для целевой production-реализации** с Tailwind/shadcn. Текущий HTML-макет не использует React BaseNode; адаптация из предыдущего React-эксперимента удалена. Пример опирается на exports публичного [Base Node registry](https://ui.reactflow.dev/base-node): `BaseNode`, `BaseNodeHeader`, `BaseNodeHeaderTitle`, `BaseNodeContent`, `BaseNodeFooter`. Варианты Kinodel и callbacks — пример нашей адаптации, не код платного шаблона.
 
 После настройки Vite, `@/*`, Tailwind и shadcn в `web/`:
 
@@ -340,22 +345,22 @@ Workspace задаёт canvas реальную высоту через `100dvh` 
   --muted: #e8ebee;
   --muted-foreground: #535d68;
   --border: #d0d5da;
-  --primary: #3f3f46;
+  --primary: #285cc4;
   --primary-foreground: #ffffff;
-  --ring: #3f3f46;
+  --ring: #225da8;
   --control-outline: #63707d;
 }
 .dark {
   --background: #101012;
   --foreground: #f1f3f5;
-  --card: #19191c;
+  --card: #171b23;
   --card-foreground: #f1f3f5;
   --muted: #23272c;
   --muted-foreground: #a5adb8;
-  --border: #383e46;
-  --primary: #e4e4e7;
-  --primary-foreground: #18181b;
-  --ring: #e4e4e7;
+  --border: #303846;
+  --primary: #366bdc;
+  --primary-foreground: #ffffff;
+  --ring: #76b9ff;
   --control-outline: #89939f;
 }
 .react-flow {
@@ -370,7 +375,7 @@ Workspace задаёт canvas реальную высоту через `100dvh` 
   color: var(--card-foreground);
   box-shadow: none;
 }
-.kinodel-node[data-selected="true"] { border-color: var(--primary); }
+.kinodel-node[data-selected="true"] { border-color: var(--ring); }
 .node-open {
   min-height: 36px;
   border-radius: 8px;
@@ -391,13 +396,13 @@ Workspace задаёт canvas реальную высоту через `100dvh` 
 
 ## 10. Структура приложения и FSD
 
-Сейчас `web/src/App.tsx`, `data.ts` и `styles.css` — единый эксперимент для сборки HTML, не шаблон структуры production. Нужно создать FSD перед утверждением дизайна, чтобы писать код в заведомо известной архитектуре. Прежний минимальный webui прямо откладывал обязательную шестислойную Mini-FSD, по пора занятся ей.
+Сейчас `web/index.html`, `prototype.js` и `styles.css` — standalone HTML-эксперимент, не шаблон структуры production; прежний `web/src` удалён. Нужно создать FSD перед утверждением дизайна, чтобы писать код в заведомо известной архитектуре. Прежний минимальный webui прямо откладывал обязательную шестислойную Mini-FSD, но пора заняться ей.
 
 Для production принимаем **принцип Feature-Sliced Design**: экран/workspace собирает виджеты, пользовательское действие (`review`, обсуждение) владеет своим UI и запросом, `execution`/`artifact` — только типизированными read projections, общие низкоуровневые примитивы лежат отдельно. Не создаём `pages/widgets/features/entities/shared` заранее ради дерева папок: выделяем срез, когда появляется реальный Story review с API и второй потребитель того же поведения в Pipeline/Chat. Размещение данных определяется их владельцем, не названием картинки или типа ноды. Разрешённые зависимости направлены к более общим слоям; экран не становится местом хранения mock runtime и команд всех фич. FSD описывает организацию клиентского кода, не меняет backend route и ownership.
 
 ## 11. Граница следующей сборки
 
-Сначала утвердить компактный HTML-дизайн без дублирующей панели; затем решить, переиспользовать ли React Flow shell из `web/` и как подключить общий Story review и Chat/Pipeline к реальному fixture. Mock-данные, копирайтинг, CSS, scripted approval и single-file сборка не являются production-контрактом. Дальше расширять workspace по мере готовности cinematic projection. Фиксированные матрёшки — view navigation первого концепта; произвольная упаковка, graph editor, palette, общий project chat и ComfyUI editor не нужны для этого прохода.
+Сначала утвердить компактный HTML-дизайн без дублирующей панели; затем собрать React Flow shell по макету и подключить общий Story review и Chat/Pipeline к реальному fixture. Готового React shell в `web/` больше нет. Mock-данные, копирайтинг, CSS и локальные scripted действия не являются production-контрактом. Дальше расширять workspace по мере готовности cinematic projection. Фиксированные матрёшки — view navigation первого концепта; произвольная упаковка, graph editor, palette, общий project chat и ComfyUI editor не нужны для этого прохода.
 
 Все рабочие задачи/критерии находятся в [шаге 6 и приёмке roadmap](../roadmap-mvp.md#remaining-steps). Здесь не ведём второй checklist. Минимальные browser checks должны подтвердить одинаковый exact review в двух видах, сохранение scope при навигации, отсутствие duplicate command при reconnect, явное отличие candidate/selected/approved и доступность на узком экране.
 

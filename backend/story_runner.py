@@ -136,6 +136,7 @@ async def _run_one(db, saver, graph, work, stop):
     else:
         raise ValueError("Unsupported Story work kind")
 
+    persisted_resume = False
     if saved is None:
         if kind != "start":
             raise ValueError("Cannot resume without a checkpoint")
@@ -152,6 +153,7 @@ async def _run_one(db, saver, graph, work, stop):
                 if already_written != [[decision[0]]]:
                     raise ValueError("Conflicting persisted resume value")
                 invocation = None
+                persisted_resume = True
             elif decision[5] is not None:
                 raise ValueError("Applied decision has no persisted resume value")
             else:
@@ -161,7 +163,8 @@ async def _run_one(db, saver, graph, work, stop):
                 raise ValueError("Resume moved beyond its source without a matching decision")
             invocation = None
 
-    if (snapshot is None or invocation is not None or (snapshot.next and
+    # Pending task writes can empty snapshot.next before the resumed step is checkpointed.
+    if (snapshot is None or invocation is not None or persisted_resume or (snapshot.next and
             (not snapshot.interrupts or (kind == "resume" and
              snapshot.interrupts[0].value["request_id"] == source_id)))):
         if not await _invoke(db, graph, invocation, config, execution_id, stop):

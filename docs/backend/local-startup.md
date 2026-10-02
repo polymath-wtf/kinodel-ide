@@ -1,6 +1,6 @@
 # Local Startup And Ownership
 
-Status: **Accepted rules; data-root lock, application/saver SQLite preflight and internal Story HTTP lifespan/shutdown tested with TestClient on Windows. Launcher and process-death Story recovery pending.** This page owns safe process/data lifetime. Installation tasks, package versions and all first-build checks live in [Local MVP](../roadmap-mvp.md).
+Status: **Accepted rules; data-root lock, application/saver SQLite preflight, internal Story HTTP lifespan/shutdown and forced-process-death Story recovery tested on Windows. Launcher and full cinematic acceptance pending.** This page owns safe process/data lifetime. Installation tasks, package versions and all first-build checks live in [Local MVP](../roadmap-mvp.md).
 
 ## First Launch
 
@@ -47,7 +47,7 @@ $receipt = Invoke-RestMethod -Uri http://127.0.0.1:8765/api/executions/internal-
 Invoke-RestMethod -Uri "http://127.0.0.1:8765/api/executions/$($receipt.execution_id)" -WebSession $session
 ```
 
-The response contains the actionable `review` (once ready), `work` status and `stories` including historical bodies. The API schema documents `respond`, `retry` and `cancel`. Only `approve` and `revise` are accepted until the discussion slice. Bind Uvicorn to `127.0.0.1:8765` as shown; peer, Host and Origin checks also reject nonlocal requests. The session expires on process restart; bootstrap it again after reopening.
+The response contains the actionable `review` (once ready), `work` status, `stories` including historical bodies and persisted `discussion`. The API schema documents `respond` (`approve`, `revise`, `clarify`), `retry` and `cancel`. Bind Uvicorn to `127.0.0.1:8765` as shown; peer, Host and Origin checks also reject nonlocal requests. The session expires on process restart; bootstrap it again after reopening.
 
 ## Acceptance Gate
 

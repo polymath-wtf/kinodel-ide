@@ -1,24 +1,28 @@
-# UI/UX Wireframe — Pipeline / Chat
+# UI/UX Wireframe — Pipeline / Canvas / Chat
 
-**[Открыть standalone-прототип](prototype/index.html) · [Запуск и сборка — web/README.md](../../web/README.md).** Живой интерактивный **MOCK, без backend**: настоящий React Flow, публичный BaseNode адаптирован под semantic CSS, без полного установленного shadcn/Tailwind app. 22 scope с per-stage mock Inputs/Outputs, внутренними схемами агентов в стиле LangGraph и путями раскрытия ComfyUI; исполнения нет.
+**[Текущий HTML-макет](../../web/index.html) · [Запуск — web/README.md](../../web/README.md).** Интерактивный **MOCK, без backend**, на HTML/CSS/JS. Отдельный [React Flow эксперимент](prototype/index.html) — предыдущая ветка дизайна, не текущая сборка `web/`.
 
 Статус: **v0-прототип собран, дизайн пересматривается до production UI**. Ниже целевые wireframe/промпты для следующей итерации, а не описание уже реализованного HTML. Стек, tokens и backend-границы — [webui.md](webui.md). Все названия фильма, версии и счётчики ниже — **mock data** для одного согласованного примера.
 
 ## Дизайн в одной строке
 
-Тихий графитовый инструмент для режиссёра: короткая дорожка матрёшек, фото там, где они появляются, подробности только по запросу, тот же процесс в виде чата.
+Графитовый инструмент для режиссёра: Pipeline показывает путь и компактные превью, отдельный Canvas собирает все изображения и видео проекта, инспектор раскрывает выбранный материал. Chat — альтернативный вид процесса, доступный в standalone как локальный mock.
 
-Палитра — [React Flow template](refs/react%20flow%20ui%20workflow%20template.png): near-black `#101012`, поверхности `#19191c`, серо-белые controls и selection. Только canvas получает рассеянный grainy gradient в приглушённых blue-gray / warm stone тонах, как colour-field graphic art; атмосфера регулируется до отключения. Ноды без свечения, панели и Chat без декоративного градиента.
+**Текущий standalone v10:** одна горизонтальная дорожка из семи нод по [pipeline zbs nodes kaif](refs/zbs%20ref%20v1/pipeline%20zbs%20nodes%20kaif.png), но завершённые Brief/Storytell обозначены зелёными галочками (не точками), оранжевая рамка относится только к текущему Wardrobe review. Краткие описания и действие Review anchors доступны без открытия инспектора. Точный [background v2](refs/zbs%20ref%20v1/background%20v2.png) уже содержит точки и лежит на всех рабочих поверхностях, включая Chat и вложенные scopes; вторую сетку не добавляем. Правый клик по Canvas asset открывает production stage его категории, по пустому полю — последний Pipeline scope с прежним viewport; левый клик по-прежнему открывает инспектор, workflow доступен отдельно. Rail/breadcrumbs и Shift+Enter остаются клавиатурной альтернативой. Ни один переход не исполняет граф.
 
-**Основная композиция:** header → узкий rail + широкая рабочая область. Правая панель закрыта по умолчанию; выбранная фотография или явное `Details` открывают её. Canvas без постоянной левой палитры, таблицы логов и второго списка всех 14 этапов. `Pipeline / Chat` переключаются в header, не дублируясь в rail. Results и Review открываются в контексте этапа. Глобальные Assets/Team/Library не занимают места до появления функций.
+**Текущий standalone v11:** v10 — историческая база; rail вместо Final содержит Montage (Final — output в Pipeline). На Canvas остаются 14 медиа-карточек, но нет ports/wires; lineage portrait → sheet показывается в инспекторе. В Pipeline L0 именованные границы групп не притворяются связями artifact→следующая группа: стрелки показывают approval order, внутри L1 реальные plan/current-set handoffs и отдельно contextual refs/profiles. Новые отдельные поверхности Brief (immutable submitted fixture + validated unsent draft) и Montage (2 planned clips, silent cuts, no output) используют background v2. Chat имеет один owner-bound unsent composer и компактный current review. Скриншоты — [v11](../../test-results/screenshots/standalone-html/v11-workspace-clarity/).
+
+Палитра — **Graphite / Sky / Violet / Coral**: near-black `#101012`, рабочее поле `#10141B`, поверхности `#171B23`, borders `#303846`, текст `#F1F3F5`. Голубой `#76B9FF` — selection, media и навигация; насыщенный синий `#366BDC` — primary button; фиолетовый `#B6A0FF` — агенты и video; коралловый `#FF998D` — human review. Цветные акценты дозированы, статусы всегда подписаны. Тонкие точки и слабая синяя/фиолетовая атмосфера только на рабочем поле, без свечения нод и проводов.
+
+**Основная композиция:** header → левый rail 84px с иконками и подписями **Pipeline / Canvas / Brief / Review / Final** → рабочая область. Canvas — самостоятельный пункт, не слой внутри generation. Review ведёт к текущему точному предмету, Final — к выходу Montage. Справа по выбору материала открывается инспектор 376px как в [canvas mb](refs/canvas%20mb.png): крупное превью, Open in workflow, вкладки Prompt / Settings / Metadata, доступное действие. На телефоне rail становится нижней навигацией, inspector — full-screen sheet. Header Pipeline / Chat переключает workspace и хронологию, сохраняя scope, viewport и локальный текст сообщения.
 
 ### Сравнение изображений и приоритеты
 
 | Экран | Что оставить из [v0](refs/v0/) | Что изменить по новым референсам |
 |---|---|---|
 | Project | Честные настройки и явный Start ещё предстоит показать | [project hz](refs/zbs%20ref%20v1/project%20hz.png) слишком похож на тяжёлую административную форму: один фокус на идее, только необходимые настройки перед Run, остальные по раскрытию |
-| Pipeline | Рабочий canvas и настоящие ноды | [pipeline zbs](refs/zbs%20ref%20v1/pipeline%20zbs.png) — компактная дорожка, [pipiline kaif](refs/zbs%20ref%20v1/pipiline%20kaif.png) — точки и атмосфера. Убрать обязательную правую панель и повтор медиа |
-| Wardrobe | Связь portrait → sheet и отдельная location | [wardrobe zbs](refs/zbs%20ref%20v1/wardrobe%20zbs.png): фото прямо под Anchor generation, после импорта; справа только подробности выбранного фото, не копия галереи |
+| Pipeline | Короткая дорожка и настоящие ноды | [pipeline preview](refs/pipeline%20preview.png): текстовые выдержки и миниатюры внутри карточек, голубое выделение, коралловый review |
+| Canvas | Связь portrait → sheet и отдельная location | [canvas mb](refs/canvas%20mb.png): крупные media-ноды, фильтры, правый инспектор. Полные наборы живут только здесь; в Wardrobe остаётся компактное превью и ссылка |
 | ComfyUI | Проверяемая read-only схема и отдельный verified import | [comfyui zbs](refs/zbs%20ref%20v1/comfyui%20zbs.png) — меньше шума, [comfyui zbss](refs/zbs%20ref%20v1/comfyui%20zbss.png) — читаемые связи. Не показывать таблицу параметров постоянно |
 | Chat | Тот же review, что и в Pipeline | [chat zbs](refs/zbs%20ref%20v1/chat%20zbs.png): крупные фото и одна задача; меньше вводного текста, никаких дублирующих панелей/карточек |
 
@@ -56,12 +60,13 @@
 ```text
 Create a high-fidelity 1600x1000 flat desktop screenshot of KINODEL's New Run
 screen. This is an idea-first creation surface, NOT a settings dashboard.
-Quiet graphite #101012, near-black #19191c, white-gray typography, crisp
-14px-or-larger readable body text. A narrow rail and restrained top bar.
+Graphite #101012, #171B23 panels, white typography; sky #76B9FF selection,
+violet #B6A0FF subject chips, restrained coral #FF998D review accents.
+Readable 14px body text. Rail: Pipeline, Canvas, Brief, Review, Final.
 In a single central readable column: heading “What are we making?”, a large
 film-idea textarea, optional small “Traveller” and “Island” subject chips,
 one compact row of essential output choices, collapsed “Generation profiles”
-disclosure, one clear “Start run” action. Show readiness only when known.
+disclosure, one blue #366BDC “Start run” action. Show readiness only when known.
 Generous empty space and deliberate hierarchy, no decorative preview images,
 fake model names, redundant labels, extra sections, glow or gradients.
 ```
@@ -87,23 +92,26 @@ fake model names, redundant labels, extra sections, glow or gradients.
 В ASCII маршрут перенесён для читаемости. **В приложении одна горизонтальная дорожка из семи карточек:** Brief → Storytell → Wardrobe → Storyboard → Filmmaker → Montage → Final. Это view над полными 14 этапами, а не новый маршрут backend. Фон — точечная сетка поверх приглушённого grainy поля; вариант с берегом из `pipiline kaif.png` только как опция при сохранении контраста.
 
 - В обычном состоянии **inspector закрыт**; pan/`Current` держат рабочий этап в доступе. Fit даёт overview, не пытается уместить семь форм с микрошрифтом.
-- Внешняя карточка: имя, один status, стрелка раскрытия; результат и exact request доступны по `Open review`, не в каждой карточке повторно. Нет inline model selector, длинного prompt и неразборчивой metadata.
+- Внешняя карточка: имя, один status, компактное превью содержимого и Open inside. Brief/Storytell — короткий текст; Wardrobe/Storyboard — миниатюры; Filmmaker/Montage/Final — video poster только при наличии файла, иначе подписанный placeholder. Это summary, не вложенная доска и не отдельный player в каждой карточке.
 - Активный review виден даже в закрытой матрёшке. Нельзя показывать Wardrobe завершённым только потому, что агент сохранил план.
-- Rail `Workspace` остаётся выбранным при входе внутрь; не появляются дополнительные глобальные меню Workflow/Review/Assets.
+- Rail `Pipeline` остаётся выбранным внутри production stage; `Canvas` — внутри media и его workflow. Переход между ними сохраняет рабочий scope и viewport; Brief, Review, Final дают прямые shortcuts.
 
 ### Txt2img — Pipeline
 
 ```text
 Design a realistic 1600x1000 desktop UI screenshot of KINODEL, an AI filmmaking
-application. Neutral graphite surfaces #101012 and #19191c, readable white-gray
-IBM Plex Sans-like text, precise thin borders, restrained white-gray #E4E4E7 selection.
-Canvas only: subtle diffused blue-gray and warm stone colour fields with fine grain,
-adjustable atmosphere; opaque nodes and panels, no node glow.
-Top bar: KINODEL, “The Magic begin”, segmented “Pipeline / Chat”, review status.
-Narrow icon rail on the left. Spacious dotted canvas in the center with one
+application. Graphite #101012 and #171B23 surfaces, readable white IBM Plex Sans-like
+text, borders #303846. Sky #76B9FF selection and media accents, violet #B6A0FF
+agent/video accents, coral #FF998D review. Subtle dotted blue-gray work surface,
+opaque nodes, no glow. Top bar: KINODEL, “The Magic begin”, “Demo data”.
+Left icon-and-label rail: Pipeline (selected), Canvas, Brief, Review, Final.
+Spacious work surface in the center with one
 horizontal production path of seven compact nodes: Brief, Storytell, Wardrobe,
 Storyboard, Filmmaker, Montage, Final. Small expand arrows on nested stages.
-Wardrobe has thin white-gray selection, one “Review anchors” status. An unobtrusive
+Inside the nodes show short text excerpts for Brief/Storytell, three anchor thumbnails
+for Wardrobe, a two-frame strip for Storyboard. Video stages show labeled waiting
+placeholders unless a real output exists. Never embed another canvas inside a node.
+Wardrobe has a thin sky-blue selection, one coral “Review anchors” status. An unobtrusive
 “Anchor set 2 · Open review” action appears near the current stage. The right
 inspector is CLOSED; do not place the same images beside the graph. All meaningful
 node titles and states are readable at default zoom; no tiny embedded summaries.
@@ -121,17 +129,14 @@ extra branches. Fine dots are more important than a decorative scenic photograph
 │ Work │                                                                                │
 │      │       [ Wardrobe agent ↗ ] → [ Anchor generation ↗ ] → [ Review ]             │
 │      │         Plan ready             Rendering               Waiting                │
-│      │                                     │                                          │
-│      │         [Portrait  ↻ Generating…] → [Sheet  Waiting on portrait]             │
-│      │         [Location  ↻ Queued…]        independent                             │
+│      │                              [small thumbnail strip]                        │
+│      │                              [View in Canvas ↗]                             │
 │      │                                                                                │
-│      │         After import: [Portrait photo] → [Wardrobe sheet photo]              │
-│      │                       [Location photo]       [Review complete set]           │
 │ ⚙    │ [−] [Fit] [+]                                                     [⋯]         │
 └──────┴────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Верхняя линия — три реальные production stages. Слоты **под Anchor generation** — candidate outputs выбранного `anchor-gen`, а не второй исполняемый граф. Фото появляются только после проверенного импорта: placeholder со spinner и короткой подписью во время работы, явная причина при ошибке, никаких фиктивных процентов. Portrait → sheet — exact dependency; location независима. Число слотов задаёт план.
+Три реальные production stages; внутри generation только небольшое превью и **View in Canvas → Anchors**. Полные медиа-слоты не повторяются ни под нодой, ни внутри дополнительного batch scope. На Canvas portrait → sheet показывает exact dependency, location независима; число слотов задаёт план. Фото появляются после проверенного импорта, ожидание и ошибки подписаны.
 
 **Внутри самого агента:** общий shell `llm-agent` для всех четырёх ролей; меняются system prompt и входной контекст. Standalone показывает минимальную демонстрационную топологию LangGraph: `START → Model → END`, условную ветку по `AIMessage.tool_calls` в `ToolNode` и возврат `ToolMessage` в Model. Один предложенный read-only tool `read_selected_reference(alias)` читает только подготовленный разрешённый reference. SystemMessage добавляется к каждому вызову модели, не дублируется в истории; model/settings и инструкции — конфигурация, не отдельные исполняемые ноды. После END результат отдельно валидируется/сохраняется Kinodel. Это иллюстрация возможной упаковки, не trace и не утверждение о подключённом backend tool-loop. Соседний `anchor-gen` остаётся отдельным production stage. [Официальный пример](https://docs.langchain.com/langsmith/trace-with-langgraph#3-log-a-trace).
 
@@ -141,18 +146,17 @@ Click/Enter на **одну** готовую фотографию открыва
 
 ```text
 Create a polished 1600x1000 desktop application screenshot for KINODEL using
-neutral graphite #101012, raised panels #19191c, muted gray borders, readable
-white sans-serif text and restrained white-gray selection. Canvas only: subtle
-diffused blue-gray and warm stone grainy gradient, adjustable atmosphere,
+graphite #101012, raised panels #171B23, readable white sans-serif text,
+sky #76B9FF selection, violet #B6A0FF agent accents and coral #FF998D review.
+Subtle blue-gray dots on the work surface,
 opaque cards without node glow. Top breadcrumb:
 “The Magic begin / Wardrobe”. Keep the same narrow icon rail and top bar as
-a professional node workspace. Center canvas shows only three clear Base Node
+a professional node workspace: Pipeline, Canvas, Brief, Review, Final. Center shows three Base Node
 style cards: “Wardrobe agent”, “Anchor generation”, “Review”. Each card has a
 small role icon, concise status and named connection, no giant embedded forms.
-Immediately BELOW “Anchor generation”, show three clearly labeled output slots:
-portrait with a small spinner “Generating…”, wardrobe sheet “Waiting on portrait”,
-location “Queued”. A second state shows actual candidate photos replacing these
-slots, with portrait → sheet exact dependency and independent location.
+INSIDE “Anchor generation”, show a small three-thumbnail summary and “View in Canvas”.
+Do not put a second media board below it. Full portrait, wardrobe and location
+nodes belong to the separate Canvas destination, reached with the Anchors filter.
 The right inspector is CLOSED by default, no duplicated photos. Clicking one
 finished photo would open its enlarged preview and details on the right.
 Full-set review remains a separate card/action. Large readable node titles and
@@ -191,11 +195,11 @@ slot labels, almost no descriptive copy, no fake completed render or parallel br
 
 ```text
 Create a realistic 1600x1000 KINODEL desktop UI screenshot, matching a quiet
-graphite #101012 node-based film production workspace, #19191c panels,
-restrained white-gray selection, thin gray wires. Canvas only: subtle diffused
-blue-gray and warm stone grainy colour fields, adjustable atmosphere, no node glow.
-IBM Plex Sans-like readable labels and narrow icon rail. Breadcrumb
-“Wardrobe / Anchor generation / hero_face / Workflow” and a subtle
+graphite #101012 node-based film production workspace, #171B23 panels,
+sky #76B9FF selection/media wires, violet #B6A0FF conditioning accents,
+coral #FF998D reserved for human review. Other wires neutral, no glow.
+IBM Plex Sans-like readable labels; rail Pipeline, Canvas, Brief, Review, Final.
+Canvas selected. Breadcrumb “Canvas / hero_face / Workflow” and a subtle
 “Read-only workflow” caption. Center graph is an illustrative text-to-image tool:
 Prompt feeds Text encode; Model supplies CLIP to Text encode and model to Sampler;
 Size feeds Empty latent; latent plus conditioning and Seed feed Sampler;
@@ -210,56 +214,45 @@ walls, floating windows, duplicated previews or approval at the decoder.
 
 ## 4a. Canvas — единая поверхность для кадра и клипа
 
-Один визуальный компонент для `anchor-gen`, `frames-gen` и `video-gen`: меняются **тип ресурса** (image/video), число слотов, способ группировки и inspector, но навигация, стрелки/порты и выбор остаются прежними. Имя `Batch generation` — только UI-лейбл `frames-gen`, а не изменение маршрута [cinematic](../pipelines/cinematic.md). На телефоне сетка доступна панорамированием, детали открываются отдельным sheet; превью сохраняет порядок слотов, а не сжимается до нечитаемой миниатюры.
+**Один самостоятельный Canvas всего проекта**, открываемый из rail. Фильтры All media / Anchors / Images / Video — представления тех же объектов, не копии досок. Generation-ноды ведут сюда с нужным фильтром. `Batch generation` остаётся UI-именем `frames-gen`, без изменения backend route. Standalone v10 показывает ровно три физические строки без внешних рамок: 3 anchors, 9 frame attempts в одну линию, 2 pending clips. S01/S02 на самих карточках. На desktop 1600×1000 и 1440×900 все 14 слотов видны при закрытом inspector; с панелью карточка не уже 120px, конец ряда доступен pan (Fit не сжимает текст). Фон — общий `refs/zbs ref v1/background v2.png` без дополнительной сетки. Верхняя строка объединяет проект, breadcrumbs, контекст и переключатель вида; повторного заголовка Canvas нет. На мобильном Canvas карточки панорамируются, inspector раскрывается full-screen. `New shot · coming soon` отключён.
 
 ```text
- Wardrobe       [Anchor generation ↗] ─────→ [Anchor review ✓]
-                            ↓ output
-                ┌ Anchor set · 3 slots ───────────────────────────┐
-                │ [Portrait] → [Sheet · parent portrait] [Location]│
-                └─────────────────────────────────────────────────┘
-
- Storyboard     [Batch generation ↗] ──────→ [Frame review ✓]
-                            ↓ output
-                ┌ Batch · 2 ready · 1 generating ─────────────────┐
-                │ [S01/1] [S01/2] [S01/3 ↻]  · preview only       │
-                └─────────────────────────────────────────────────┘
- Inside batch   [S01/1] [S01/2] [S01/3 ↻]   Click → one inspector
-                [S01/4] [S01/5] [S02/1]   Double-click → t2i graph
-                [S02/2] [S02/3] [S02/4]
-
- Filmmaker      [Video generation ↗] ──────→ [Video review ✓]
-                            ↓ output
-                ┌ Clip set · one per story shot ───────────────────┐
-                │ [S01 poster / player] [S02 poster / player]      │
-                └─────────────────────────────────────────────────┘
- Inside video   [S01 clip] [S02 clip]       Double-click → i2v graph
+  Header        The Magic begin / Canvas                         Demo · Pipeline / Chat
+  Rail          [All media | Anchors | Images | Video]           Inspector (on selection)
+  Pipeline      ANCHORS                                          S01 · take 1 [×]
+  Canvas ●      [Portrait] → [Sheet]  [Location]                 [landscape preview]
+  Brief         IMAGES                                           [Details | Prompt | Settings | Lineage]
+  Review        [S01 takes 1–5][S02 takes 1–4] — same line      [state / seed / example workflow values]
+  Final                                                          [Open in workflow ↗]
+                VIDEO
+                [S01 waiting] [S02 waiting] [+ New shot · soon]  No approval on one tile
+                [− 100% + Fit]
 ```
 
-- Карточка слота: thumbnail **или** честный placeholder/spinner, короткий shot/key + статус; video с poster/play только при наличии проверенного клипа. Nine-tile board — варианты **двух** shot keys, не девять новых сюжетных кадров; утверждение по-прежнему требует один exact start frame на shot и отдельное human review. На внешнем экране один общий contact sheet непосредственно под generation tool, не три независимые таблицы и не второй исполняемый граф.
+- Карточка текущего standalone Canvas адаптирует ширину по доступному desktop-полю: thumbnail или честный placeholder/spinner, shot/key, статус и подписанные порты. Workflow открывается из инспектора выбранного media, не кнопкой на каждом tile. Девять frame attempts — варианты двух shots, не девять сюжетных кадров. Video без файла не имеет Play. Между независимыми takes нет декоративных проводов; единственная media-зависимость — Portrait → Wardrobe sheet, Location независима.
 - Click/Enter открывает справа **один** выбранный ресурс: крупный media, prompt, seed/settings, exact input refs, lineage. Для будущего video: player + duration/fps и start-image ref; никаких фальшивых клипов. Draft-поля доступны только в разрешённом состоянии; `Regenerate` отправляет версионированную команду через review/tool boundary, а не запускает ComfyUI из браузера. В standalone HTML это только локальная демонстрация состояния.
-- Double-click/Shift+Enter у image/video слота ведёт в его **собственный** provider workflow: Qwen i2i для листа с parent portrait, Krea2 t2i для portrait/location и примеров start-frame, MiniMax i2v для каждого клипа. `Anchor generation` открывает t2i-схему portrait по умолчанию; другие схемы выбираются из конкретного слота. JSON-файлы — API prompt без UI-координат; экран отображает реальный `class_type`, ID и существующие связи, но не выдумывает подтверждённую установку моделей или проведённый рендер. Применимость workflow к точным approved refs проверяется отдельно адаптером.
-- Коннектор верхних стадий имеет стрелку, видимые входной и выходной порты. Линия вниз от generation — **output preview**, не новый исполняемый stage. Левая кнопка выбирает, двойная входит, ПКМ по canvas поднимается к родительскому scope; колесо масштабирует, пустой canvas/средняя кнопка панорамируют. На touch есть breadcrumbs/кнопка закрытия панели, без зависимости от ПКМ.
-- Preview window — один подвижный контейнер: drag за заголовок или пустую поверхность перемещает рамку **вместе** со всеми image/video слотами; drag за заголовок слота двигает только слот. Слоты позиционируются относительно окна, и перемещение не меняет approved refs, порядок shots или исполнение графа. На телефоне окно доступно pan/zoom, не ужимает плитки до микрошрифта.
+- Workflow / double-click / Shift+Enter ведут в собственный provider scope выбранного материала: Qwen i2i для sheet, Krea2 t2i для image-примеров, MiniMax i2v для clips. Breadcrumb возвращает в Canvas с прежним фильтром и viewport. JSON projections — исследовательские примеры, не обещание установленного provider.
+- Нет вложенной рамки preview window. Каждый материал — самостоятельная нода на одном поле. Drag заголовка двигает карточку; пустая поверхность/средняя кнопка панорамируют; колесо масштабирует. Связи показывают только имеющиеся зависимости, например portrait → sheet; между независимыми takes не рисуем вымышленное исполнение.
+- Inspector: компактное preview; по умолчанию Details с табличными state/ID и фактически известным локальным seed, моделью/размером/steps/sampler **примерного API-prompt**, не фактического рендера. Неизвестный seed — `Not recorded`. Prompt / Settings / Lineage сохраняют черновик frame prompt/seed при навигации; Regenerate · mock лишь переводит слот в Queued. Open in workflow доступен без прокрутки desktop-панели, approval остаётся в полном exact review.
 
 ### Txt2img — универсальный Image / Video Canvas
 
 ```text
-Create a crisp 1600x1000 product screenshot of KINODEL's nested generation
-canvas. Quiet near-black graphite #101012, opaque #19191c cards, cool-white
-type, fine dotted blue-gray field, no neon or glowing wires. Top breadcrumb
-Pipeline / Storyboard / Batch generation. A 3-by-3 board of start-frame
-attempts for ONLY TWO shots: S01 takes 1–5 and S02 takes 1–4. Two illustrative
-photo tiles, one pending tile with a small spinner, the rest queued
-placeholders; each has a readable short label, no fabricated progress percent.
-Select S01 take 1: show exactly one larger image and concise editable mock
-prompt/seed/settings in the right inspector, one restrained Regenerate action.
-Each tile can be opened into its own text-to-image workflow. Top-left small
-scope navigation, zoom controls below. Thin arrowed links and small input/output
-ports on workflow cards. The same board component in video mode becomes a
-two-clip canvas: S01 and S02 with poster placeholders, planned duration and
-start-frame references; no fabricated playable video. Calm spacing and legible
-labels, no duplicated media sheet, no approval on a single tile.
+Create a 1600x1000 KINODEL Canvas screenshot: the supplied blue/coral background
+with subtle dots behind individual dark cards, sky selection and coral review.
+Left 84px rail with Canvas selected. One header row: project / scope breadcrumb
+on the left, demo / context / Pipeline–Chat switch on the right. No duplicate
+Canvas heading. Category filters All media / Anchors / Images / Video only.
+Show three unboxed category sections on one surface: 3 Anchors (Portrait → Sheet;
+Location independent), 9 Images (S01 takes 1–5 and S02 takes 1–4 on one
+horizontal row), 2 pending Video slots and disabled New shot. No wires
+between independent takes. No Workflow footer buttons on cards. S01 take 1
+selected with a blue outline. Right 376px inspector: compact contained landscape
+preview, default Details as dense labeled rows (state, known local seed and clearly
+marked example-workflow model/size/sampler/steps), Prompt / Settings / Lineage,
+one Open in workflow action visible without scrolling. Never claim example API
+settings describe the stock image; unknown values say not recorded. No fake video
+or per-tile approval. Bottom-left zoom / fit controls.
 ```
 
 ## 5. Review sheet и детали выбранного фото
@@ -305,8 +298,10 @@ Config не становится редактором frozen prompt. Прось�
 ```text
 Design a close-up 1200x1000 product UI screenshot of KINODEL after an explicit
 “Open review” action. Show a wide focused REVIEW SHEET, not a permanent inspector.
-Neutral graphite #101012, #19191c surfaces, readable white-gray type, minimal
-copy and unclipped media. Header “Anchor set 2”, separate “Request r4”. Three
+Graphite #101012, #171B23 surfaces, readable white type, sky #76B9FF selection,
+blue #366BDC approve action, violet #B6A0FF owner accent, coral #FF998D decision
+badge. Same rail: Pipeline, Canvas, Brief, Review, Final. Minimal copy and unclipped
+media. Header “Anchor set 2”, separate “Request r4”. Three
 candidate images: traveller portrait, clothing sheet, empty coastal location;
 clearly show selection vs approval. One enlarged image for comparison, concise
 exact parent/lineage in a collapsed disclosure. Sticky footer: explicit
@@ -316,6 +311,8 @@ the same contact sheet in another panel; no giant config form, glow or fake stat
 ```
 
 ## 6. Chat — работа без canvas
+
+**Standalone v07:** одна колонка до 920px, тихая полоса этапов, brief без пузыря, свёрнутый Story, одна карточка anchor set. `Production steps` и `Creative decisions` свёрнуты по умолчанию; внутри — иллюстративные шаги и короткое объяснение плана, не скрытый reasoning и не live trace. Материалы открывают общий Canvas inspector, `Review anchor set` — существующие exact review details. Composer адресован Wardrobe / set 2 / r4, различает вопрос и правку; `Save draft` честно сохраняет неотправленное сообщение до reload. Ниже — целевой подключённый сценарий с настоящими approval/send.
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -355,17 +352,22 @@ the same contact sheet in another panel; no giant config form, glow or fake stat
 
 ```text
 Create a high-fidelity 1600x1000 desktop screenshot of KINODEL in Chat mode.
-Use the same neutral graphite #101012 background, #19191c cards, thin gray borders,
-white IBM Plex Sans-like typography and restrained white-gray #E4E4E7 actions as a
-minimal node editor. Top bar has project “The Magic begin” and Pipeline / Chat
-switch with Chat selected. Narrow icon rail on the left. No node canvas in this
-view; no decorative gradient or grain outside the canvas. Center a spacious 800px
+Use graphite #101012, #171B23 cards, #303846 borders, white IBM Plex Sans-like type,
+sky #76B9FF selection, blue #366BDC primary actions, violet #B6A0FF owner labels
+and coral #FF998D review badges. Top bar has project “The Magic begin” and a
+Pipeline / Chat switch with Chat selected. Rail: Pipeline, Canvas, Brief, Review,
+Final; Pipeline owns this alternate process view. No node canvas in this
+view; no decorative gradient or grain outside the canvas. Center a spacious 920px
 conversation column. At the top a compact production step strip, then a short
 user film brief, a collapsed “Story v2 · Approved” item, and exactly one large
-Wardrobe result card containing three prominent cinematic anchor images:
+Wardrobe result card with collapsed “Production steps” and “Creative decisions”
+disclosures (short plan explanation, never a fabricated hidden reasoning trace),
+containing three prominent cinematic anchor images:
 traveller portrait, clothing sheet, empty island coast. Card shows “Anchor set 2”,
-“Request r4”, “View in pipeline” and “Approve anchor set 2”. Bottom composer has
-explicit recipient Wardrobe and Ask / Request changes toggle. Use short labels and
+“Request r4”, “View in pipeline” and one “Review anchor set” action. Bottom composer has
+explicit recipient Wardrobe and Ask / Request changes control. For the offline mock,
+label its action “Save draft” and identify unsent local messages; use Send/Approve
+only for the connected product. Use short labels and
 readable body text, no duplicated overview, imaginary agent responses/avatars,
 colorful bubbles, right inspector, code console, glow or glass.
 ```
