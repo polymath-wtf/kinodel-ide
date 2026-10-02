@@ -9,6 +9,8 @@ From `web/`: `npm ci`, `npm run typecheck`, `npm run build`. For local rebuilds:
 
 Open `http://127.0.0.1:8765/`. Create a test Story with `input_message` and explicit comma-separated `shot_ids`, choose a saved internal execution or reopen `/?execution=<canonical UUID>`. Pipeline and Chat share exact Story versions/reviews, SQL metadata, one lazy body cache and one command state. The fixture badge is intentional: this is deterministic Story foundation, not live cinematic. Question/edit target the current exact request; approval requires the successfully read exact current subject and completes only this fixture, never Wardrobe. Reopening needs no browser storage. Missing build gives a 503 guidance page.
 
+Pipeline is a full-workspace, fixed three-node Story route (two inside Storytell), with no permanent reader or inspector. **Открыть Story / Open review** opens one scrollable native review dialog; Escape/Close restores focus. Chat places the same reader and review in one 840px column. Version, approval and historical states stay visible; exact refs, request identity/budgets, history, stage list and Retry/Cancel are disclosures. Saved runs open separately; a new Story replaces the workspace with an idea-first form and explicit shot names. Drafts, selected version, scope and viewport survive view changes/reload; opening a surface never sends a command.
+
 ## Read boundary and owners
 
 `src/pages/workspace` owns URL/selection/composition; widgets own Pipeline/Chat/details; features own shared Story reading/review drafts; entities own execution schemas/queries; shared owns HTTP/session. No empty layers or registry.
@@ -54,7 +56,7 @@ npm run check:browser
 Remove-Item Env:CAPTURE_SCREENSHOTS, Env:SCREENSHOT_DIR
 ```
 
-Existing output directories, even empty ones, are rejected. Failed capture may leave a partial directory; choose another new path on retry. Files: `{pipeline,chat}/screen-state-desktop.png` (full-page desktop) from a real exact v2 review with commands active, before approval. Inspect both and update ignored `test-results/README.md`; keep Playwright's `test-results/prototype/` separate.
+Existing output directories, even empty ones, are rejected. Failed capture may leave a partial directory; choose another new path on retry. Files: `{empty,new-run,pipeline,chat,chat-review,review}/screen-state-desktop.png` from creation and real exact v2 review with commands active, before approval. Pipeline has its review closed; Chat has history collapsed, with a separate scrolled capture of its inline actions. Inspect each and update ignored `test-results/README.md`; keep Playwright's `test-results/prototype/` separate.
 
 Known baseline advisory: `npm audit` reports one high-severity Vite 8.0.10 dev-server issue (GHSA-fx2h-pf6j-xcff; also GHSA-v6wh-96g9-6wx3). This task preserves the assigned baseline; build/watch + FastAPI does not expose a Vite server. An explicit baseline upgrade is a separate decision.
 

@@ -20,14 +20,13 @@ export function StoryReader({ projection, reader, select }: { projection: Projec
   const currentSubject = !!review && sameRef(selected.ref, review.base_ref);
   return <article className="reader card" aria-label="Story reader" data-subject={selected.ref.artifact_id}>
     <header className="card-header">
-      <div><span className="eyebrow">СОХРАНЁННЫЙ РЕЗУЛЬТАТ</span><h2>{versionLabel(selected)}</h2></div>
+      <div><h2>{versionLabel(selected)}</h2></div>
       <label className="version-picker">Версия<select aria-label="Версия Story" value={selected.ref.artifact_id} onChange={e => select(e.target.value)}>
         {projection.stories.map(s => <option key={s.ref.artifact_id} value={s.ref.artifact_id}>{versionLabel(s)}{s.current ? ' · текущая' : ' · история'}</option>)}
       </select></label>
     </header>
-    <div className="reader-state"><span className={approved ? 'approved' : ''}>{approved ? 'Утверждена · committed outcome' : selected.current ? 'Текущая · не означает approval' : 'Историческая · только чтение'}</span>
-      {currentSubject && <span>Review r{review.revision} · binding r{review.binding_revision}</span>}</div>
-    <ExactRef subject={selected} />
+    <div className="reader-state"><span className={approved ? 'approved' : ''}>{approved ? 'Утверждена' : selected.current ? 'Текущая · не утверждена' : 'Историческая · только чтение'}</span>
+      {currentSubject && <span>Request r{review.revision}</span>}</div>
     {body.isPending && <p role="status">Загружаем exact Story…</p>}
     {body.error && <div className="error" role="alert"><strong>Body недоступен.</strong> {body.error.message}<p>Статус, версии и навигация сохранены. Этот результат нельзя утвердить.</p><button onClick={() => void body.refetch()}>Перечитать body</button></div>}
     {body.data && !body.error && <div className="story-body">
@@ -37,9 +36,10 @@ export function StoryReader({ projection, reader, select }: { projection: Projec
         {body.data.story.shots.map(shot => <section key={shot.shot_id} className="shot"><h3>{shot.shot_id} · {shot.narrative_function}</h3><p>{shot.action}</p><dl><dt>До</dt><dd>{shot.state_before}</dd><dt>После</dt><dd>{shot.state_after}</dd><dt>Subjects</dt><dd>{shot.subject_ids.join(', ') || 'Нет'}</dd></dl></section>)}
       </details>
     </div>}
+    <ExactRef subject={selected} />
   </article>;
 }
 
 export function ExactRef({ subject }: { subject: StoryRef }) {
-  return <details className="exact-ref"><summary>Exact ref · <code>{subject.ref.artifact_id}</code></summary><pre>{JSON.stringify(subject.ref, null, 2)}</pre></details>;
+  return <details className="exact-ref"><summary>Exact ref</summary><pre>{JSON.stringify(subject.ref, null, 2)}</pre></details>;
 }

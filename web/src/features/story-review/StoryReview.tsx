@@ -24,23 +24,23 @@ export function StoryReview({ projection, reader, draft, setDraft, commands, fre
       action, message: action === 'approve' ? null : draft.text,
     });
   };
+  if (!review && !draft.text) return <section className="review card" aria-label="Review и черновик"><p className="muted">{projection.status === 'completed' ? 'Решение сохранено.' : 'Нет активного review.'}</p></section>;
   return <section className="review card" aria-label="Review и черновик">
-    <header className="card-header"><div><span className="eyebrow">HUMAN REVIEW · EXACT SUBJECT</span><h2>{review ? `Storytell · request r${review.revision}` : 'Нет активного review'}</h2></div><span className="review-accent">Ваше решение</span></header>
-    {review ? <><p className="technical">{review.request_id}</p><p className="muted">Subject <code>{review.base_ref.artifact_id}</code> · output v{projection.stories.find(s => sameRef(s.ref, review.base_ref))?.version ?? '?'} · binding r{review.binding_revision}</p>
-      <p className="muted">Осталось: вопросов {projection.remaining_actions.clarify}, правок {projection.remaining_actions.revise}. Разрешено backend: {projection.allowed_actions.join(', ') || 'нет'}.</p></>
-      : <p className="muted">{projection.status === 'completed' ? 'Решение завершило тестовый запуск; следующие cinematic-этапы не запускались.' : 'Черновик не отправляется и не ставится в очередь.'}</p>}
+    <header className="card-header"><h2>{review ? `Обсудить со Storytell · Story v${projection.stories.find(s => sameRef(s.ref, review.base_ref))?.version ?? '?'}` : 'Нет активного review'}</h2>{review && <span className="review-accent">Ваше решение</span>}</header>
+    {review && <details className="review-identity"><summary>Детали review · request r{review.revision}</summary><p className="technical">{review.request_id}</p><pre>{JSON.stringify({ digest: review.digest, base_ref: review.base_ref, binding_revision: review.binding_revision }, null, 2)}</pre>
+      <p className="muted">Осталось: вопросов {projection.remaining_actions.clarify}, правок {projection.remaining_actions.revise}. Разрешено backend: {projection.allowed_actions.join(', ') || 'нет'}.</p></details>}
     <div className="composer-mode" aria-label="Режим черновика">
       <button aria-pressed={draft.mode === 'clarify'} onClick={() => setDraft({ ...draft, mode: 'clarify' })}>Вопрос</button>
       <button aria-pressed={draft.mode === 'revise'} onClick={() => setDraft({ ...draft, mode: 'revise' })}>Правка</button>
     </div>
-    <label className="draft-label">Неприменённый черновик<textarea aria-label="Неприменённый черновик" value={draft.text} maxLength={16384}
+    <label className="draft-label">{draft.mode === 'clarify' ? 'Ваш вопрос' : 'Что изменить?'}<textarea aria-label="Неприменённый черновик" value={draft.text} maxLength={16384}
       placeholder="Вопрос или правка владельцу этой Story" onChange={e => setDraft({ ...draft, text: e.target.value, target: draft.text ? draft.target : draft.target ?? currentTarget })} /></label>
     {draft.target && <details className="draft-target"><summary>Адрес черновика · {staleDraft ? 'старый request, не переназначен' : 'точный request'}</summary><pre>{JSON.stringify(draft.target, null, 2)}</pre></details>}
     {staleDraft && <p className="warning" role="status">{draft.target ? 'Review изменился. Черновик сохранён неприменённым на прежнем request и subject.' : 'Черновик без request: не адресован и не переназначается автоматически.'}</p>}
     {historical && <p className="muted">Открыта историческая версия; composer не меняет предмет текущего review.</p>}
     {!fresh && <p className="warning">Новые действия ждут свежего online-снимка.</p>}
     <div className="review-actions"><button className="primary" disabled={!allowed(draft.mode) || staleDraft || !draft.text.trim()} onClick={() => send(draft.mode)}>Отправить {draft.mode === 'clarify' ? 'вопрос' : 'правку'}</button>
-      <button disabled={!allowed('approve') || !readableSubject} onClick={() => send('approve')}>Утвердить {reader.selected ? versionLabel(reader.selected) : 'Story'}</button>
+      <button className="primary approve-action" disabled={!allowed('approve') || !readableSubject} onClick={() => send('approve')}>Утвердить {reader.selected ? versionLabel(reader.selected) : 'Story'}</button>
       {draft.text && <button onClick={() => setDraft({ ...emptyDraft, mode: draft.mode })}>Очистить черновик</button>}</div>
   </section>;
 }

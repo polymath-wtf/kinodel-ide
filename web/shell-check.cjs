@@ -111,7 +111,7 @@ async function bounded(promise, milliseconds, message) {
         }
         return failures;
       }), [], `${name}: viewport bounds`);
-      await page.getByRole('heading', { name: width < 768 ? 'Chat' : 'Pipeline', exact: true }).waitFor();
+      assert.equal(await page.getByRole('button', { name: width < 768 ? 'Chat' : 'Pipeline', exact: true }).first().getAttribute('aria-pressed'), 'true');
       await bounds();
       const api = path => page.request.get(`${origin}${path}`).then(r => r.status());
       assert.equal(await api('/api/executions'), 200); // The connected UI bootstraps the session.
@@ -126,7 +126,6 @@ async function bounded(promise, milliseconds, message) {
         assert.equal(await focused.innerText(), view);
         assert.ok(await focused.evaluate(element => getComputedStyle(element).outlineStyle === 'solid' && parseFloat(getComputedStyle(element).outlineWidth) >= 2), 'visible keyboard focus');
         await page.keyboard.press(index % 2 ? 'Space' : 'Enter');
-        await page.getByRole('heading', { name: view, exact: true }).waitFor();
         assert.equal(await focused.innerText(), view, 'focus retained after view switch');
         assert.ok(await focused.evaluate((element, index) => element.closest(index < 2 ? '.view-switch' : '.rail') !== null, index), 'focus stays on the expected navigation surface');
         await bounds();

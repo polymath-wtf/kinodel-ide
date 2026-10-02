@@ -54,14 +54,43 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
     });
   };
   audit(page);
-  const switchView = async view => page.locator('.view-switch').getByRole('button', { name: view, exact: true }).click();
+  const openStory = async (target = page) => {
+    await target.locator('.execution').waitFor();
+    if (await target.locator('.workspace').getAttribute('data-view') === 'chat') {
+      await target.getByRole('article', { name: 'Story reader' }).waitFor();
+      return;
+    }
+    if (!(await target.getByRole('article', { name: 'Story reader' }).isVisible())) {
+      await target.getByRole('button', { name: 'Открыть Story', exact: true }).click();
+    }
+  };
+  const closeStory = async () => { if (await page.getByRole('dialog').isVisible()) await page.keyboard.press('Escape'); };
+  const runMenu = async (target = page) => {
+    const root = await target.getByRole('dialog').isVisible() ? target.getByRole('dialog') : target.locator('.execution');
+    const menu = root.locator('.run-controls');
+    if (await menu.getAttribute('open') === null) await menu.locator('summary').click();
+  };
+  const switchView = async view => {
+    if (await page.getByRole('dialog').isVisible()) await page.keyboard.press('Escape');
+    await page.locator('.view-switch').getByRole('button', { name: view, exact: true }).click();
+  };
   const subject = async () => page.getByRole('article', { name: 'Story reader' }).getAttribute('data-subject');
   const selectVersion = async value => page.getByLabel('Версия Story', { exact: true }).selectOption(value);
   try {
     await page.goto(origin);
+    await expect(page.locator('.empty-state').getByRole('button', { name: 'Новая тестовая Story', exact: true })).toBeVisible();
+    if (folder) {
+      await page.getByText('Откройте сохранённый запуск или начните новую Story.').waitFor();
+      mkdirSync(join(folder, 'empty'));
+      await page.screenshot({ path: join(folder, 'empty', 'screen-state-desktop.png') });
+    }
     await page.getByRole('button', { name: 'Новая тестовая Story', exact: true }).click();
     await page.getByLabel('input_message', { exact: true }).fill(message);
     await page.getByLabel('shot_ids', { exact: true }).fill('s1, s2');
+    if (folder) {
+      mkdirSync(join(folder, 'new-run'));
+      await page.screenshot({ path: join(folder, 'new-run', 'screen-state-desktop.png') });
+    }
     const starts = [];
     let lostStart = false;
     await page.route('**/api/executions/internal-story', async route => {
@@ -75,16 +104,26 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
     await expect(page.getByRole('region', { name: 'Доставка команд' })).toContainText('Ответ доставки потерян');
     assert.equal(new URL(page.url()).searchParams.get('execution'), null, 'start opens only from receipt');
     await page.reload();
+    await expect(page.locator('.execution')).toBeVisible();
+    await expect(page.getByRole('article', { name: 'Story reader' })).toHaveCount(0);
+    await expect(page.getByRole('region', { name: 'Review и черновик' })).toHaveCount(0);
+    assert.ok((await page.locator('.flow-canvas').boundingBox()).height > 500, 'Pipeline owns the desktop workspace');
+    await page.locator('.react-flow__node[data-id="pipeline-0"]').click({ position: { x: 8, y: 8 } });
+    await expect(page.getByRole('dialog')).toHaveCount(0); // Selection never opens inspection.
+    await openStory();
     await expect(page.locator('.story-body')).toContainText(message);
     assert.equal(starts.length, 2); assert.equal(starts[0], starts[1], 'lost start replays exact envelope');
     await page.unroute('**/api/executions/internal-story');
     p = await waitProjection(id, p => p.review); v1 = p.stories[0];
     assert.equal((await (await harness.get('/api/executions?limit=100')).json()).items.filter(x => x.input_preview === message).length, 1);
     assert.equal(new URL(page.url()).searchParams.get('execution'), id);
+    await expect(page.locator('.project-name')).toHaveText(message);
     assert.equal(await subject(), v1.ref.artifact_id);
     await page.reload();
     await expect(page.locator('.execution')).toHaveAttribute('data-execution', id);
+    await openStory();
     await expect(page.locator('.story-body')).toContainText(message);
+    await closeStory();
     await page.getByRole('button', { name: 'Сохранённые запуски', exact: false }).click();
     await page.getByRole('button', { name: /Другой запуск/ }).click();
     await expect(page.locator('.execution')).toHaveAttribute('data-execution', second);
@@ -100,6 +139,7 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
     await page.locator('.react-flow__controls-zoomin').click();
     await page.mouse.move(1020, 450); await page.mouse.down(); await page.mouse.move(980, 425); await page.mouse.up();
     const viewport = await page.locator('.react-flow__viewport').getAttribute('style');
+    await openStory();
     await page.getByLabel('Неприменённый черновик', { exact: true }).fill('Почему герой идёт домой?');
     await switchView('Chat');
     assert.equal(await subject(), v1.ref.artifact_id);
@@ -110,7 +150,9 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
     await page.reload();
     await expect(page.locator('.pipeline-content')).toHaveAttribute('data-scope', 'storytell');
     await expect(page.locator('.react-flow__viewport')).toHaveAttribute('style', viewport);
+    await openStory();
     await expect(page.getByLabel('Неприменённый черновик', { exact: true })).toHaveValue('Почему герой идёт домой?');
+    await closeStory();
     await page.getByRole('button', { name: '← Back · Pipeline', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Storytell · Open inside', exact: true })).toBeFocused();
     await expect(page.locator('.react-flow__node.selected')).toHaveAttribute('data-id', 'pipeline-1');
@@ -125,6 +167,12 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
     await expect(page.getByRole('dialog')).toContainText(p.graph.id);
     await page.keyboard.press('Escape');
     await expect(details).toBeFocused();
+    await openStory();
+    await page.keyboard.press('Tab');
+    assert.equal(await page.locator(':focus').evaluate(e => !!e.closest('dialog')), true, 'review focus stays inside native sheet');
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('button', { name: 'Открыть Story', exact: true })).toBeFocused();
+    await openStory();
     // Lose the response AFTER durable acceptance, even after a new review exists.
     await page.getByLabel('Неприменённый черновик', { exact: true }).focus();
     const responses = []; let lostRespond = false;
@@ -140,6 +188,7 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
     p = await waitProjection(id, next => next.review && next.review.request_id !== p.review.request_id);
     await restart(); await bootstrap();
     await page.reload();
+    await openStory();
     await expect(page.getByRole('region', { name: 'Доставка команд' })).toContainText('Receipt: команда принята');
     assert.equal(responses.length, 2); assert.equal(responses[0], responses[1]);
     assert.equal(JSON.parse(responses[0]).expected_revision, 1, 'binding revision, not request revision');
@@ -150,6 +199,7 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
     assert.equal(p.review.subject_artifact_id, v1.ref.artifact_id);
     await expect(page.getByText('Review изменился.', { exact: false })).toBeVisible({ timeout: 10000 });
     await expect(page.getByLabel('Неприменённый черновик', { exact: true })).toHaveValue('Почему герой идёт домой?');
+    await closeStory();
     await expect(page.locator('.react-flow__viewport')).toHaveAttribute('style', viewport);
     await switchView('Chat');
     await page.locator('.history-details > summary').click();
@@ -167,25 +217,39 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
     await selectVersion(v1.ref.artifact_id);
     await expect(page.locator('.story-body')).toContainText(message);
     await switchView('Pipeline');
+    await openStory();
     assert.equal(await subject(), v1.ref.artifact_id);
     await expect(page.locator('.reader-state')).toContainText('Историческая');
     await expect(page.getByRole('button', { name: 'Утвердить Story v1', exact: true })).toBeDisabled();
+    await closeStory();
     await expect(page.locator('.react-flow__viewport')).toHaveAttribute('style', viewport);
-    await selectVersion(v2.ref.artifact_id);
+    await openStory();
+    await page.getByRole('button', { name: 'К текущей Story', exact: true }).click();
+    assert.equal(await subject(), v2.ref.artifact_id);
     await page.getByRole('button', { name: 'Очистить черновик', exact: true }).click();
     if (folder) {
-      await page.locator('.react-flow__controls-fitview').click();
+      mkdirSync(join(folder, 'review'));
+      await page.screenshot({ path: join(folder, 'review', 'screen-state-desktop.png') });
+      await closeStory();
+      await page.getByRole('button', { name: '← Back · Pipeline', exact: true }).click();
+      await page.locator('.stage-disclosure > summary').click();
       await page.evaluate(() => scrollTo(0, 0)); mkdirSync(join(folder, 'pipeline'));
       await page.screenshot({ path: join(folder, 'pipeline', 'screen-state-desktop.png'), fullPage: true });
       await switchView('Chat');
+      await page.locator('.history-details').evaluate(e => { e.open = false; });
       await page.evaluate(() => scrollTo(0, 0)); mkdirSync(join(folder, 'chat'));
       await page.screenshot({ path: join(folder, 'chat', 'screen-state-desktop.png'), fullPage: true });
+      await page.getByRole('button', { name: 'Утвердить Story v2', exact: true }).scrollIntoViewIfNeeded();
+      mkdirSync(join(folder, 'chat-review'));
+      await page.screenshot({ path: join(folder, 'chat-review', 'screen-state-desktop.png') });
       await switchView('Pipeline');
+      await openStory();
     }
     const conflict = await page.context().newPage(); audit(conflict);
     const staleSnapshot = structuredClone(p);
     await conflict.route(`**/api/executions/${id}/projection`, route => route.fulfill({ json: staleSnapshot }));
     await conflict.goto(`${origin}/?execution=${id}`);
+    await openStory(conflict);
     await expect(conflict.locator('.story-body')).toContainText('Лис видит свет');
     await conflict.getByLabel('Неприменённый черновик', { exact: true }).fill('Черновик второй вкладки');
     await page.bringToFront();
@@ -194,10 +258,12 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
     await expect(page.locator('.status')).toHaveText('Завершён', { timeout: 10000 });
     await expect(page.locator('.reader-state')).toContainText('Утверждена');
     await expect(page.getByRole('region', { name: 'Review и черновик', exact: true })).not.toContainText('Открыта историческая версия');
+    await expect(page.getByLabel('Неприменённый черновик', { exact: true })).toHaveCount(0); // No empty, disabled task after approval.
     await conflict.getByRole('button', { name: 'Отправить вопрос', exact: true }).click();
     await expect(conflict.getByRole('region', { name: 'Доставка команд' })).toContainText('409');
     await expect(conflict.getByLabel('Неприменённый черновик', { exact: true })).toHaveValue('Черновик второй вкладки');
     await conflict.unroute(`**/api/executions/${id}/projection`); await conflict.reload();
+    await openStory(conflict);
     await expect(conflict.getByText('Review изменился.', { exact: false })).toBeVisible();
     await expect(conflict.getByLabel('Неприменённый черновик', { exact: true })).toHaveValue('Черновик второй вкладки');
     await conflict.close();
@@ -209,6 +275,7 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
     const bytes = readFileSync(file); unlinkSync(file);
     try {
       await page.reload();
+      await openStory();
       await expect(page.locator('.story-body')).toContainText('Лис видит свет');
       await selectVersion(v1.ref.artifact_id);
       await expect(page.locator('.reader .error')).toContainText('Body недоступен');
@@ -276,6 +343,7 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
     const blocked = await waitProjection(retryId, p => p.status === 'blocked');
     const work = blocked.work.find(w => w.blocked_reason === 'owner_unavailable');
     await page.goto(`${origin}/?execution=${retryId}`);
+    await runMenu();
     let retryPayload;
     const retryRequest = page.waitForRequest(r => r.method() === 'POST' && r.url().endsWith(`/${retryId}/retry`));
     await page.getByRole('button', { name: 'Retry · повторить work', exact: true }).click();
@@ -283,6 +351,7 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
     assert.equal(retryPayload.work_id, work.work_id); assert.equal(retryPayload.expected_version, work.work_version);
     const retryReady = await waitProjection(retryId, p => p.review);
     assert.equal(retryReady.stories.length, 1); assert.equal(retryReady.work.filter(w => w.kind === 'start').length, 1);
+    await openStory();
     await expect(page.locator('.story-body')).toContainText('harness:retry');
     await page.getByRole('button', { name: 'Правка', exact: true }).click();
     await page.getByLabel('Неприменённый черновик', { exact: true }).fill('harness:slow');
@@ -295,6 +364,7 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
       cancels.push(route.request().postData()); const response = await route.fetch(); assert.equal(response.status(), 202);
       if (!lostCancel) { lostCancel = true; await route.abort('failed'); } else await route.fulfill({ response });
     });
+    await runMenu();
     await page.getByRole('button', { name: 'Cancel · отменить запуск', exact: true }).click();
     await expect(page.getByRole('region', { name: 'Доставка команд' })).toContainText('Ответ доставки потерян');
     await expect(page.locator('.status')).toHaveText('Отменяется');
@@ -313,17 +383,20 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
       budget = await waitProjection(second, p => p.review && p.review.request_id !== requestId);
     }
     await page.goto(`${origin}/?execution=${second}`);
+    await openStory();
     await expect(page.locator('.story-body')).toContainText('Другой запуск');
     const currentRef = budget.stories.find(s => s.current).ref;
     const currentFile = join(data, 'projects', currentRef.project_id, 'artifacts', `${currentRef.artifact_id}.${currentRef.digest.slice(7)}.json`);
     const currentBytes = readFileSync(currentFile); unlinkSync(currentFile);
     try {
       await page.reload();
+      await openStory();
       await expect(page.locator('.reader .error')).toContainText('Body недоступен');
       await expect(page.getByRole('button', { name: 'Утвердить Story v1', exact: true })).toBeDisabled();
+      await runMenu();
       await expect(page.getByRole('button', { name: 'Cancel · отменить запуск', exact: true })).toBeEnabled();
     } finally { writeFileSync(currentFile, currentBytes, { flag: 'wx' }); }
-    await page.reload(); await expect(page.locator('.story-body')).toContainText('Другой запуск');
+    await page.reload(); await openStory(); await expect(page.locator('.story-body')).toContainText('Другой запуск');
     await page.getByLabel('Неприменённый черновик', { exact: true }).fill('Сохранить после 422');
     await expect(page.getByRole('button', { name: 'Отправить вопрос', exact: true })).toBeDisabled();
     await page.getByRole('button', { name: 'Правка', exact: true }).click();
@@ -331,9 +404,11 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
     await page.getByRole('button', { name: 'Отправить правку', exact: true }).click();
     await expect(page.getByRole('region', { name: 'Доставка команд' })).toContainText('422');
     await page.reload();
+    await openStory();
     await expect(page.getByLabel('Неприменённый черновик', { exact: true })).toHaveValue('Сохранить после 422');
     await page.unroute(`**/api/executions/${second}/reviews/*/respond`);
     await page.context().setOffline(true);
+    await runMenu();
     await expect(page.getByRole('button', { name: 'Cancel · отменить запуск', exact: true })).toBeDisabled();
     await expect(page.getByRole('button', { name: 'Отправить правку', exact: true })).toBeDisabled();
     await page.context().setOffline(false);
@@ -349,9 +424,12 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
     const beforeReopen = mutations.length;
     await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); });
     await page.goto(origin);
+    await page.getByRole('button', { name: 'Сохранённые запуски', exact: true }).click();
     await page.getByRole('button', { name: new RegExp(message) }).click();
+    await openStory();
     await expect(page.locator('.reader-state')).toContainText('Утверждена');
     await page.reload();
+    await openStory();
     await expect(page.locator('.reader-state')).toContainText('Утверждена');
     assert.equal(mutations.length, beforeReopen, 'storage-loss list/navigation/refetch do not POST');
     const mobile = await browser.newPage({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' }); audit(mobile);
@@ -360,7 +438,7 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
         for (const key of ['localStorage', 'sessionStorage']) Object.defineProperty(window, key, { get() { throw new Error('Browser storage intentionally unavailable'); } });
       });
       await mobile.goto(`${origin}/?execution=${id}`);
-      await expect(mobile.getByRole('heading', { name: 'Chat', exact: true })).toBeVisible();
+      await expect(mobile.locator('.workspace')).toHaveAttribute('data-view', 'chat');
       await expect(mobile.locator('.story-body')).toContainText('Лис видит свет');
       await expect(mobile.locator('.delivery-status')).toContainText('Browser storage недоступен');
       assert.equal(await mobile.locator('.react-flow').count(), 0, 'Chat is readable without canvas');
@@ -377,7 +455,63 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
         }
         return errors;
       }), [], 'mobile geometry/touch targets');
+      await mobile.locator('.view-switch').getByRole('button', { name: 'Pipeline', exact: true }).click();
+      await expect(mobile.locator('.flow-canvas')).toBeVisible();
+      await openStory(mobile);
+      await expect(mobile.getByRole('dialog')).toBeVisible();
+      await expect(mobile.locator('.story-body')).toContainText('Лис видит свет');
+      await mobile.keyboard.press('Tab');
+      assert.equal(await mobile.locator(':focus').evaluate(e => !!e.closest('dialog')), true, 'mobile review focus stays inside');
+      assert.equal(await mobile.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'mobile review does not overflow');
+      await mobile.keyboard.press('Escape');
+      await expect(mobile.getByRole('button', { name: 'Открыть Story', exact: true })).toBeFocused();
+      await mobile.locator('.stage-disclosure > summary').click();
+      await mobile.getByRole('button', { name: 'Storytell · Open inside', exact: true }).click();
+      await expect(mobile.getByRole('button', { name: '← Back · Pipeline', exact: true })).toBeFocused();
     } finally { await mobile.close(); }
+    const draftStorage = await browser.newPage({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' }); audit(draftStorage);
+    try {
+      await draftStorage.goto(`${origin}/?execution=${second}`);
+      await openStory(draftStorage);
+      const dialog = draftStorage.getByRole('dialog');
+      const draft = dialog.getByLabel('Неприменённый черновик', { exact: true });
+      await dialog.getByRole('button', { name: 'Правка', exact: true }).click();
+      await draft.fill('До отказа sessionStorage');
+      await expect(dialog.getByRole('button', { name: 'Отправить правку', exact: true })).toBeEnabled();
+      await expect(dialog.getByRole('button', { name: 'Утвердить Story v1', exact: true })).toBeEnabled();
+      const beforeDraftStorageFailure = mutations.length;
+      await draftStorage.evaluate(() => {
+        const setItem = Storage.prototype.setItem;
+        Storage.prototype.setItem = function (...args) {
+          if (this === window.sessionStorage) throw new DOMException('draft quota', 'QuotaExceededError');
+          return setItem.apply(this, args);
+        };
+        localStorage.setItem('draft-storage-check', 'healthy');
+        if (localStorage.getItem('draft-storage-check') !== 'healthy') throw new Error('localStorage must remain healthy');
+        localStorage.removeItem('draft-storage-check');
+      });
+      await draft.fill('Этот текст сохранён в открытом review после отказа sessionStorage.');
+      await expect(dialog.getByRole('alert')).toContainText('Browser storage черновиков недоступен');
+      await expect(dialog.getByRole('alert')).toBeVisible();
+      await expect(draft).toHaveValue('Этот текст сохранён в открытом review после отказа sessionStorage.');
+      await expect(dialog.getByRole('button', { name: 'Отправить правку', exact: true })).toBeDisabled();
+      await expect(dialog.getByRole('button', { name: 'Утвердить Story v1', exact: true })).toBeDisabled();
+      await runMenu(draftStorage);
+      await expect(dialog.getByRole('button', { name: 'Cancel · отменить запуск', exact: true })).toBeDisabled();
+      await dialog.locator('.run-controls > summary').click();
+      assert.equal(mutations.length, beforeDraftStorageFailure, 'sessionStorage draft failure never POSTs despite healthy localStorage');
+      if (folder) {
+        await dialog.locator('.sheet-body').evaluate(e => { e.scrollTop = 0; });
+        mkdirSync(join(folder, 'review-storage-error'));
+        await draftStorage.screenshot({ path: join(folder, 'review-storage-error', 'screen-state-desktop.png') });
+      }
+      await draftStorage.keyboard.press('Escape');
+      await expect(draftStorage.getByRole('alert')).toContainText('Browser storage черновиков недоступен');
+    } finally { await draftStorage.close(); }
+    await page.route('**/api/executions?limit=20', route => route.fulfill({ status: 409, json: { detail: 'Harness list unavailable' } }));
+    await page.goto(origin);
+    await expect(page.getByRole('alert')).toContainText('Harness list unavailable'); // A closed list must not hide its read failure.
+    await page.unroute('**/api/executions?limit=20');
     assert.deepEqual(errors, [], 'no unexplained console/page errors');
     assert.equal(mutations.length, 12, 'exactly the requested browser commands/replays, no navigation POSTs');
     assert.deepEqual(foreign, [], 'local assets/API only');
