@@ -48,7 +48,7 @@
       "description": "Implements bounded coding tasks spanning related components or requiring substantial investigation and verification.",
       "mode": "subagent",
       "model": "openai/gpt-6.1-sol",
-      "variant": "high",
+      "variant": "xhigh",
       "permission": {
         "edit": "allow",
         "bash": {

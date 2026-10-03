@@ -54,6 +54,23 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
     });
   };
   audit(page);
+  const settledViewport = async target => expect.poll(() => target.evaluate(() => {
+    const cache = JSON.parse(sessionStorage.getItem('kinodel.workspace.v1'));
+    const id = new URL(location.href).searchParams.get('execution');
+    const ui = id ? cache?.states[id] : cache?.overview;
+    const scope = document.querySelector('.pipeline-content')?.dataset.scope;
+    const saved = ui?.viewports[scope];
+    const m = new DOMMatrixReadOnly(getComputedStyle(document.querySelector('.react-flow__viewport')).transform);
+    return !!saved && Math.abs(saved.x - m.m41) < 0.001 && Math.abs(saved.y - m.m42) < 0.001 && Math.abs(saved.zoom - m.m11) < 0.001;
+  })).toBe(true);
+  const openNode = async (target, selector) => {
+    await target.evaluate(() => new Promise(requestAnimationFrame)); // Let Back's parent focus return finish before the next keyboard action.
+    const action = target.locator(`${selector} button`);
+    await target.keyboard.press('Tab'); // Real keyboard modality enables Flow's offscreen-node auto-pan.
+    await target.locator('.react-flow__node').filter({ has: action }).focus();
+    await action.focus(); await target.keyboard.press('Enter');
+  };
+  const readerScopes = new WeakMap();
   const openStory = async (target = page) => {
     await target.locator('.execution').waitFor();
     if (await target.locator('.workspace').getAttribute('data-view') === 'chat') {
@@ -61,17 +78,30 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
       return;
     }
     if (!(await target.getByRole('article', { name: 'Story reader' }).isVisible())) {
-      await target.getByRole('button', { name: 'Открыть Story', exact: true }).click();
+      const scope = await target.locator('.pipeline-content').getAttribute('data-scope');
+      readerScopes.set(target, scope);
+      if (scope !== 'storytell') {
+        if (scope !== 'pipeline') await target.getByRole('navigation', { name: 'Scope', exact: true }).getByRole('button', { name: 'Cinematic', exact: true }).click();
+        await openNode(target, '.flow-stage[data-group="storytell"]');
+      }
+      await openNode(target, '.flow-stage[data-stage="story-hitl"]');
     }
   };
-  const closeStory = async () => { if (await page.getByRole('dialog').isVisible()) await page.keyboard.press('Escape'); };
+  const closeStory = async (target = page) => {
+    if (await target.getByRole('dialog').isVisible()) await target.keyboard.press('Escape');
+    const previous = readerScopes.get(target); readerScopes.delete(target);
+    if (previous && previous !== 'storytell' && await target.locator('.pipeline-content').isVisible()) {
+      await target.locator('.scope-back').click();
+      if (previous !== 'pipeline') await openNode(target, `.flow-stage[data-group="${previous}"]`);
+    }
+  };
   const runMenu = async (target = page) => {
     const root = await target.getByRole('dialog').isVisible() ? target.getByRole('dialog') : target.locator('.execution');
     const menu = root.locator('.run-controls');
     if (await menu.getAttribute('open') === null) await menu.locator('summary').click();
   };
   const switchView = async view => {
-    if (await page.getByRole('dialog').isVisible()) await page.keyboard.press('Escape');
+    if (await page.getByRole('dialog').isVisible()) await closeStory();
     await page.locator('.view-switch').getByRole('button', { name: view, exact: true }).click();
   };
   const subject = async () => page.getByRole('article', { name: 'Story reader' }).getAttribute('data-subject');
@@ -79,6 +109,138 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
   try {
     await page.goto(origin);
     await expect(page.locator('.empty-state').getByRole('button', { name: 'Новая тестовая Story', exact: true })).toBeVisible();
+    // 6F: the declared cinematic route is inspectable before any execution exists.
+    await expect(page.locator('.pipeline-content')).toHaveAttribute('data-scope', 'pipeline');
+    await expect(page.locator('.react-flow__node')).toHaveCount(7);
+    assert.deepEqual(await page.locator('.flow-stage h2').allTextContents(), ['Brief', 'Storytell', 'Wardrobe', 'Storyboard', 'Filmmaker', 'Montage', 'Final']);
+    // Observe during a real mouse gesture, not just the final released screenshot.
+    const originalTransform = await page.locator('.react-flow__viewport').getAttribute('style');
+    await page.evaluate(() => {
+      const root = document.querySelector('.react-flow');
+      const originalNodes = [...root.querySelectorAll('.react-flow__node')];
+      const evidence = window.__panEvidence = { frames: [], mutations: [], writes: 0, done: false };
+      const setItem = Storage.prototype.setItem;
+      Storage.prototype.setItem = function (...args) { if (this === sessionStorage && args[0] === 'kinodel.workspace.v1') evidence.writes++; return setItem.apply(this, args); };
+      const observer = new MutationObserver(records => {
+        for (const r of records) if (r.type === 'attributes') evidence.mutations.push([r.target.className, r.oldValue, r.target.getAttribute('style')]);
+      });
+      observer.observe(root, { subtree: true, attributes: true, attributeFilter: ['style'], attributeOldValue: true });
+      const frame = () => {
+        evidence.frames.push({ transform: root.querySelector('.react-flow__viewport').getAttribute('style'), edges: root.querySelectorAll('.react-flow__edge-path').length, nodes: originalNodes.map(node => ({ connected: node.isConnected, visibility: getComputedStyle(node).visibility, opacity: getComputedStyle(node).opacity, display: getComputedStyle(node).display })) });
+        if (!evidence.done) requestAnimationFrame(frame); else { observer.disconnect(); Storage.prototype.setItem = setItem; }
+      };
+      requestAnimationFrame(frame);
+    });
+    const canvas = await page.locator('.flow-canvas').boundingBox();
+    await page.mouse.move(canvas.x + 500, canvas.y + 40); await page.mouse.down();
+    for (let i = 1; i <= 24; i++) { await page.mouse.move(canvas.x + 500 + i * 3, canvas.y + 40 + i); await page.evaluate(() => new Promise(requestAnimationFrame)); }
+    await page.evaluate(() => new Promise(resolve => { let count = 0; const held = () => ++count < 5 ? requestAnimationFrame(held) : resolve(); requestAnimationFrame(held); }));
+    const heldWrites = await page.evaluate(() => window.__panEvidence.writes);
+    await page.mouse.up();
+    await expect.poll(() => page.evaluate(() => window.__panEvidence.writes)).toBe(1);
+    const pan = await page.evaluate(async () => { window.__panEvidence.done = true; await new Promise(requestAnimationFrame); return window.__panEvidence; });
+    console.log('PAN evidence', JSON.stringify({ frames: pan.frames.length, transforms: new Set(pan.frames.map(f => f.transform)).size, heldWrites, writes: pan.writes, edgeCounts: [...new Set(pan.frames.map(f => f.edges))], hiddenFrames: pan.frames.filter(f => f.nodes.some(n => !n.connected || n.visibility !== 'visible' || n.opacity !== '1' || n.display === 'none')), nodeMutations: pan.mutations.filter(([name]) => String(name).includes('react-flow__node')).slice(0, 12) }));
+    assert.ok(pan.frames.some(f => f.transform !== originalTransform), 'real viewport movement observed');
+    assert.ok(pan.frames.every(f => f.nodes.every(n => n.connected && n.visibility === 'visible' && n.opacity === '1' && n.display !== 'none')), 'nodes stay painted throughout pan and mouse hold');
+    assert.ok(pan.frames.every(f => f.edges === 6), 'all six connectors stay painted on every pan/held frame');
+    assert.equal(heldWrites, 0, 'no UI storage writes during pointer movement/hold');
+    assert.equal(pan.writes, 1, 'pan persists once at gesture end, not on every pointer update');
+    await page.mouse.move(canvas.x + 572, canvas.y + 64); await page.mouse.down(); await page.mouse.move(canvas.x + 500, canvas.y + 40, { steps: 12 }); await page.mouse.up();
+    await settledViewport(page);
+    await expect(page.locator('.stage-disclosure, .stage-list, .story-shortcut')).toHaveCount(0);
+    await expect(page.getByText('Список этапов', { exact: true })).toHaveCount(0);
+    const blankBack = async (target = page) => target.locator('.react-flow__pane').click({ button: 'right', position: { x: 60, y: 35 } });
+    const rootViewport = await page.locator('.react-flow__viewport').getAttribute('style');
+    await blankBack();
+    await expect(page.locator('.pipeline-content')).toHaveAttribute('data-scope', 'pipeline');
+    await expect(page.locator('.react-flow__viewport')).toHaveAttribute('style', rootViewport);
+    assert.deepEqual(await page.locator('.flow-stage').evaluateAll(nodes => nodes.flatMap(node => {
+      const r = node.getBoundingClientRect();
+      return r.width < 165 || r.width > 175 || r.left < 84 || r.right > 1440 ? [node.textContent] : [];
+    })), [], 'seven readable desktop cards, no microtype or clipping');
+    const capture = async name => {
+      if (folder) { mkdirSync(join(folder, name)); await page.screenshot({ path: join(folder, name, 'screen-state-desktop.png') }); }
+    };
+    await capture('overview');
+    for (const [group, stages] of Object.entries({ storytell: ['storytell', 'story-hitl'], wardrobe: ['wardrobe', 'anchor-gen', 'anchor-hitl'], storyboard: ['storyboard', 'frames-gen', 'frames-hitl'], filmmaker: ['filmmaker', 'video-gen', 'video-hitl'], montage: ['montage', 'view:montage-output'] })) {
+      await page.locator(`.flow-stage[data-group="${group}"] button`).focus(); await page.keyboard.press('Enter');
+      await expect(page.locator('.pipeline-content')).toHaveAttribute('data-scope', group);
+      assert.deepEqual(await page.locator('.flow-stage').evaluateAll(nodes => nodes.map(n => n.dataset.stage)), stages);
+      await expect(page.locator('.scope-back')).toBeFocused();
+      for (const selector of ['.flow-stage', '.flow-stage p', '.flow-stage button']) {
+        await page.locator(selector).first().click({ button: 'right' });
+        await expect(page.locator('.pipeline-content')).toHaveAttribute('data-scope', 'pipeline');
+        await page.locator(`.flow-stage[data-group="${group}"] button`).click();
+        await expect(page.locator('.pipeline-content')).toHaveAttribute('data-scope', group);
+      }
+      for (const selector of ['.react-flow__controls-zoomin', '.scope-toolbar']) {
+        await page.locator(selector).first().click({ button: 'right' });
+        await expect(page.locator('.pipeline-content')).toHaveAttribute('data-scope', group);
+      }
+      const edgePoint = await page.locator('.react-flow__edge-interaction').first().evaluate(edge => {
+        const p = edge.getPointAtLength(edge.getTotalLength() / 2);
+        const point = new DOMPoint(p.x, p.y).matrixTransform(edge.getScreenCTM());
+        return { x: point.x, y: point.y };
+      });
+      assert.ok(await page.evaluate(p => !!document.elementFromPoint(p.x, p.y)?.closest('.react-flow__edge'), edgePoint), 'context event really targets an edge');
+      await page.mouse.click(edgePoint.x, edgePoint.y, { button: 'right' });
+      await expect(page.locator('.pipeline-content')).toHaveAttribute('data-scope', group);
+      await capture(`stage-${group}`);
+      await page.locator('.react-flow__controls-zoomin').click();
+      await settledViewport(page);
+      const transform = await page.locator('.react-flow__viewport').getAttribute('style');
+      await page.reload();
+      await expect(page.locator('.pipeline-content')).toHaveAttribute('data-scope', group);
+      await expect(page.locator('.react-flow__viewport')).toHaveAttribute('style', transform);
+      // Agent/tool inspections declare contracts, never model guesses or fictional jobs.
+      await page.locator('.flow-stage button').first().click();
+      await expect(page.getByRole('dialog')).toContainText('Объявленный контракт');
+      await page.locator('.inspection-content').click({ button: 'right' });
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      await expect(page.locator('.pipeline-content')).toHaveAttribute('data-scope', group);
+      await expect(page.locator('.flow-stage button').first()).toBeFocused();
+      await page.keyboard.press('Enter');
+      await expect(page.getByRole('dialog')).toBeVisible();
+      await page.mouse.click(20, 150, { button: 'right' }); // Native dialog backdrop.
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      await expect(page.locator('.pipeline-content')).toHaveAttribute('data-scope', group);
+      await page.locator('.flow-stage button').first().click();
+      if (group === 'storytell') await capture('agent-inspection');
+      for (const tab of ['Config', 'Inputs', 'Outputs']) {
+        await page.getByRole('button', { name: tab, exact: true }).click();
+        await expect(page.locator('.inspection-content')).not.toBeEmpty();
+      }
+      if (group === 'wardrobe') {
+        await page.keyboard.press('Escape');
+        await page.locator('.flow-stage[data-stage="anchor-gen"] button').click();
+        await expect(page.getByRole('dialog')).toContainText('Workflow details unavailable');
+        await capture('tool-inspection');
+      } else if (group === 'storytell') {
+        await page.getByRole('button', { name: 'Config', exact: true }).click();
+        await page.getByRole('button', { name: 'Открыть internal LangGraph', exact: true }).click();
+        await expect(page.locator('.pipeline-content')).toHaveAttribute('data-scope', 'storytell:graph');
+        await expect(page.locator('.scope-note')).toContainText('kinodel.internal-story');
+        assert.deepEqual(await page.locator('.flow-stage h2').allTextContents(), ['START', 'storytell', 'story_prepare_review', 'story_wait', 'story_apply', 'END']);
+        await capture('internal-graph');
+        await blankBack();
+        await expect(page.locator('.pipeline-content')).toHaveAttribute('data-scope', 'storytell');
+        await expect(page.locator('.flow-stage[data-stage="storytell"] button')).toBeFocused();
+      }
+      if (await page.getByRole('dialog').isVisible()) await page.keyboard.press('Escape');
+      if (group === 'montage') await page.locator('.scope-back').click(); else await blankBack();
+      await expect(page.locator('.pipeline-content')).toHaveAttribute('data-scope', 'pipeline');
+       await expect(page.locator(`.flow-stage[data-group="${group}"] button`)).toBeFocused();
+       await expect(page.locator('.react-flow__viewport')).toHaveAttribute('style', rootViewport);
+    }
+    await page.locator('.react-flow__node[data-id="pipeline-6"]').dblclick({ position: { x: 10, y: 10 } });
+    await expect(page.getByRole('dialog')).toContainText('Файл не создан');
+    await capture('final-inspection');
+    await page.keyboard.press('Escape');
+    await page.locator('.flow-stage[data-group="brief"] button').focus(); await page.keyboard.press('Enter');
+    await expect(page.getByRole('form', { name: 'Создать тестовую Story' })).toBeVisible();
+    await page.getByRole('button', { name: '← К карте Cinematic', exact: true }).click();
+    await expect(page.locator('.react-flow__node.selected')).toHaveAttribute('data-id', 'pipeline-0');
+    assert.equal(mutations.length, 0, 'all cinematic scopes/inspection/reload are navigation-only');
     if (folder) {
       await page.getByText('Откройте сохранённый запуск или начните новую Story.').waitFor();
       mkdirSync(join(folder, 'empty'));
@@ -105,6 +267,8 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
     assert.equal(new URL(page.url()).searchParams.get('execution'), null, 'start opens only from receipt');
     await page.reload();
     await expect(page.locator('.execution')).toBeVisible();
+    await expect(page.locator('.story-shortcut')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Открыть Story', exact: true })).toHaveCount(0);
     await expect(page.getByRole('article', { name: 'Story reader' })).toHaveCount(0);
     await expect(page.getByRole('region', { name: 'Review и черновик' })).toHaveCount(0);
     assert.ok((await page.locator('.flow-canvas').boundingBox()).height > 500, 'Pipeline owns the desktop workspace');
@@ -119,11 +283,59 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
     assert.equal(new URL(page.url()).searchParams.get('execution'), id);
     await expect(page.locator('.project-name')).toHaveText(message);
     assert.equal(await subject(), v1.ref.artifact_id);
+    await closeStory();
+    await openNode(page, '.flow-stage[data-group="storytell"]');
+    await page.locator('.react-flow__node').filter({ has: page.locator('.flow-stage[data-stage="story-hitl"]') }).dblclick({ position: { x: 12, y: 12 } });
+    await expect(page.getByRole('dialog', { name: 'Story · чтение и решение', exact: true })).toBeVisible();
+    assert.equal(await subject(), v1.ref.artifact_id, 'real review double-click preserves exact selected subject');
+    await page.keyboard.press('Escape');
+    await page.locator('.scope-back').click();
+    // Old kinodel.workspace.v1 has exactly two scopes. Defaults must extend it, not erase drafts.
+    const oldPage = await context.newPage(); audit(oldPage);
+    try {
+      const oldProjection = await projection(second), oldSubject = oldProjection.stories.find(s => s.current);
+      const legacy = { view: 'pipeline', start: { message: 'Черновик до 6F', shots: 'old1, old2' }, states: { [second]: {
+        scope: 'storytell', viewports: { pipeline: { x: 27, y: 11, zoom: 1 }, storytell: { x: 81, y: 21, zoom: 1.1 } },
+        selectedNodes: { pipeline: 'pipeline-1', storytell: 'storytell-1' }, selectedStory: oldSubject.ref.artifact_id,
+        draft: { text: 'Адресный черновик до 6F', mode: 'revise', target: { execution_id: second, request_id: oldProjection.review.request_id,
+          request_digest: oldProjection.review.digest, expected_revision: oldProjection.review.binding_revision, base_ref: oldSubject.ref } },
+      } } };
+      await oldPage.goto(origin);
+      await oldPage.evaluate(value => sessionStorage.setItem('kinodel.workspace.v1', JSON.stringify(value)), legacy);
+      await oldPage.goto(`${origin}/?execution=${second}`);
+      await expect(oldPage.locator('.pipeline-content')).toHaveAttribute('data-scope', 'storytell');
+      await expect(oldPage.locator('.react-flow__node.selected')).toHaveAttribute('data-id', 'storytell-1');
+      const legacyViewport = await oldPage.locator('.react-flow__viewport').getAttribute('style');
+      await openStory(oldPage);
+      await expect(oldPage.getByLabel('Версия Story')).toHaveValue(oldSubject.ref.artifact_id);
+      await expect(oldPage.getByLabel('Неприменённый черновик', { exact: true })).toHaveValue('Адресный черновик до 6F');
+      await expect(oldPage.getByRole('button', { name: 'Отправить правку', exact: true })).toBeEnabled();
+      await oldPage.keyboard.press('Escape');
+      await oldPage.locator('.scope-back').click();
+      await openNode(oldPage, '.flow-stage[data-group="wardrobe"]');
+      await oldPage.reload();
+      await expect(oldPage.locator('.pipeline-content')).toHaveAttribute('data-scope', 'wardrobe');
+      await oldPage.locator('.scope-back').click();
+      await openNode(oldPage, '.flow-stage[data-group="storytell"]');
+      await expect(oldPage.locator('.react-flow__viewport')).toHaveAttribute('style', legacyViewport);
+      const migrated = await oldPage.evaluate(() => JSON.parse(sessionStorage.getItem('kinodel.workspace.v1')));
+      assert.deepEqual(migrated.start, legacy.start);
+      assert.deepEqual(migrated.states[second].draft, legacy.states[second].draft);
+      assert.deepEqual(migrated.states[second].viewports.storytell, legacy.states[second].viewports.storytell);
+      assert.equal(migrated.states[second].selectedStory, oldSubject.ref.artifact_id);
+      assert.ok(migrated.states[second].viewports['storytell:graph']);
+    } finally { await oldPage.close(); }
     await page.reload();
     await expect(page.locator('.execution')).toHaveAttribute('data-execution', id);
     await openStory();
     await expect(page.locator('.story-body')).toContainText(message);
     await closeStory();
+    if (await page.locator('.pipeline-content').getAttribute('data-scope') !== 'pipeline') await page.getByRole('navigation', { name: 'Scope', exact: true }).getByRole('button', { name: 'Cinematic', exact: true }).click();
+    await page.locator('.flow-stage[data-group="brief"] button').click();
+    await expect(page.getByRole('dialog')).toContainText('Сохранённый test input · не полный Brief');
+    await expect(page.getByRole('dialog')).toContainText(message);
+    await capture('saved-input');
+    await page.keyboard.press('Escape');
     await page.getByRole('button', { name: 'Сохранённые запуски', exact: false }).click();
     await page.getByRole('button', { name: /Другой запуск/ }).click();
     await expect(page.locator('.execution')).toHaveAttribute('data-execution', second);
@@ -134,10 +346,11 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
     await page.goBack();
     await expect(page.locator('.execution')).toHaveAttribute('data-execution', id);
     // Exact shared subject and reader selection; neither surface owns a second result cache.
-    await page.getByRole('button', { name: 'Open inside', exact: true }).click();
+    await page.locator('.flow-stage[data-group="storytell"] button').click();
     await expect(page.locator('.pipeline-content')).toHaveAttribute('data-scope', 'storytell');
     await page.locator('.react-flow__controls-zoomin').click();
     await page.mouse.move(1020, 450); await page.mouse.down(); await page.mouse.move(980, 425); await page.mouse.up();
+    await settledViewport(page);
     const viewport = await page.locator('.react-flow__viewport').getAttribute('style');
     await openStory();
     await page.getByLabel('Неприменённый черновик', { exact: true }).fill('Почему герой идёт домой?');
@@ -154,7 +367,7 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
     await expect(page.getByLabel('Неприменённый черновик', { exact: true })).toHaveValue('Почему герой идёт домой?');
     await closeStory();
     await page.getByRole('button', { name: '← Back · Pipeline', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'Storytell · Open inside', exact: true })).toBeFocused();
+    await expect(page.locator('.flow-stage[data-group="storytell"] button')).toBeFocused();
     await expect(page.locator('.react-flow__node.selected')).toHaveAttribute('data-id', 'pipeline-1');
     await page.keyboard.press('Enter');
     await expect(page.getByRole('button', { name: '← Back · Pipeline', exact: true })).toBeFocused();
@@ -171,8 +384,14 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
     await page.keyboard.press('Tab');
     assert.equal(await page.locator(':focus').evaluate(e => !!e.closest('dialog')), true, 'review focus stays inside native sheet');
     await page.keyboard.press('Escape');
-    await expect(page.getByRole('button', { name: 'Открыть Story', exact: true })).toBeFocused();
+    await expect(page.locator('.flow-stage[data-stage="story-hitl"] button')).toBeFocused();
     await openStory();
+    await page.getByLabel('Неприменённый черновик', { exact: true }).click({ button: 'right' });
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.locator('.pipeline-content')).toHaveAttribute('data-scope', 'storytell');
+    await expect(page.locator('.flow-stage[data-stage="story-hitl"] button')).toBeFocused();
+    await openStory();
+    await expect(page.getByLabel('Неприменённый черновик', { exact: true })).toHaveValue('Почему герой идёт домой?');
     // Lose the response AFTER durable acceptance, even after a new review exists.
     await page.getByLabel('Неприменённый черновик', { exact: true }).focus();
     const responses = []; let lostRespond = false;
@@ -222,6 +441,8 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
     await expect(page.locator('.reader-state')).toContainText('Историческая');
     await expect(page.getByRole('button', { name: 'Утвердить Story v1', exact: true })).toBeDisabled();
     await closeStory();
+    await expect(page.locator('.flow-stage[data-stage="storytell"]')).toContainText('Story v2');
+    await expect(page.locator('.flow-stage[data-stage="storytell"]')).not.toContainText('Story v1');
     await expect(page.locator('.react-flow__viewport')).toHaveAttribute('style', viewport);
     await openStory();
     await page.getByRole('button', { name: 'К текущей Story', exact: true }).click();
@@ -232,7 +453,6 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
       await page.screenshot({ path: join(folder, 'review', 'screen-state-desktop.png') });
       await closeStory();
       await page.getByRole('button', { name: '← Back · Pipeline', exact: true }).click();
-      await page.locator('.stage-disclosure > summary').click();
       await page.evaluate(() => scrollTo(0, 0)); mkdirSync(join(folder, 'pipeline'));
       await page.screenshot({ path: join(folder, 'pipeline', 'screen-state-desktop.png'), fullPage: true });
       await switchView('Chat');
@@ -464,10 +684,21 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
       assert.equal(await mobile.locator(':focus').evaluate(e => !!e.closest('dialog')), true, 'mobile review focus stays inside');
       assert.equal(await mobile.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'mobile review does not overflow');
       await mobile.keyboard.press('Escape');
-      await expect(mobile.getByRole('button', { name: 'Открыть Story', exact: true })).toBeFocused();
-      await mobile.locator('.stage-disclosure > summary').click();
-      await mobile.getByRole('button', { name: 'Storytell · Open inside', exact: true }).click();
+      await expect(mobile.locator('.flow-stage[data-stage="story-hitl"] button')).toBeFocused();
+      await mobile.locator('.scope-back').click();
+      await openNode(mobile, '.flow-stage[data-group="storytell"]');
       await expect(mobile.getByRole('button', { name: '← Back · Pipeline', exact: true })).toBeFocused();
+      await mobile.locator('.scope-back').click();
+      await openNode(mobile, '.flow-stage[data-group="wardrobe"]');
+      await expect(mobile.locator('.pipeline-content')).toHaveAttribute('data-scope', 'wardrobe');
+      await openNode(mobile, '.flow-stage[data-stage="anchor-gen"]');
+      await expect(mobile.getByRole('dialog')).toContainText('Workflow details unavailable');
+      assert.equal(await mobile.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'mobile tool inspection does not overflow');
+      await mobile.keyboard.press('Escape');
+      await mobile.locator('.scope-back').click();
+      await mobile.locator('.react-flow__controls-zoomout').click();
+      await mobile.locator('.react-flow__controls-fitview').click();
+      await expect.poll(() => mobile.locator('.flow-stage').first().evaluate(e => e.getBoundingClientRect().width)).toBeGreaterThanOrEqual(160); // Fit stays legible; pan reveals the route.
     } finally { await mobile.close(); }
     const draftStorage = await browser.newPage({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' }); audit(draftStorage);
     try {

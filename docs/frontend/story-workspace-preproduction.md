@@ -7,7 +7,7 @@
 
 Шаги 0–2 закрыты на Windows: локальное хранение, immutable Story, durable start, вопросы/правки, exact approval, retry/cancel и process-death recovery. Это `kinodel.internal-story` с детерминированной заменой модели. Approval завершает этот execution, не запускает Wardrobe. Живой Storytell — следующий backend-шаг 3; первый подключённый UI можно собрать сейчас внутри шага 6.
 
-Самостоятельный HTML/CSS/JS mock сохранён в `web/prototype/`; connected workspace с Vite размещён отдельно в `web/`. После read-only 6C реализован 6D: общий durable start/respond/approve/retry/cancel, receipt reconciliation и reload drafts/UI. Runnable evidence и ограничения — в `web/README.md`; независимая приёмка 6E остаётся следующим шагом. Состояния и scripted действия прототипа не являются runtime.
+Самостоятельный HTML/CSS/JS mock сохранён в `web/prototype/`; connected workspace с Vite размещён отдельно в `web/`. После read-only 6C реализован 6D: общий durable start/respond/approve/retry/cancel, receipt reconciliation и reload drafts/UI. Уточнение 3 октября: перед независимой 6E выполняется 6F — полный объявленный cinematic-каркас с неподключёнными этапами; visual approval пользователя остаётся обязательным. Runnable evidence и ограничения — в `web/README.md`. Состояния и scripted действия прототипа не являются runtime.
 
 Проверка 2 октября:
 
@@ -27,7 +27,7 @@
 |---|---|
 | Вход | Компактная форма `input_message` и явные `shot_ids`; project/client identities создаются клиентом. Это internal test input, не полный Brief с subjects/profiles |
 | Открыть сохранённый запуск | Короткий список последних созданных internal executions из текущего data root, без галереи проектов |
-| Pipeline | Submitted input → раскрываемая Storytell → результат тестового запуска; внутри Storytell — результат и review, без выдуманного tool-loop/trace |
+| Pipeline | Полная объявленная семинодовая cinematic-карта; внутри Storytell — storytell/story-hitl и общий real Story reader/review. Остальные группы — объявленные agent/gen/HITL; без выдуманного tool-loop/trace |
 | Chat | Сохранённый ввод, реальные версии/feedback/ответы владельца, одна actionable карточка и адресный composer «Вопрос / Правка» |
 | Review | Читаемые hook/story/shots, переключение версий, отдельные Story version и request revision; явное «Утвердить Story v2» |
 | Details | Закрытая по умолчанию панель Inputs / Outputs / Config; показываем только существующие frozen inputs, graph identity и refs. Не сочиняем model/profile settings |
@@ -37,9 +37,9 @@
 
 Предлагается dark-first с semantic tokens, системным `Segoe UI`/sans-serif с кириллицей, как в текущем `styles.css`. IBM Plex и light/system theme остаются целевыми из webui, но не входят в первую приёмку. Подписи интерфейса — русские; stage IDs и refs остаются техническими идентификаторами.
 
-Canvas, Wardrobe, Storyboard, Filmmaker и Montage подключаются по готовности backend. Их mock-фотографии и waiting-статусы не включаем в live projection. Полный cinematic-дизайн сохраняется в отдельном прототипе.
+Wardrobe, Storyboard, Filmmaker, Montage и Final уже доступны для contract inspection в 6F, но помечены `Не подключено`; их исполнение и media/Canvas подключаются по готовности backend. Mock-фотографии, waiting/ready-статусы и provider settings не включаем в production. Карта доступна без test run; старый двухscope cache расширяется defaults без потери черновиков и pending commands. Internal Story approval по-прежнему END, не Wardrobe.
 
-На desktop текущий review доступен без обязательного Fit; Fit не сжимает текст до микрошрифта. На <768px стартовый вид — Chat, детали/review как sheet с focus return, touch targets ≥44px. Панорама не заменяет доступный список этапов. Polling не меняет viewport, selection или scroll чтения истории.
+На desktop текущий review доступен через ноду `story-hitl` без обязательного Fit; Fit не сжимает текст до микрошрифта. На <768px стартовый вид — Chat, детали/review как sheet с focus return, touch targets ≥44px. Keyboard использует реальные Flow-ноды/кнопки с offscreen auto-pan; отдельные список этапов и верхний Story shortcut удалены. Правый клик только по пустому canvas возвращает один scope вверх; Back возвращает focus к родительскому действию. Polling не меняет viewport, selection или scroll чтения истории; viewport сохраняется на завершении pan/zoom, не на каждом pointer update.
 
 ## Минимальный backend seam
 

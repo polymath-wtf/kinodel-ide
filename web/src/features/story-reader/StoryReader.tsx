@@ -1,15 +1,19 @@
 import { useStoryBody } from '../../entities/execution/queries';
-import { sameRef, versionLabel, type Projection, type StoryRef } from '../../entities/execution/contracts';
+import { sameRef, versionLabel, type ArtifactRef, type Projection, type StoryRef } from '../../entities/execution/contracts';
+
+export function isStoryApproved(projection: Projection, ref: ArtifactRef) {
+  return projection.status === 'completed' && projection.outcome?.outcome === 'completed'
+    && projection.outcome.subject_artifact_id === ref.artifact_id
+    && projection.reviews.some(r => r.request_id === projection.outcome?.source_id && r.applied
+      && r.result?.kind === 'approved_subject' && sameRef(r.result.ref, ref));
+}
 
 export function useStoryReader(projection: Projection, selectedId: string | null) {
   const selected = projection.stories.find(s => s.ref.artifact_id === selectedId)
     ?? projection.stories.find(s => s.current) ?? projection.stories.at(-1);
   const body = useStoryBody(selected?.ref);
   const review = projection.reviews.find(r => r.request_id === projection.review?.request_id);
-  const approved = !!selected && projection.status === 'completed' && projection.outcome?.outcome === 'completed'
-    && projection.outcome.subject_artifact_id === selected.ref.artifact_id
-    && projection.reviews.some(r => r.request_id === projection.outcome?.source_id && r.applied
-      && r.result?.kind === 'approved_subject' && sameRef(r.result.ref, selected.ref));
+  const approved = !!selected && isStoryApproved(projection, selected.ref);
   return { selected, body, review, approved };
 }
 export type Reader = ReturnType<typeof useStoryReader>;
