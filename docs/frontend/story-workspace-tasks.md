@@ -69,7 +69,7 @@ Shell собран и проверен; формальная отметка ша
 
 ## 6D · Durable commands + активация пользовательского пути — coder
 
-Реализовано и принято; evidence и отметка — в roadmap. Receipt подтверждает доставку/acceptance, projection — дальнейшее выполнение. Финальная сквозная приёмка остаётся 6E.
+Реализовано и принято; evidence и отметка — в roadmap. Receipt подтверждает доставку/acceptance, projection — дальнейшее выполнение. Финальная сквозная приёмка 6E пройдена 3 октября 2026.
 
 **Goal:** безопасно включить start/clarify/revise/approve/retry/cancel; lost response/reload/restart не создаёт дублей и не переназначает feedback.
 
@@ -90,6 +90,8 @@ Shell собран и проверен; формальная отметка ша
 **Verify:** `npm run typecheck`, `npm run build`, command check и focused real-backend browser checks. Screenshots каждой изменённой страницы. Сначала journal/reconciliation и его check, **затем** активация кнопок в том же задании.
 
 ## 6E · Приёмка Story UI — general (read-only), fixes → coder
+
+Пройдена 3 октября 2026 после визуального утверждения 6F; актуальные команды/результаты — в roadmap и `web/README.md`. Ниже — исходные границы выполненной приёмки, не ожидающее задание. Полный шаг 6 остаётся открытым; следующий шаг — 3.
 
 **Goal:** независимо подтвердить весь approved Story-срез; не закрывать полный cinematic шаг 6.
 

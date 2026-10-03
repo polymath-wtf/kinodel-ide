@@ -1,6 +1,6 @@
 # Architecture
 
-Status: **Accepted boundaries; steps 0–2 internal Story foundation tested on Windows, including localhost discussion/revise/approve/retry/cancel and forced-process-death recovery. Connected Pipeline/Chat now includes 6D durable commands and browser reconciliation (checks: web/README.md); independent 6E acceptance, live agents, public cinematic API and rendering remain pending. Build checklist: Local MVP.**
+Status: **Accepted boundaries; steps 0–2 internal Story foundation tested on Windows, including localhost discussion/revise/approve/retry/cancel and forced-process-death recovery. Connected Pipeline/Chat passed Story UI acceptance 6E on 3 October after user visual approval of the 6F cinematic map (checks: web/README.md). Live agents, public cinematic API, rendering and full frontend step 6 remain pending; next build step is 3. Build checklist: Local MVP.**
 
 Kinodel is a **runtime-vibe-factory for creators**. A creator follows a pipeline from an idea through story, characters, storyboard and video, or another production scheme, inspecting and revising results through human-in-the-loop decisions. Cinematic is one pipeline, not the definition of the entire product.
 

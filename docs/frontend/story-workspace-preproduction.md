@@ -1,15 +1,15 @@
 # Story Workspace — препродакшн первого frontend-среза
 
-Статус: **апрув пользователя получен 2 октября 2026; последовательная реализация начата**. [Bounded задания сабагентам](story-workspace-tasks.md); фактические статусы — в roadmap.
+Статус: **апрув пользователя получен 2 октября 2026; Story-срез 6A–6E принят 3 октября после визуального утверждения каркаса 6F**. [Bounded задания сабагентам](story-workspace-tasks.md); фактические статусы — в roadmap.
 Порядок работ и чекбоксы остаются в [шаге 6 Local MVP](../roadmap-mvp.md#frontend-story-slice). Здесь — границы, решения и критерии этого среза.
 
 ## Где находится билд
 
 Шаги 0–2 закрыты на Windows: локальное хранение, immutable Story, durable start, вопросы/правки, exact approval, retry/cancel и process-death recovery. Это `kinodel.internal-story` с детерминированной заменой модели. Approval завершает этот execution, не запускает Wardrobe. Живой Storytell — следующий backend-шаг 3; первый подключённый UI можно собрать сейчас внутри шага 6.
 
-Самостоятельный HTML/CSS/JS mock сохранён в `web/prototype/`; connected workspace с Vite размещён отдельно в `web/`. После read-only 6C реализован 6D: общий durable start/respond/approve/retry/cancel, receipt reconciliation и reload drafts/UI. Уточнение 3 октября: перед независимой 6E выполняется 6F — полный объявленный cinematic-каркас с неподключёнными этапами; visual approval пользователя остаётся обязательным. Runnable evidence и ограничения — в `web/README.md`. Состояния и scripted действия прототипа не являются runtime.
+Самостоятельный HTML/CSS/JS mock сохранён в `web/prototype/`; connected workspace с Vite размещён отдельно в `web/`. После read-only 6C реализован 6D: общий durable start/respond/approve/retry/cancel, receipt reconciliation и reload drafts/UI. Уточнение 3 октября: перед 6E выполнен и визуально утверждён пользователем 6F — полный объявленный cinematic-каркас с неподключёнными этапами; техническая приёмка 6E пройдена. Runnable evidence и ограничения — в `web/README.md`. Состояния и scripted действия прототипа не являются runtime.
 
-Проверка 2 октября:
+Историческая проверка препродакшна 2 октября (до реализации 6A–6F):
 
 - Из корня: `.\.venv313\Scripts\python.exe -B -m unittest tests.test_api -v` — **6 passed, 6.862 s**. Полный process-death suite повторно не запускался; его evidence — в шаге 2 roadmap.
 - Из `web/`: `$env:PLAYWRIGHT_MODULE='C:\Users\Seryoger\AppData\Local\Temp\opencode\node_modules\playwright'; node "prototype/prototype-check.cjs"` при unset `CAPTURE_SCREENSHOTS` — **PASS** offline assets, desktop/mobile geometry, navigation, drafts, inspector и workflow mappings. Это проверка mock, не клиента.
@@ -39,7 +39,7 @@
 
 Wardrobe, Storyboard, Filmmaker, Montage и Final уже доступны для contract inspection в 6F, но помечены `Не подключено`; их исполнение и media/Canvas подключаются по готовности backend. Mock-фотографии, waiting/ready-статусы и provider settings не включаем в production. Карта доступна без test run; старый двухscope cache расширяется defaults без потери черновиков и pending commands. Internal Story approval по-прежнему END, не Wardrobe.
 
-На desktop текущий review доступен через ноду `story-hitl` без обязательного Fit; Fit не сжимает текст до микрошрифта. На <768px стартовый вид — Chat, детали/review как sheet с focus return, touch targets ≥44px. Keyboard использует реальные Flow-ноды/кнопки с offscreen auto-pan; отдельные список этапов и верхний Story shortcut удалены. Правый клик только по пустому canvas возвращает один scope вверх; Back возвращает focus к родительскому действию. Polling не меняет viewport, selection или scroll чтения истории; viewport сохраняется на завершении pan/zoom, не на каждом pointer update.
+На desktop текущий review доступен через ноду `story-hitl` без обязательного Fit; Fit не сжимает текст до микрошрифта. На <768px стартовый вид — Chat, детали/review как sheet с focus return, touch targets ≥44px. Keyboard использует реальные Flow-ноды/кнопки с offscreen auto-pan; отдельные список этапов и верхний Story shortcut удалены. Правый клик по ноде или пустому canvas возвращает один scope вверх, по dialog/backdrop — закрывает только окно с сохранением scope/черновика; Back возвращает focus к родительскому действию. Polling не меняет viewport, selection или scroll чтения истории; viewport сохраняется на завершении pan/zoom, не на каждом pointer update.
 
 ## Минимальный backend seam
 
@@ -107,4 +107,4 @@ Standalone HTML/CSS/JS и checker перенесены в `web/prototype/`; со
 
 Полный frontend-шаг 6 остаётся открытым до cinematic/media integration и прохода автора; успешный Story-срез не закрывает Windows-пилот.
 
-**Согласовано:** первый connected Story-сценарий; визуальная основа текущего mock с dark-first русским UI; два минимальных read endpoints и same-origin static serving; размещение production/prototype. Реализация идёт по bounded заданиям с проверкой каждого handoff; окончательные wire DTO определены в `backend/api.py` и [local startup](../backend/local-startup.md), а не черновыми полями выше.
+**Согласовано и принято в 6E:** первый connected Story-сценарий; визуальная основа текущего mock с dark-first русским UI; два минимальных read endpoints и same-origin static serving; размещение production/prototype. Реализация выполнена по bounded заданиям с проверкой каждого handoff; окончательные wire DTO определены в `backend/api.py` и [local startup](../backend/local-startup.md), а не черновыми полями выше.

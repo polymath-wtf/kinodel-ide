@@ -2,7 +2,7 @@
 
 **[Standalone HTML-макет](../../web/prototype/index.html) · [Запуск — web/prototype/README.md](../../web/prototype/README.md).** Интерактивный **MOCK, без backend**, HTML/CSS/JS: Pipeline, отдельный Canvas проекта, mock Inputs/Outputs и provider inspection. Отдельный [React workspace](../../web/README.md) читает реальные internal Story executions с FastAPI origin и поддерживает durable команды (6D).
 
-Статус: **прототип сохранён отдельно; production workspace подключён к Story foundation с durable commands (6D), не к live cinematic; 6F добавляет объявленную карту, visual approval pending; затем отдельная приёмка 6E**. `web/prototype/` — исходники HTML-эксперимента, не обязательный фундамент приложения. Макеты и промпты — [UI/UX wireframe](uiux-wireframe.md). Порядок сборки, pins и приёмка — только в [Local MVP](../roadmap-mvp.md). Эта страница задаёт целевой стек, визуальный язык и правила взаимодействия.
+Статус: **прототип сохранён отдельно; production workspace подключён к Story foundation с durable commands (6D), не к live cinematic; 6F визуально утверждён пользователем, отдельная приёмка 6E пройдена 3 октября 2026. Полный шаг 6 открыт; следующий шаг — живой текст (3)**. `web/prototype/` — исходники HTML-эксперимента, не обязательный фундамент приложения. Макеты и промпты — [UI/UX wireframe](uiux-wireframe.md). Порядок сборки, pins и приёмка — только в [Local MVP](../roadmap-mvp.md). Эта страница задаёт целевой стек, визуальный язык и правила взаимодействия.
 
 ## First UI Slice
 
@@ -98,7 +98,7 @@ Summary берётся из активного вложенного этапа: 
 ### Правила раскрытия
 
 - Один click/keyboard selection выделяет ноду; `Open inside` входит в scope, `Details` явно открывает панель. На фото click/Enter открывает его детали справа; закрытие возвращает focus/ширину canvas. Double-click — только дополнительный shortcut.
-- В production правый клик только по **пустому canvas** возвращает на один scope вверх; в root ничего не меняет. Нода/её содержимое, wire, control, toolbar и inspection исключены. Back возвращает focus к действию родительской Flow-ноды; клавиатура раскрывает реальные ноды, без дублирующего списка/меню. Верхний Story shortcut удалён: actual Story/review открывается через ноду `story-hitl` или Outputs владельца.
+- В production правый клик по **ноде/её содержимому или пустому canvas** возвращает на один scope вверх; в root навигации нет. Wire, control и toolbar исключены. Правый клик по открытому dialog или backdrop закрывает только окно, возвращает focus и сохраняет scope/черновик. Back возвращает focus к действию родительской Flow-ноды; клавиатура раскрывает реальные ноды, без дублирующего списка/меню. Верхний Story shortcut удалён: actual Story/review открывается через ноду `story-hitl` или Outputs владельца.
 - Если ждём решения, `Open review` ведёт к текущему результату и точному review inline либо в широком sheet; сам переход ничего не утверждает.
 - Breadcrumbs: `The Magic begin / Wardrobe / Anchor generation / hero_sheet / Workflow`. Длинные пути сворачиваются, текущий unit остаётся виден.
 - `Pipeline` и `Chat` сохраняют один execution и выбранный предмет. Возврат из чата восстанавливает canvas scope; ссылка из review-карточки открывает её этап.
