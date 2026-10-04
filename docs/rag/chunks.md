@@ -8,6 +8,8 @@ Think of it as a **reusable creative card**, not a piece cut out of text or a ru
 
 These are future library contracts. The current cinematic MVP ends with a technically verified assembly of approved shots, without final-film review or memory publication. References below to final approval describe prerequisites of future memory-enabled pipelines, not an existing gate. Before enabling Cinema publication, reconcile its final-source acceptance and anchor selection with the then-current cinematic contract; do not silently treat completion as approval.
 
+**Active local exception is authored input, not chunk publication:** [Characters](../../wiki/characters/README.md) stores creator-authored `CharacterV1` cards as a manifest and immutable JSON/images in `wiki/characters`, without cloud or an index. Explicit Save accepts that card for reuse; live Story freezes selected exact revisions and sends only narrative Bio to Storytell, keeping images local. This does not activate `CharacterChunkV1`, generated production memory or the chunk lifecycle below. `StoryV2.generated_characters` remains execution-local; Story generation/approval never auto-publishes a library card.
+
 ## Shared Contract
 
 Artifact infrastructure owns immutable ID, schema/version, digest, project scope, body URI, source provenance, and creation operation. A chunk body adds only domain meaning rather than repeating one universal legacy envelope.

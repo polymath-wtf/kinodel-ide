@@ -9,7 +9,7 @@ from uuid import uuid4
 from backend.database import open_database
 from backend.review_store import accept_story_decision
 from backend.saver import open_saver
-from backend.story_start import start_test_story
+from backend.story_start import start_live_story, start_test_story
 from backend.story_store import _uuid
 
 
@@ -91,6 +91,9 @@ def retry_story_work(db: sqlite3.Connection, execution_id: str, work_id: str,
                        (work_id, expected_version))
             db.execute("INSERT INTO execution_controls VALUES (?,?, 'retry', ?, ?)",
                        (execution_id, command_key, work_id, expected_version))
+            db.execute("UPDATE story_operations SET owner_budget=owner_attempts+2 WHERE execution_id=? "
+                       "AND owner_request IS NOT NULL AND artifact_id IS NULL AND owner_response IS NULL",
+                       (execution_id,))
         db.execute("COMMIT")
         return work_id
     except BaseException:
@@ -110,11 +113,17 @@ class StoryRuntime:
             raise ValueError("Story runtime closed")
 
     async def start(self, *args):
+        return await self._start(start_test_story, *args)
+
+    async def start_live(self, *args, **kwargs):
+        return await self._start(start_live_story, *args, **kwargs)
+
+    async def _start(self, start, *args, **kwargs):
         self._open()
         task = asyncio.current_task()
         self._commands.add(task)
         try:
-            return await start_test_story(self.db, self.saver, *args)
+            return await start(self.db, self.saver, *args, **kwargs)
         finally:
             self._commands.remove(task)
 

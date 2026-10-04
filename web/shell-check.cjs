@@ -47,8 +47,11 @@ async function bounded(promise, milliseconds, message) {
     const python = resolve(root, '.venv313/Scripts/python.exe');
     // Port override is confined to this disposable subprocess; production policy stays unchanged.
     const fixture = "import sys, asyncio\nimport backend.api as api\nimport uvicorn\napi.PORT = int(sys.argv[1])\nseen = set()\nasync def fixture(message, shots, prior, feedback, *, discussion=None):\n    if message == 'harness:retry' and message not in seen:\n        seen.add(message)\n        raise TimeoutError('isolated harness timeout')\n    if feedback == 'harness:slow':\n        try:\n            await asyncio.sleep(8)\n        except asyncio.CancelledError:\n            await asyncio.sleep(4)  # Isolated slow owner cleanup, not production policy.\n            raise\n    return api.fixture_story(message, shots, prior, feedback, discussion=discussion)\nuvicorn.run(api.create_app(produce_story=fixture), host='127.0.0.1', port=api.PORT, workers=1, proxy_headers=False)";
-    server = spawn(python, ['-B', '-c', fixture, String(port)], {
-      cwd: root, env: { ...process.env, KINODEL_DATA_ROOT: data }, stdio: 'pipe',
+    // New Start reads Characters; every harness must use its own library, never the user's default.
+    const isolatedFixture = fixture.replace('api.create_app(produce_story=fixture)', "api.create_app(produce_story=fixture, character_root=__import__('pathlib').Path(__import__('os').environ['KINODEL_DATA_ROOT']) / 'characters')");
+    const script = process.env.STORY_VISIBILITY_CHECK === '1' ? "from tests.story_visibility_server import install\ninstall()\n" + isolatedFixture : isolatedFixture;
+    server = spawn(python, ['-B', '-c', script, String(port)], {
+      cwd: root, env: { ...process.env, OPENROUTER_API_KEY: '', LLM_MODEL: '', KINODEL_DATA_ROOT: data }, stdio: 'pipe',
     });
     exited = new Promise(resolve => {
       const done = () => { stopped = true; resolve(); };
@@ -88,7 +91,7 @@ async function bounded(promise, milliseconds, message) {
     await startServer();
     const { chromium } = require(process.env.PLAYWRIGHT_MODULE);
     browser = await chromium.launch({ headless: true });
-    for (const [name, width, height] of [['desktop', 1440, 900], ['tablet-820', 820, 900], ['tablet-768', 768, 900], ['mobile', 390, 844]]) {
+    for (const [name, width, height] of process.env.STORY_VISIBILITY_CHECK === '1' ? [] : [['desktop', 1440, 900], ['tablet-820', 820, 900], ['tablet-768', 768, 900], ['mobile', 390, 844]]) {
       const page = await browser.newPage({ viewport: { width, height }, reducedMotion: 'reduce' });
       const errors = [], failures = [], foreign = [], mutations = [];
       page.on('pageerror', e => errors.push(e.message));
@@ -101,7 +104,7 @@ async function bounded(promise, milliseconds, message) {
       page.on('requestfailed', request => failures.push([request.url(), request.failure()]));
       await page.goto(origin);
       await page.getByText('Сохранённых запусков нет.', { exact: false }).waitFor();
-      await page.getByText('Story foundation · тестовая модель').waitFor();
+      await page.getByText('Storytell · OpenRouter не настроен').waitFor();
       const bounds = async () => assert.deepEqual(await page.evaluate(() => {
         const failures = document.documentElement.scrollWidth > innerWidth ? ['document overflow'] : [];
         for (const element of document.querySelectorAll('.model-badge, .view-switch button, .rail button')) {
@@ -149,7 +152,7 @@ async function bounded(promise, milliseconds, message) {
       await page.close();
     }
     if (process.env.SHELL_CHECK_BASELINE_ONLY !== '1') {
-      await require('./connected-check.cjs')({ browser, origin, data, folder,
+      await require(process.env.STORY_VISIBILITY_CHECK === '1' ? './story-visibility-check.cjs' : './connected-check.cjs')({ browser, origin, data, folder,
         restart: async () => { await stopServer(); await startServer(); } });
     }
     checkServer();
@@ -168,6 +171,6 @@ async function bounded(promise, milliseconds, message) {
       }
     }
   }
-  console.log('OK: connected Story commands, same-origin/session, desktop/mobile, zero navigation mutations; owned backend stopped and disposable root removed');
+  console.log(`OK: ${process.env.NAVIGATION_CHECK_ONLY === '1' ? 'focused Story navigation' : 'connected Story commands'}, same-origin/session, desktop/mobile, zero navigation mutations; owned backend stopped and disposable root removed`);
 // This is a CLI: after bounded cleanup, even a broken browser connection must not keep it alive.
 })().catch(error => { console.error(error); process.exit(1); });

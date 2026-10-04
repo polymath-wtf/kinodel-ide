@@ -6,12 +6,16 @@ const Module = require('node:module');
 const path = require('node:path');
 const file = path.join(__dirname, 'src/entities/execution/contracts.ts');
 assert.ok(fs.existsSync(file), 'wire schemas must exist');
-const module_ = new Module(file, module);
-module_.paths = module.paths;
-module_._compile(ts.transpileModule(fs.readFileSync(file, 'utf8'), {
-  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-}).outputText, file);
-const { artifactRefSchema, storyBodySchema, projectionSchema, recentSchema, sameRef, validateBody } = module_.exports;
+function load(file) {
+  const m = new Module(file, module); m.paths = module.paths;
+  m.require = name => name.startsWith('.') ? load(path.resolve(path.dirname(file), `${name}.ts`)).exports : require(name);
+  m._compile(ts.transpileModule(fs.readFileSync(file, 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText, file);
+  return m;
+}
+const module_ = load(file);
+const { activitySchema, availabilitySchema, artifactRefSchema, storyBodySchema, projectionSchema, recentSchema, sameRef, validateBody } = module_.exports;
 const id = '00000000-0000-0000-0000-000000000001';
 const other = '00000000-0000-0000-0000-000000000002';
 const digest = `sha256:${'a'.repeat(64)}`;
@@ -38,7 +42,32 @@ const projection = { execution_id: id, project_id: id, status: 'waiting_review',
   work: [], stories: [{ ref, version: null, current: true }], reviews: [], review: null,
   remaining_actions: { revise: 3, clarify: 3 }, allowed_actions: [] };
 projectionSchema.parse(projection);
+assert.deepEqual(projectionSchema.parse(projection).submitted.selected_characters, [], 'historical projection defaults');
+const characterRef = { subject_id: `character-${'b'.repeat(32)}`, revision: 1, digest };
+const character = { schema_id: 'character', schema_version: '1', subject_id: characterRef.subject_id, revision: 1,
+  bio: { name: 'Лея', age: null, gender: null, vibe: 'Тихая решимость' },
+  images: [{ digest, mime_type: 'image/png', byte_length: 20, width: 1, height: 1 }] };
+projectionSchema.parse({ ...projection, submitted: { ...projection.submitted, selected_characters: [{ ref: characterRef, character }] } });
+assert.throws(() => projectionSchema.parse({ ...projection, submitted: { ...projection.submitted,
+  selected_characters: [{ ref: characterRef, character: { ...character, revision: 2 } }] } }));
+const refV2 = { ...ref, schema_version: '2' };
+const storyV2 = { ...story, schema_version: '2', generated_characters: [{ subject_id: 'fox', description: 'Любопытный лис' }] };
+assert.deepEqual(validateBody({ ref: refV2, story: storyV2 }, refV2).story, storyV2);
+assert.throws(() => validateBody({ ref: refV2, story }, refV2), /schema|version/i);
+assert.throws(() => storyBodySchema.parse({ ref, story: storyV2 }));
+assert.throws(() => storyBodySchema.parse({ ref: refV2, story: { ...storyV2, generated_characters: [storyV2.generated_characters[0], storyV2.generated_characters[0]] } }));
+assert.throws(() => storyBodySchema.parse({ ref: refV2, story: { ...storyV2, generated_characters: undefined } }));
+assert.throws(() => storyBodySchema.parse({ ref, story: { ...story, generated_characters: [] } }));
 assert.throws(() => projectionSchema.parse({ ...projection, status: 'invented' }));
 assert.throws(() => projectionSchema.parse({ ...projection, stories: [{ ref: { ...ref, execution_id: other }, version: 1, current: true }] }));
 assert.throws(() => projectionSchema.parse({ ...projection, graph: { ...projection.graph, digest: 42 } }));
-console.log('PASS: strict DTOs, nullable raw graph/version, malformed body, unique shots, full exact ref/ownership');
+availabilitySchema.parse({ configured: true, model: 'test/model', reason: null });
+assert.throws(() => availabilitySchema.parse({ configured: true, model: 'test/model', reason: null, api_key: 'must not appear' }));
+activitySchema.parse(null); // Fixture has no provider/prompt activity.
+const activity = { model: 'test/model', system_prompt: 'Frozen prompt', prompt_digest: digest, operations: [
+  { operation_id: digest, action: 'generate', status: 'saved', reserved_attempts: 1, repairs: 0, input: { action: 'generate' }, story_ref: ref, response: null },
+] };
+activitySchema.parse(activity);
+assert.throws(() => activitySchema.parse({ ...activity, reasoning: 'private' }));
+assert.throws(() => activitySchema.parse({ ...activity, operations: [{ ...activity.operations[0], reserved_attempts: -1 }] }));
+console.log('PASS: strict V1/V2 DTOs, generated cast, historical selected defaults, pinned character snapshots, schema/ref version match, full exact ref/ownership');

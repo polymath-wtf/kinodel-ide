@@ -1,5 +1,49 @@
 // View-only declarations from docs/pipelines/cinematic.md and the cited owner contracts.
 // These descriptions do not register capabilities or compile/execute a pipeline.
+// Storytell shows the request boundary directly; storytell:graph is backend orchestration.
+import { statusLabel, type Projection } from '../../entities/execution/contracts';
+
+export type NodeState = 'idle' | 'queued' | 'active' | 'review' | 'blocked' | 'done' | 'stopped';
+// Work is durable stage activity, not proof of an in-flight provider call or a node trace.
+export function storyNodeState(id: string, p?: Projection): { state: NodeState; status?: string; reason?: string } {
+  if (!p) return { state: 'idle' };
+  if (id === 'brief' || id === 'storytell:start') return { state: 'done' };
+  if (!['storytell', 'story-hitl', 'storytell:model', 'storytell:end', 'storytell:output'].includes(id)) return { state: 'idle' };
+  const current = p.stories.find(s => s.current);
+  const latestWork = [...p.work].reverse();
+  const work = latestWork.find(w => w.kind !== 'cancel' && ['pending', 'claimed', 'blocked'].includes(w.status));
+  const decision = p.reviews.find(r => r.work_id === work?.work_id && r.accepted);
+  const action = work?.kind === 'start' && !current ? 'generate'
+    : work?.kind === 'resume' && !decision?.result && (decision?.action === 'revise' || decision?.action === 'clarify') ? decision.action : undefined;
+  const stopped = ['cancelled', 'cancelling', 'failed'].includes(p.status);
+  const reason = latestWork.find(w => w.status === 'blocked')?.blocked_reason ?? undefined;
+  const saved = !!current || p.reviews.some(r => r.result?.kind === 'owner_response');
+  if (id === 'storytell') {
+    if (stopped) return { state: 'stopped', status: statusLabel[p.status] };
+    if (p.status === 'completed') return { state: 'done' };
+    if (p.status === 'blocked') return { state: 'blocked', reason };
+    if (work?.status === 'pending') return { state: 'queued', status: 'В очереди' };
+    if (work?.status === 'claimed') return { state: 'active', status: action === 'clarify' ? 'Ответ на вопрос' : action === 'revise' ? 'Правка в работе' : action === 'generate' ? 'Генерация в работе' : 'Применяем состояние' };
+    return { state: p.review ? 'review' : 'idle' };
+  }
+  if (id === 'storytell:model') {
+    if (p.graph.id !== 'kinodel.live-story') return { state: 'idle' };
+    if (stopped) return { state: 'stopped', status: statusLabel[p.status] };
+    if (p.status !== 'completed' && action) {
+      if (p.status === 'blocked') return { state: 'blocked', status: 'Работа заблокирована', reason };
+      if (work?.status === 'pending') return { state: 'queued', status: 'Запрос в очереди' };
+      if (work?.status === 'claimed') return { state: 'active', status: action === 'clarify' ? 'Ответ на вопрос' : action === 'revise' ? 'Правка в работе' : 'Генерация в работе' };
+    }
+    return saved ? { state: 'done', status: 'Ответ сохранён' } : { state: 'idle' };
+  }
+  if (id === 'storytell:end') {
+    if (!stopped && action) return { state: 'idle', status: 'Ждём ответ' };
+    return saved ? { state: 'done', status: 'Ответ сохранён' } : { state: 'idle', status: 'Нет сохранённого ответа' };
+  }
+  return current && p.review && !stopped && p.status !== 'completed' ? { state: 'review', status: 'Ваше решение' }
+    : current ? { state: 'done' } : { state: 'idle' };
+}
+
 export const scopes = ['pipeline', 'storytell', 'wardrobe', 'storyboard', 'filmmaker', 'montage', 'storytell:graph'] as const;
 export type Scope = typeof scopes[number];
 export type StageContract = {
@@ -8,9 +52,9 @@ export type StageContract = {
 };
 const cinematic = 'docs/pipelines/cinematic.md';
 export const stages: Record<string, StageContract> = {
-  brief: { id: 'brief', title: 'Brief', kind: 'input', summary: 'Идея, контекст и настройки', inputs: ['Идея автора', 'Явные references и видимые production settings'], outputs: ['brief · неизменяемый submitted ввод'], config: 'Ввод фиксируется при Run. Полный cinematic Brief ещё не подключён; доступен отдельный тестовый Story input.', source: cinematic },
+   brief: { id: 'brief', title: 'Brief', kind: 'input', summary: 'Идея, контекст и настройки', inputs: ['Идея автора', 'Явные references и видимые production settings'], outputs: ['brief · неизменяемый submitted ввод'], config: 'Ввод фиксируется при Start. Подключён текстовый Storytell, не полный cinematic Brief.', source: cinematic },
   storytell: { id: 'storytell', title: 'Storytell', kind: 'agent', summary: 'История и действия шотов', inputs: ['Submitted brief', 'Выбранный narrative context', 'При правке: exact previous Story и feedback'], outputs: ['story · StoryV1: hook, story, ordered shots'], config: 'Создаёт историю, не image/video prompts. Tools: обычно нет. Один bounded structured response, без придуманного model/tool-loop.', source: 'docs/agents/storytell.md' },
-  'story-hitl': { id: 'story-hitl', title: 'Story review', kind: 'review', summary: 'Решение о точной Story', inputs: ['Текущая exact Story revision'], outputs: ['Та же Story с exact approval'], config: 'Approve явно утверждает exact subject; вопрос/правка адресуются Storytell. В internal Story approve ведёт в END, не Wardrobe.', source: cinematic },
+   'story-hitl': { id: 'story-hitl', title: 'Проверка истории', kind: 'review', summary: 'Ваше решение о сохранённой истории', inputs: ['Текущая exact Story revision'], outputs: ['Та же Story с exact approval'], config: 'Утверждается только открытая точная версия. Вопрос/правка адресуются Storytell. Текущий срез завершает Story, не запускает Wardrobe.', source: cinematic },
   wardrobe: { id: 'wardrobe', title: 'Wardrobe', kind: 'agent', summary: 'Визуальные опоры и промпты', inputs: ['Brief', 'Approved story', 'Character/style references с явными ролями'], outputs: ['wardrobe_plan · VisualAnchorPlanV1: direction, anchor units, prompts, dependencies'], config: 'План сохраняется перед anchor-gen. Агент не ждёт рендера, не выбирает provider и не утверждает anchors. Отдельного plan gate нет.', source: 'docs/agents/wardrobe.md' },
   'anchor-gen': { id: 'anchor-gen', title: 'Anchor generation', kind: 'tool', summary: 'Варианты визуальных опор', inputs: ['Exact wardrobe_plan', 'Exact reference images и зависимости units', 'Закреплённый image profile'], outputs: ['Anchor image attempts · candidates', 'anchor_frames · выбранный полный набор после review'], config: 'Единственный writer anchor_frames. Новый face требует нового зависимого sheet; независимая location сохраняется. Provider не подключён.', source: 'docs/tools/comfyui-tool.md' },
   'anchor-hitl': { id: 'anchor-hitl', title: 'Anchor review', kind: 'review', summary: 'Выбор полного набора', inputs: ['Полный текущий anchor set', 'Exact wardrobe_plan и lineage'], outputs: ['Approved anchor_frames'], config: 'Exactly one candidate на каждый required unit. Несовместимые face/sheet отвергаются. Правка → Wardrobe; seed-only regeneration → tool. Approval открывает Storyboard только в cinematic.', source: cinematic },
@@ -33,6 +77,14 @@ export const groups = [
   { id: 'montage', title: 'Montage', stages: ['montage', 'view:montage-output'] },
   { id: 'final', title: 'Final', stages: ['final'] },
 ] as const;
+// Declared request diagram, never an execution trace. Tools are not connected.
+export const storyRequest: StageContract[] = [
+  { id: 'storytell:start', title: 'START', kind: 'input', summary: 'Сохранённый ввод → messages', inputs: ['Frozen submitted idea, shots, subjects'], outputs: ['Prepared messages'], config: 'Точные входы закреплены на запуске. При вопросе/правке базовый запрос доступен у Model.', source: 'backend/openrouter.py:produce_live_story' },
+  { id: 'storytell:model', title: 'Model', kind: 'agent', summary: 'System prompt + messages', inputs: ['Frozen system prompt', 'Saved base request messages'], outputs: ['Structured response'], config: 'Один bounded structured request с ограниченным исправлением формата. У fixture нет LLM-вызова или системного промпта.', source: 'backend/openrouter.py:produce_live_story' },
+  { id: 'storytell:end', title: 'END', kind: 'output', summary: 'Ответ → validation / save', inputs: ['Structured response'], outputs: ['Validated saved Story или owner response'], config: 'Граница запроса, не human approval и не END производственного графа. Валидация и сохранение выполняются backend за этой границей; вопрос может сохранить только объяснение.', source: 'backend/story_graph.py:story' },
+  { id: 'storytell:output', title: 'Story', kind: 'output', summary: 'Сохранённый результат', inputs: ['Exact immutable Story ref'], outputs: ['Story reader · версии и exact review'], config: 'Существование Story не означает approval. Общий reader сохраняет выбранную версию и адресный черновик.', source: 'docs/agents/storytell.md' },
+  { id: 'storytell:tools', title: 'ToolNode', kind: 'tool', summary: 'Optional · без связей и вызовов', inputs: [], outputs: [], config: 'Не подключён. В текущем Storytell нет tools, tool calls или tool-loop. Это отключённый элемент объявленной схемы, не выполненная ветка и не runtime capability.', source: 'docs/agents/storytell.md#tools' },
+];
 // Authored source structure, not an execution/checkpoint trace. backend/story_graph.py.
 export const internalStory: StageContract[] = [
   { id: '__start__', title: 'START', kind: 'internal', summary: 'Вход внутреннего графа', inputs: ['Project / execution identity, story_activation'], outputs: ['StoryState → storytell'], config: 'initial_story_state: compact refs/identities; graph state не содержит body или media.', source: 'backend/story_graph.py:initial_story_state' },

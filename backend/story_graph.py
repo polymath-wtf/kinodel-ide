@@ -36,11 +36,11 @@ class StoryState(TypedDict):
     approved_story: NotRequired[dict]
 
 
-def initial_story_state(project_id: str, execution_id: str) -> StoryState:
+def initial_story_state(project_id: str, execution_id: str, *, live: bool = False) -> StoryState:
     _uuid(project_id)
     _uuid(execution_id)
     activation = sha256_digest(json.dumps(
-        ["kinodel.test-story-start.v1", execution_id, STAGE_ID], separators=(",", ":")
+        ["kinodel.live-story-start.v1" if live else "kinodel.test-story-start.v1", execution_id, STAGE_ID], separators=(",", ":")
     ).encode("utf-8"))
     return {"project_id": project_id, "execution_id": execution_id, "story_activation": activation}
 
@@ -51,7 +51,7 @@ def build_story_graph(db: sqlite3.Connection, saver: object,
 
     async def story(state: StoryState) -> dict:
         execution = state["execution_id"]
-        row = db.execute("SELECT project_id,input_message,shot_ids FROM executions WHERE execution_id=?",
+        row = db.execute("SELECT project_id,input_message,shot_ids,owner_config FROM executions WHERE execution_id=?",
                          (execution,)).fetchone()
         if row is None or row[0] != state["project_id"]:
             raise ValueError("Unknown test execution/project")
@@ -79,11 +79,15 @@ def build_story_graph(db: sqlite3.Connection, saver: object,
             prior_body = read_story(db, execution, artifact_id=prior.artifact_id)[1] if prior else None
             try:
                 kwargs = {}
-                if action and "discussion" in inspect.signature(produce_story).parameters:
+                if action and row[3] is None and "discussion" in inspect.signature(produce_story).parameters:
                     prepared = db.execute("SELECT prepared_inputs FROM story_operations WHERE execution_id=? "
                                           "AND activation_id=?", (execution, state["story_activation"])).fetchone()[0]
                     kwargs["discussion"] = json.loads(prepared)[-1]
-                draft = produce_story(row[1], json.loads(row[2]), prior_body, feedback, **kwargs)
+                if row[3] is not None:
+                    from backend.openrouter import produce_live_story
+                    draft = produce_live_story(db, execution, state["story_activation"], prior_body, feedback, action)
+                else:
+                    draft = produce_story(row[1], json.loads(row[2]), prior_body, feedback, **kwargs)
                 if inspect.isawaitable(draft):
                     draft = await draft
             except (TimeoutError, ConnectionError) as error:

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { characterItemSchema } from '../character/contracts';
 
 export const uuidSchema = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
 const digest = z.string().regex(/^sha256:[0-9a-f]{64}$/);
@@ -20,12 +21,17 @@ export function sameRef(a: ArtifactRef, b: ArtifactRef) {
 }
 const shot = z.strictObject({ shot_id: unit, action: text, narrative_function: text,
   subject_ids: z.array(unit).max(128).refine(unique), state_before: text, state_after: text });
-export const storySchema = z.strictObject({ schema_id: z.literal('story'), schema_version: z.literal('1'),
+export const textSubjectSchema = z.strictObject({ subject_id: unit, description: text });
+const storyV1Schema = z.strictObject({ schema_id: z.literal('story'), schema_version: z.literal('1'),
   hook: text, story: narrative, shots: z.array(shot).min(1).max(128).refine(shots => unique(shots.map(s => s.shot_id))) });
-export const storyBodySchema = z.strictObject({ ref: artifactRefSchema, story: storySchema });
+export const storySchema = z.discriminatedUnion('schema_version', [storyV1Schema, storyV1Schema.extend({
+  schema_version: z.literal('2'), generated_characters: z.array(textSubjectSchema).max(16).refine(a => unique(a.map(s => s.subject_id))),
+})]);
+export const storyBodySchema = z.strictObject({ ref: artifactRefSchema, story: storySchema })
+  .refine(b => b.ref.schema_id === b.story.schema_id && b.ref.schema_version === b.story.schema_version, 'Story schema/ref version mismatch');
 export function validateBody(value: unknown, expected: ArtifactRef) {
   const body = storyBodySchema.parse(value);
-  if (!sameRef(body.ref, expected) || body.ref.schema_id !== 'story' || body.ref.schema_version !== '1') {
+  if (!sameRef(body.ref, expected)) {
     throw new Error('Story body does not match the full exact reference');
   }
   return body;
@@ -33,6 +39,12 @@ export function validateBody(value: unknown, expected: ArtifactRef) {
 const storyRef = z.strictObject({ ref: artifactRefSchema, version: integer.positive().nullable(), current: z.boolean() });
 const action = z.enum(['approve', 'revise', 'clarify']);
 const ownerResponse = z.strictObject({ status: z.enum(['clarified', 'needs_input', 'out_of_scope']), explanation: text.max(4096) });
+export const availabilitySchema = z.strictObject({ configured: z.boolean(), model: z.string().nullable(), reason: z.string().nullable() });
+export const activitySchema = z.strictObject({ model: z.string(), system_prompt: narrative, prompt_digest: digest,
+  operations: z.array(z.strictObject({ operation_id: digest, action: z.enum(['generate', 'revise', 'clarify']),
+    status: z.enum(['prepared', 'attempted', 'saved', 'blocked', 'stopped']), reserved_attempts: integer.min(0), repairs: integer.min(0),
+    input: z.record(z.string(), z.unknown()).nullable(), story_ref: artifactRefSchema.nullable(), response: ownerResponse.nullable() })) }).nullable();
+export const textBriefSchema = z.strictObject({ user_vibe: text, subjects: z.array(textSubjectSchema).max(16).refine(a => unique(a.map(s => s.subject_id))), shot_duration_ms: integer.positive().max(60000) });
 const result = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('owner_response'), ref: z.null(), response: ownerResponse }),
   z.strictObject({ kind: z.literal('revised_story'), ref: artifactRefSchema, response: z.null() }),
@@ -44,9 +56,11 @@ export const reviewHistorySchema = z.strictObject({ request_id: z.string(), dige
   action: action.nullable(), message: z.string().nullable(), result: result.nullable() });
 export const projectionSchema = z.strictObject({ execution_id: uuidSchema, project_id: uuidSchema, status: statusSchema,
   outcome: z.strictObject({ outcome: z.enum(['completed', 'cancelled', 'failed']), source_id: z.string(), subject_artifact_id: uuidSchema.nullable() }).nullable(),
-  submitted: z.strictObject({ input_message: narrative, shot_ids: z.array(unit).max(128), client_key: z.string().nullable(), start_digest: digest.nullable() }),
+  submitted: z.strictObject({ input_message: narrative, shot_ids: z.array(unit).max(128), client_key: z.string().nullable(), start_digest: digest.nullable(), text_brief: textBriefSchema.nullable().optional(),
+    selected_characters: z.array(characterItemSchema).max(16).refine(a => unique(a.map(c => c.ref.subject_id))).default([]) }),
   // Recorded graph identity is deliberately not a validated runtime Digest.
   graph: z.strictObject({ id: z.string(), version: z.string().nullable(), digest: z.string().nullable() }),
+  model: z.string().nullable().optional(),
   work: z.array(z.strictObject({ work_id: z.string(), kind: z.enum(['start', 'resume', 'reconcile', 'cancel']),
     status: z.enum(['pending', 'claimed', 'completed', 'blocked', 'failed', 'obsolete']), blocked_reason: z.string().nullable(), work_version: integer.min(0) })),
   stories: z.array(storyRef), reviews: z.array(reviewHistorySchema),

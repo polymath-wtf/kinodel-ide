@@ -1,4 +1,4 @@
-"""Loopback HTTP for the internal Story fixture; the lifespan owns its only runner."""
+"""Loopback HTTP for fixture and live Story text; the lifespan owns its only runner."""
 
 import asyncio
 from contextlib import asynccontextmanager
@@ -15,10 +15,13 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import Field, model_validator
 
 from backend.config import resolve_data_root
-from backend.domain import ArtifactRef, CanonicalUUID, Digest, DomainModel, Narrative, OwnerResponseV1, StoryV1, Text, UnitKey
+from backend.character_api import character_router
+from backend.characters import CharacterRef
+from backend.domain import ArtifactRef, CanonicalUUID, Digest, DomainModel, Narrative, OwnerResponseV1, Story, StoryTextInputV1, StoryTextSubjectV1, StoryV1, Text, UnitKey
 from backend.story_control import open_story_runtime
-from backend.story_start import GRAPH_ID
-from backend.story_reads import recent_story_executions, story_projection
+from backend.openrouter import SelectedCharacter, StoryValidationDiagnostic
+from backend.story_start import DEFAULT_CHARACTER_ROOT, InvalidCharacterSelection, STORY_GRAPH_IDS
+from backend.story_reads import recent_story_executions, story_projection, story_activity
 from backend.story_store import read_story
 
 
@@ -34,6 +37,21 @@ class TestStart(DomainModel):
     client_key: Text
     input_message: Narrative
     shot_ids: list[UnitKey] = Field(min_length=1, max_length=128)
+
+
+class LiveStart(TestStart):
+    input_message: Text
+    shot_ids: list[UnitKey] = Field(min_length=1, max_length=8)
+    subjects: list[StoryTextSubjectV1] = Field(max_length=16)
+    character_refs: list[CharacterRef] = Field(default_factory=list, max_length=16)
+    shot_duration_ms: int = Field(strict=True, gt=0, le=60000)
+
+    @model_validator(mode="after")
+    def unique_cast(self):
+        ids = [subject.subject_id for subject in self.subjects] + [ref.subject_id for ref in self.character_refs]
+        if len(ids) > 16 or len(ids) != len(set(ids)):
+            raise ValueError("Selected subjects and character refs must be unique, at most 16 combined")
+        return self
 
 
 class ResponseCommand(DomainModel):
@@ -77,7 +95,7 @@ class OutcomeState(DomainModel):
 
 class StoryState(DomainModel):
     ref: ArtifactRef
-    story: StoryV1
+    story: Story
     current: bool
 
 
@@ -104,6 +122,8 @@ class SubmittedState(DomainModel):
     shot_ids: list[UnitKey]
     client_key: str | None
     start_digest: Digest | None
+    text_brief: StoryTextInputV1 | None = None
+    selected_characters: list[SelectedCharacter] = Field(default_factory=list, max_length=16)
 
 
 class GraphState(DomainModel):
@@ -162,6 +182,7 @@ class StoryProjection(DomainModel):
     outcome: OutcomeState | None
     submitted: SubmittedState
     graph: GraphState
+    model: str | None = None
     work: list[WorkState]
     stories: list[StoryRefState]
     reviews: list[ReviewHistoryState]
@@ -180,6 +201,31 @@ class RecentStory(DomainModel):
 
 class RecentStories(DomainModel):
     items: list[RecentStory]
+
+
+class StoryAvailability(DomainModel):
+    configured: bool
+    model: str | None
+    reason: str | None
+
+
+class StoryOperationState(DomainModel):
+    operation_id: Digest
+    action: Literal["generate", "revise", "clarify"]
+    status: Literal["prepared", "attempted", "saved", "blocked", "stopped"]
+    reserved_attempts: int = Field(ge=0)
+    repairs: int = Field(ge=0)
+    input: dict | None
+    story_ref: ArtifactRef | None
+    response: OwnerResponseV1 | None
+    validation_diagnostic: StoryValidationDiagnostic | None = None
+
+
+class StoryActivity(DomainModel):
+    model: str
+    system_prompt: Narrative
+    prompt_digest: Digest
+    operations: list[StoryOperationState]
 
 
 def fixture_story(message: str, shots: list[str], prior: StoryV1 | None, feedback: str | None,
@@ -222,7 +268,8 @@ def _state(db, execution_id: str) -> dict:
             "stories": stories, "discussion": discussion}
 
 
-def create_app(root: Path | None = None, produce_story=fixture_story) -> FastAPI:
+def create_app(root: Path | None = None, produce_story=fixture_story, *,
+               character_root: Path = DEFAULT_CHARACTER_ROOT) -> FastAPI:
     """One ASGI app per local owner; Uvicorn must bind only 127.0.0.1:8765."""
     session, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
 
@@ -259,6 +306,7 @@ def create_app(root: Path | None = None, produce_story=fixture_story) -> FastAPI
                 del app.state.runtime
 
     app = FastAPI(title="Kinodel internal Story prototype", lifespan=lifespan)
+    app.include_router(character_router(character_root))
 
     @app.middleware("http")
     async def local_boundary(request: Request, call_next):
@@ -287,6 +335,11 @@ def create_app(root: Path | None = None, produce_story=fixture_story) -> FastAPI
         response = JSONResponse({"csrf_token": csrf})
         response.set_cookie(COOKIE, session, httponly=True, samesite="strict", path="/")
         return response
+
+    @app.get("/api/story-availability", response_model=StoryAvailability)
+    async def read_story_availability():
+        from backend.openrouter import story_availability
+        return story_availability()
 
     @app.get("/", include_in_schema=False)
     @app.get("/index.html", include_in_schema=False)
@@ -327,6 +380,22 @@ def create_app(root: Path | None = None, produce_story=fixture_story) -> FastAPI
         except (ValueError, TypeError) as error:
             raise HTTPException(409, str(error)) from error
 
+    @app.post("/api/executions/live-story", status_code=202)
+    async def live_start(body: LiveStart, request: Request):
+        try:
+            brief = StoryTextInputV1(user_vibe=body.input_message, subjects=body.subjects, shot_duration_ms=body.shot_duration_ms)
+            receipt = await request.app.state.runtime.start_live(body.project_id, body.client_key, body.shot_ids, brief,
+                                                                 character_refs=body.character_refs, character_root=character_root)
+        except FileNotFoundError as error:
+            raise HTTPException(404, "Selected character revision not found") from error
+        except InvalidCharacterSelection as error:
+            raise HTTPException(422, "Invalid character selection") from error
+        except OSError as error:
+            raise HTTPException(409, "Character library unavailable") from error
+        except ValueError as error:
+            raise HTTPException(409, "Live Story start conflicts or server configuration is unavailable") from error
+        return {"execution_id": receipt.execution_id, "work_id": receipt.work_id}
+
     @app.get("/api/executions/{execution_id}/projection", response_model=StoryProjection)
     async def read_projection(execution_id: CanonicalUUID, request: Request):
         try:
@@ -344,10 +413,24 @@ def create_app(root: Path | None = None, produce_story=fixture_story) -> FastAPI
         except (ValueError, TypeError) as error:
             raise HTTPException(409, str(error)) from error
 
+    @app.get("/api/executions/{execution_id}/story-activity", response_model=StoryActivity | None, response_model_exclude_unset=True)
+    async def read_story_activity(execution_id: CanonicalUUID, request: Request, include_validation_diagnostic: bool = False):
+        try:
+            activity = story_activity(request.app.state.runtime.db, execution_id)
+            if activity is not None and not include_validation_diagnostic:
+                # Existing activity clients reject unknown fields; diagnostics are an opt-in read.
+                activity = {**activity, "operations": [{k: v for k, v in operation.items() if k != "validation_diagnostic"}
+                                                      for operation in activity["operations"]]}
+            return StoryActivity.model_validate(activity) if activity is not None else None
+        except (ValueError, TypeError, KeyError, IndexError, AttributeError) as error:
+            raise HTTPException(409, "Recorded Story activity is invalid") from error
+        except LookupError as error:
+            raise HTTPException(404, str(error)) from error
+
     @app.get("/api/executions/{execution_id}/stories/{artifact_id}")
     async def story(execution_id: CanonicalUUID, artifact_id: CanonicalUUID, request: Request):
         db = request.app.state.runtime.db
-        if db.execute("SELECT 1 FROM executions WHERE execution_id=? AND graph_id=?", (execution_id, GRAPH_ID)).fetchone() is None:
+        if db.execute("SELECT 1 FROM executions WHERE execution_id=? AND graph_id IN (?,?)", (execution_id, *STORY_GRAPH_IDS)).fetchone() is None:
             raise HTTPException(404, "Unknown internal Story execution")
         try:
             ref, body = read_story(db, execution_id, artifact_id=artifact_id)

@@ -21,6 +21,28 @@ function load(file) {
     getItem: k => items.get(k) ?? null, setItem: (k, v) => items.set(k, v), removeItem: k => items.delete(k) };
   const id = '00000000-0000-0000-0000-000000000001';
   const start = createCommand('start', id, null, null, { project_id: id, client_key: id, input_message: 'Лис', shot_ids: ['s1'] });
+  const live = createCommand('start', id, null, null, { project_id: id, client_key: id, input_message: 'Лис', shot_ids: ['s1'],
+    subjects: [{ subject_id: 'fox', description: 'Любопытный лис' }], shot_duration_ms: 5000 });
+  assert.equal(live.endpoint, '/api/executions/live-story');
+  saveCommand(storage, live);
+  assert.equal(pendingCommands(storage)[0].endpoint, live.endpoint);
+  await deliverCommand(storage, live.id, async endpoint => { assert.equal(endpoint, live.endpoint); return { execution_id: id, work_id: 'live-work' }; }, async () => {});
+  const ref = { subject_id: `character-${'a'.repeat(32)}`, revision: 1, digest: `sha256:${'b'.repeat(64)}` };
+  const selectedBody = { project_id: id, client_key: id, input_message: 'Лея', shot_ids: ['s1'],
+    subjects: [], character_refs: [ref], shot_duration_ms: 5000 };
+  const selected = createCommand('start', id, null, null, selectedBody);
+  assert.equal(selected.endpoint, '/api/executions/live-story');
+  saveCommand(storage, selected);
+  await assert.rejects(deliverCommand(storage, selected.id, async () => { throw new ReadError('network', 'lost'); }, async () => {}));
+  assert.equal(pendingCommands(storage)[0].payload, JSON.stringify(selectedBody));
+  await deliverCommand(storage, selected.id, async (endpoint, payload) => {
+    assert.equal(endpoint, '/api/executions/live-story'); assert.equal(payload, JSON.stringify(selectedBody));
+    return { execution_id: id, work_id: 'selected-work' };
+  }, async () => {});
+  for (const character_refs of [[ref, ref], [{ ...ref, revision: 0 }], [{ ...ref, digest: 'latest' }]])
+    assert.throws(() => createCommand('start', id, null, null, { ...selectedBody, character_refs }));
+  assert.throws(() => createCommand('start', id, null, null, { ...selectedBody, subjects: [{ subject_id: ref.subject_id, description: 'duplicate' }] }));
+  assert.throws(() => createCommand('start', id, null, null, { ...selectedBody, subjects: undefined }), 'refs-only payload is invalid live, not a fixture');
   let posts = 0;
   const broken = { ...storage, setItem() { throw new Error('quota'); } };
   assert.throws(() => saveCommand(broken, start), /storage/i);

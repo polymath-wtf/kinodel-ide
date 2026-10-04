@@ -1,8 +1,21 @@
 import { useQuery } from '@tanstack/react-query';
 import { getJson, ReadError } from '../../shared/api/http';
-import { artifactRefSchema, projectionSchema, recentSchema, storyBodySchema, validateBody, type ArtifactRef } from './contracts';
+import { activitySchema, availabilitySchema, artifactRefSchema, projectionSchema, recentSchema, storyBodySchema, validateBody, type ArtifactRef } from './contracts';
 
 export const readOptions = { retry: false, refetchOnWindowFocus: 'always', refetchOnReconnect: 'always', networkMode: 'always' } as const;
+export function useStoryAvailability() {
+  return useQuery({ ...readOptions, queryKey: ['story-availability'],
+    queryFn: ({ signal }) => getJson('/api/story-availability', availabilitySchema, signal), refetchInterval: 10000 });
+}
+export function useStoryActivity(projection?: { execution_id: string; project_id: string; status: string; graph: { id: string } }) {
+  return useQuery({ ...readOptions, queryKey: ['execution', projection?.execution_id, 'story-activity'], enabled: projection?.graph.id === 'kinodel.live-story',
+    queryFn: async ({ signal }) => {
+      const activity = await getJson(`/api/executions/${projection!.execution_id}/story-activity`, activitySchema, signal);
+      if (activity?.operations.some(o => o.story_ref && (o.story_ref.execution_id !== projection!.execution_id || o.story_ref.project_id !== projection!.project_id))) throw new ReadError('schema', 'Ответ другого запуска отклонён.');
+      return activity;
+    },
+    refetchInterval: ['completed', 'cancelled', 'failed'].includes(projection?.status ?? '') ? false : 2000 });
+}
 export function useRecentExecutions() {
   return useQuery({ ...readOptions, queryKey: ['executions', 'recent', 20],
     queryFn: ({ signal }) => getJson('/api/executions?limit=20', recentSchema, signal), refetchInterval: 10000 });

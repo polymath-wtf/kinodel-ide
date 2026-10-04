@@ -37,7 +37,7 @@ Editor source cards feed this same resolver with explicit exact text/media/chunk
 
 `@` and `@@` are UI syntax, not storage identity. Selecting a mention creates a typed token containing object kind, stable ID, exact revision, display label, and requested scope. The backend reauthorizes and resolves it; raw paths, URLs, and text that merely looks like a mention grant no access.
 
-The initial UI may display:
+The current local character picker selects creator-authored `CharacterV1` cards by exact `CharacterRef`, without mention parsing or retrieval. The broader mention UI may later display:
 
 - `@file` for a project artifact or maintained Markdown source;
 - `@@chunk` for approved creative memory;
@@ -53,7 +53,15 @@ A creator attachment applies to the current message by default. Explicit executi
 
 ### Characters In Markdown
 
-A Markdown character attached through `@file` may be a demo, source, draft or inspiration. A reusable production character becomes canonical only as an approved `CharacterChunkV1`; Markdown and a chunk must not become independent canonical copies of the same character.
+A Markdown character attached through `@file` may be a demo, source, draft or inspiration. It is not automatically an accepted `CharacterV1` or a production-memory chunk. Future generated production continuity becomes reusable memory only through separate `CharacterChunkV1` review/publication; do not maintain independent canonical copies of the same subject.
+
+### Local Creator-Authored Characters
+
+The active local text slice uses [creator-authored `CharacterV1`](../../wiki/characters/README.md), not future generated production memory. Explicit **Save character** accepts the authored card for reuse; it needs no production-source or chunk-memory gate. The canonical library is its atomic manifest plus immutable JSON revisions/images under `wiki/characters`, with no cloud upload or retrieval index.
+
+Selection pins `{subject_id, revision, digest}`. Live Start validates and freezes each exact card snapshot and its narrative Bio projection in the existing execution owner configuration; operation requests reuse that snapshot, never library latest, even after edits/restart. This bounded implementation does not claim the general `ContextSelectionV1` protocol below is activated. Only Bio (`name`, optional `age`, `gender`, `vibe`) and exact-ref provenance reach Storytell; image bytes remain local in the current text slice. A remote model receives selected narrative data, not library access.
+
+Empty character selection is valid: Storytell may invent an execution-local cast in `StoryV2.generated_characters`. Generation and Story approval never automatically publish a `CharacterV1` or `CharacterChunkV1`; future memory promotion remains a separate explicit feature.
 
 ## Pipeline-Required Context
 

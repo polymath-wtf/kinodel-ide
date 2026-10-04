@@ -5,7 +5,7 @@ import sqlite3
 
 from backend.domain import OwnerResponseV1, make_operation_id, sha256_digest
 from backend.review_store import REVIEW_ACTION_LIMIT
-from backend.story_start import GRAPH_ID
+from backend.story_start import LIVE_GRAPH_ID, STORY_GRAPH_IDS
 
 
 def _rows(db: sqlite3.Connection, sql: str, params: tuple = ()) -> list[dict]:
@@ -56,8 +56,8 @@ def _overview(db: sqlite3.Connection, execution_id: str) -> dict:
 def story_projection(db: sqlite3.Connection, execution_id: str) -> dict | None:
     """Read only canonical business metadata; no checkpoint, graph or artifact-body access."""
     executions = _rows(db, "SELECT project_id,input_message,shot_ids,client_key,start_digest,"
-                       "graph_id,graph_version,graph_digest FROM executions "
-                       "WHERE execution_id=? AND graph_id=?", (execution_id, GRAPH_ID))
+                       "graph_id,graph_version,graph_digest,owner_config FROM executions "
+                       "WHERE execution_id=? AND graph_id IN (?,?)", (execution_id, *STORY_GRAPH_IDS))
     if not executions:
         return None
     row = executions[0]
@@ -111,7 +111,13 @@ def story_projection(db: sqlite3.Connection, execution_id: str) -> dict | None:
                 # The stored owner-v2 tuple pins action, request, exact base, feedback and frozen discussion.
                 matching_inputs = (isinstance(pinned, list) and len(pinned) == 6
                                    and pinned[:5] == ["test-story-owner-v2", request["action"], request["request_id"],
-                                                     base, request["message"]] and isinstance(pinned[5], list))
+                                                      base, request["message"]] and isinstance(pinned[5], list))
+                if row["owner_config"] is not None:
+                    adapter_version = json.loads(row["owner_config"])["adapter_version"]
+                    matching_inputs = (isinstance(pinned, list) and len(pinned) == 7
+                                       and pinned[:5] == [f"live-story-owner-v{adapter_version}", request["action"], request["request_id"], base, request["message"]]
+                                       and isinstance(pinned[5], list)
+                                       and pinned[6] == sha256_digest(row["owner_config"].encode("utf-8")))
                 # Match the earlier tuple already supported by prepare_story_operation replay.
                 earlier_revision = (request["action"] == "revise" and request["owner_response"] is None
                                     and pinned == ["test-story-revise-v1", base, request["message"]])
@@ -157,15 +163,19 @@ def story_projection(db: sqlite3.Connection, execution_id: str) -> dict | None:
     return {"execution_id": execution_id, "project_id": project_id, "status": overview["status"],
             "outcome": outcome, "submitted": {"input_message": row["input_message"],
             "shot_ids": json.loads(row["shot_ids"]), "client_key": row["client_key"],
-            "start_digest": row["start_digest"]},
-            "graph": {"id": row["graph_id"], "version": row["graph_version"], "digest": row["graph_digest"]},
+             "start_digest": row["start_digest"],
+             **({"text_brief": json.loads(row["owner_config"])["brief"],
+                 "selected_characters": json.loads(row["owner_config"]).get("selected_characters", [])}
+                if row["owner_config"] else {})},
+             "graph": {"id": row["graph_id"], "version": row["graph_version"], "digest": row["graph_digest"]},
+             **({"model": json.loads(row["owner_config"])["model"]} if row["owner_config"] else {}),
             "work": overview["work"], "stories": stories, "reviews": reviews, "review": overview["review"],
             "remaining_actions": remaining, "allowed_actions": allowed}
 
 
 def recent_story_executions(db: sqlite3.Connection, limit: int) -> list[dict]:
-    ids = db.execute("SELECT execution_id,project_id,input_message FROM executions WHERE graph_id=? "
-                     "ORDER BY rowid DESC LIMIT ?", (GRAPH_ID, limit)).fetchall()
+    ids = db.execute("SELECT execution_id,project_id,input_message FROM executions WHERE graph_id IN (?,?) "
+                     "ORDER BY rowid DESC LIMIT ?", (*STORY_GRAPH_IDS, limit)).fetchall()
     items = []
     for execution_id, project_id, message in ids:
         overview = _overview(db, execution_id)
@@ -178,3 +188,44 @@ def recent_story_executions(db: sqlite3.Connection, limit: int) -> list[dict]:
         items.append({"execution_id": execution_id, "project_id": project_id,
                       "input_preview": message[:160], "status": overview["status"], "current_story": current})
     return items
+
+
+def story_activity(db: sqlite3.Connection, execution_id: str) -> dict | None:
+    """Safe recorded model inputs/results, never provider envelopes or private reasoning."""
+    from backend.openrouter import StoryValidationDiagnostic, read_owner_config
+
+    projection = story_projection(db, execution_id)
+    if projection is None:
+        raise LookupError("Unknown Story execution")
+    body = db.execute("SELECT owner_config FROM executions WHERE execution_id=?", (execution_id,)).fetchone()[0]
+    if body is None:
+        if projection["graph"]["id"] == LIVE_GRAPH_ID:
+            raise ValueError("Missing frozen Story owner configuration")
+        return None  # Historical fixture has no system prompt or provider call.
+    config = read_owner_config(body)
+    operations = []
+    for row in _rows(db, "SELECT operation_id,prepared_inputs,owner_request,owner_request_digest,owner_attempts,owner_repairs,"
+                     "artifact_id,owner_response,owner_validation_diagnostic FROM story_operations WHERE execution_id=? ORDER BY rowid", (execution_id,)):
+        task = None
+        if row["owner_request"] is not None:
+            request = json.loads(row["owner_request"])
+            if (sha256_digest(row["owner_request"].encode("utf-8")) != row["owner_request_digest"]
+                    or request["model"] != config.model
+                    or request["messages"][0] != {"role": "system", "content": config.system_prompt}):
+                raise ValueError("Recorded Story model request mismatch")
+            task = json.loads(request["messages"][1]["content"])
+        ref = next((s["ref"] for s in projection["stories"] if s["ref"]["artifact_id"] == row["artifact_id"]), None)
+        response = OwnerResponseV1.model_validate_json(row["owner_response"]).model_dump(mode="json") if row["owner_response"] else None
+        status = ("saved" if ref or response else "stopped" if projection["status"] in ("cancelled", "cancelling", "failed")
+                  else "blocked" if projection["status"] == "blocked" else "attempted" if row["owner_attempts"] else "prepared")
+        prepared = json.loads(row["prepared_inputs"])
+        action = prepared[1] if prepared[0] == f"live-story-owner-v{config.adapter_version}" else "generate"
+        if task is not None and task["action"] != action:
+            raise ValueError("Recorded Story activity action mismatch")
+        operations.append({"operation_id": row["operation_id"], "action": action,
+                           "status": status, "reserved_attempts": row["owner_attempts"], "repairs": row["owner_repairs"],
+                           "input": task, "story_ref": ref, "response": response,
+                           "validation_diagnostic": (StoryValidationDiagnostic.model_validate_json(row["owner_validation_diagnostic"]).model_dump(mode="json")
+                                                     if row["owner_validation_diagnostic"] else None)})
+    return {"model": config.model, "system_prompt": config.system_prompt, "prompt_digest": config.prompt_digest,
+            "operations": operations}

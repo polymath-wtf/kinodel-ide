@@ -52,7 +52,7 @@ export async function getJson<T>(path: string, schema: z.ZodType<T>, signal?: Ab
   return result.data;
 }
 
-export async function postJson(path: string, payload: string): Promise<unknown> {
+export async function postJson(path: string, payload: string, expectedStatus: 200 | 202 = 202): Promise<unknown> {
   const send = async (token: string) => {
     try {
       return await fetch(path, { method: 'POST', credentials: 'same-origin', cache: 'no-store',
@@ -67,6 +67,6 @@ export async function postJson(path: string, payload: string): Promise<unknown> 
     response = await send((await ensureSession()).csrf_token); // One replay of the exact envelope.
   }
   const value = await json(response);
-  if (response.status !== 202) throw new ReadError('schema', 'Нет ожидаемого receipt (202). Доставка не подтверждена.');
+  if (response.status !== expectedStatus) throw new ReadError('schema', `Нет ожидаемого receipt (${expectedStatus}). Доставка не подтверждена.`);
   return value;
 }

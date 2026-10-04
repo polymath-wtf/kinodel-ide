@@ -7,8 +7,8 @@ import sqlite3
 import stat
 import tempfile
 
-from backend.domain import (ArtifactRef, OwnerResponseV1, StoryV1, canonical_json,
-                            make_operation_id, parse_json_model, sha256_digest)
+from backend.domain import (ArtifactRef, OwnerResponseV1, StoryV1, StoryV2, canonical_json,
+                            make_operation_id, parse_json_model, sha256_digest, validate_story_for_text_input)
 from backend.database import _check_file, _sync_directory
 
 
@@ -142,7 +142,7 @@ def prepare_story_operation(
     if kind not in ("generate", "revise", "clarify") or (kind == "generate") != (prior_ref is None):
         raise ValueError("Invalid owner operation kind")
     operation_id = make_operation_id(execution_id, "storytell", activation_id, kind)
-    row = db.execute("SELECT input_message, shot_ids FROM executions WHERE execution_id=?", (execution_id,)).fetchone()
+    row = db.execute("SELECT input_message, shot_ids,owner_config FROM executions WHERE execution_id=?", (execution_id,)).fetchone()
     if row is None:
         raise ValueError("Unknown test execution")
     if kind == "generate":
@@ -181,6 +181,11 @@ def prepare_story_operation(
             context = []
         inputs = ["test-story-owner-v2", kind, request_id, prior_ref.model_dump(mode="json"),
                   feedback, context]
+    if row[2] is not None:
+        from backend.openrouter import read_owner_config
+        version = read_owner_config(row[2]).adapter_version
+        inputs[0] = f"live-story-generate-v{version}" if kind == "generate" else f"live-story-owner-v{version}"
+        inputs.append(sha256_digest(row[2].encode("utf-8")))
     prepared = json.dumps(inputs, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
     digest = sha256_digest(prepared.encode("utf-8"))
     existing = db.execute(
@@ -196,7 +201,7 @@ def prepare_story_operation(
             prepared, digest = existing[2], existing[1]
         elif kind != "generate" and request_id is not None:
             # Later reviews cannot change the context of a previously prepared call.
-            inputs[-1] = pinned[-1]
+            inputs[5] = pinned[5]
             prepared = json.dumps(inputs, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
             digest = sha256_digest(prepared.encode("utf-8"))
         if existing[:4] != (operation_id, digest, prepared, expected_revision):
@@ -289,38 +294,55 @@ def commit_owner_response(db: sqlite3.Connection, execution_id: str, activation_
 
 def commit_story_operation(
     db: sqlite3.Connection, execution_id: str, activation_id: str, input_digest: str,
-    artifact_id: str, story: StoryV1,
+    artifact_id: str, story: StoryV1 | StoryV2,
 ) -> tuple[ArtifactRef, str]:
     """Publish Story bytes, then atomically record artifact, binding and transition."""
     _uuid(execution_id)
     row = db.execute(
-        "SELECT operation_id, input_digest, expected_revision, artifact_id, next_activation "
+        "SELECT operation_id, input_digest, expected_revision, artifact_id, next_activation, prepared_inputs, owner_response "
         "FROM story_operations WHERE execution_id=? AND activation_id=?", (execution_id, activation_id),
     ).fetchone()
     if row is None:
         raise ValueError("Unknown prepared activation")
-    operation_id, pinned_digest, expected_revision, committed_id, next_activation = row
+    operation_id, pinned_digest, expected_revision, committed_id, next_activation, prepared_inputs, response = row
     if input_digest != pinned_digest:
         raise ValueError("Prepared input digest mismatch")
     if committed_id is not None:
         return read_story(db, execution_id, artifact_id=committed_id)[0], next_activation
+    prepared = json.loads(prepared_inputs)
+    if response is not None or (prepared[0] in ("test-story-owner-v2", "live-story-owner-v1", "live-story-owner-v2")
+                                and prepared[1] == "clarify"):
+        raise ValueError("Clarification or owner explanation cannot commit a replacement Story")
     _assert_writable(db, execution_id)
     _uuid(artifact_id)
     body = canonical_json(story)
-    story = parse_json_model(body, StoryV1)
     digest = sha256_digest(body)
-    execution = db.execute("SELECT project_id, shot_ids FROM executions WHERE execution_id=?", (execution_id,)).fetchone()
-    project_id, shot_keys = execution
+    execution = db.execute("SELECT project_id, shot_ids,owner_config FROM executions WHERE execution_id=?", (execution_id,)).fetchone()
+    project_id, shot_keys, owner_config = execution
+    config = None
+    if owner_config is not None:
+        from backend.openrouter import read_owner_config
+        config = read_owner_config(owner_config)
+    story = parse_json_model(body, StoryV2 if config and config.adapter_version == "2" else StoryV1)
     if [shot.shot_id for shot in story.shots] != json.loads(shot_keys):
         raise ValueError("Story does not cover prepared shot keys")
+    prior_ref = None
+    if config is not None:
+        prior = None
+        if expected_revision is not None:
+            prior_ref = ArtifactRef.model_validate(prepared[3])
+            actual_ref, prior = read_story(db, execution_id, artifact_id=prior_ref.artifact_id)
+            if actual_ref != prior_ref:
+                raise ValueError("Prior Story ref mismatch at commit")
+        validate_story_for_text_input(story, config.brief, json.loads(shot_keys), prior)
     current = db.execute(
-        "SELECT binding_revision FROM execution_bindings WHERE execution_id=? AND slot='story'", (execution_id,),
+        "SELECT artifact_id,binding_revision FROM execution_bindings WHERE execution_id=? AND slot='story'", (execution_id,),
     ).fetchone()
-    if (current[0] if current else None) != expected_revision:
+    if (current[1] if current else None) != expected_revision or (prior_ref and current[0] != prior_ref.artifact_id):
         raise ValueError("Stale Story binding revision")
     uri = f"kinodel://projects/{project_id}/artifacts/{artifact_id}"
     ref = ArtifactRef(artifact_id=artifact_id, project_id=project_id, execution_id=execution_id,
-                      operation_id=operation_id, schema_id="story", schema_version="1",
+                      operation_id=operation_id, schema_id="story", schema_version=story.schema_version,
                       produced_by_stage="storytell", digest=digest, uri=uri, media_type="application/json")
     next_activation = sha256_digest(json.dumps(
         ["kinodel.story-transition.v1", operation_id, "story-hitl"], separators=(",", ":")
@@ -329,12 +351,12 @@ def commit_story_operation(
     db.execute("BEGIN IMMEDIATE")
     try:
         actual = db.execute(
-            "SELECT binding_revision FROM execution_bindings WHERE execution_id=? AND slot='story'", (execution_id,),
+            "SELECT artifact_id,binding_revision FROM execution_bindings WHERE execution_id=? AND slot='story'", (execution_id,),
         ).fetchone()
         if actual != current:
             raise ValueError("Stale Story binding revision")
         db.execute("INSERT INTO artifacts VALUES (?,?,?,?,?,?,?,?)",
-                   (artifact_id, execution_id, operation_id, digest, uri, "story", "1", "storytell"))
+                   (artifact_id, execution_id, operation_id, digest, uri, "story", story.schema_version, "storytell"))
         _bind_story(db, execution_id, artifact_id, expected_revision)
         db.execute("UPDATE story_operations SET artifact_id=?, next_activation=? WHERE operation_id=? AND artifact_id IS NULL",
                    (artifact_id, next_activation, operation_id))
@@ -361,6 +383,10 @@ def save_story(
     if row is None:
         raise ValueError("Unknown test execution")
     project_id, shot_keys = row
+    if db.execute("PRAGMA user_version").fetchone()[0] >= 10 and db.execute(
+        "SELECT owner_config FROM executions WHERE execution_id=?", (execution_id,)
+    ).fetchone()[0] is not None:
+        raise ValueError("Live Story must commit through its prepared owner operation")
     if [shot.shot_id for shot in story.shots] != json.loads(shot_keys):
         raise ValueError("Story does not cover prepared shot keys")
     uri = f"kinodel://projects/{project_id}/artifacts/{artifact_id}"
@@ -409,7 +435,7 @@ def save_story(
 
 def read_story(
     db: sqlite3.Connection, execution_id: str, *, artifact_id: str | None = None,
-) -> tuple[ArtifactRef, StoryV1]:
+) -> tuple[ArtifactRef, StoryV1 | StoryV2]:
     _uuid(execution_id)
     if artifact_id is not None:
         _uuid(artifact_id)
@@ -436,7 +462,9 @@ def read_story(
     body = path.read_bytes()
     if sha256_digest(body) != digest:
         raise ValueError("Committed Story bytes failed integrity check")
-    story = parse_json_model(body, StoryV1)
+    if version not in ("1", "2"):
+        raise ValueError("Unsupported committed Story schema version")
+    story = parse_json_model(body, StoryV1 if version == "1" else StoryV2)
     if canonical_json(story) != body:
         raise ValueError("Committed Story is not canonical")
     return ref, story

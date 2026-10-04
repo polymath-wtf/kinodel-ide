@@ -36,6 +36,48 @@ class StoryAPITests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         return {"X-Kinodel-CSRF": response.json()["csrf_token"]}
 
+    def test_live_availability_reports_only_safe_server_configuration(self):
+        import os
+        from unittest.mock import patch
+        with patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-secret", "LLM_MODEL": "test/model"}):
+            with self.client() as client:
+                self.assertEqual(client.get("/api/story-availability").status_code, 401)
+                self.session(client)
+                response = client.get("/api/story-availability")
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json(), {"configured": True, "model": "test/model", "reason": None})
+                self.assertNotIn("test-secret", response.text)
+                self.assertEqual(client.get(f"/api/executions/{uuid4()}/story-activity").status_code, 404)
+                fixture = client.post("/api/executions/internal-story", json={"project_id": str(uuid4()), "client_key": "fixture-activity", "input_message": "Fixture", "shot_ids": ["s1"]}, headers={"X-Kinodel-CSRF": client.get("/api/session").json()["csrf_token"]})
+                self.assertEqual(fixture.status_code, 202)
+                activity = client.get(f"/api/executions/{fixture.json()['execution_id']}/story-activity")
+                self.assertEqual(activity.status_code, 200)
+                self.assertIsNone(activity.json())
+                with patch.dict(os.environ, {"OPENROUTER_API_KEY": "", "LLM_MODEL": ""}):
+                    unavailable = client.get("/api/story-availability").json()
+                    self.assertFalse(unavailable["configured"])
+                    self.assertIsNotNone(unavailable["reason"])
+
+    def test_activity_diagnostic_is_opt_in_for_existing_strict_clients(self):
+        from unittest.mock import patch
+
+        diagnostic = {"attempt": 2, "stage": "schema", "code": "result_invariant",
+                      "paths": ["status", "story", "explanation"], "finish_reason": "stop"}
+        operation = {"operation_id": sha256_digest(b"operation"), "action": "generate", "status": "blocked",
+                     "reserved_attempts": 2, "repairs": 1, "input": None, "story_ref": None, "response": None}
+        activity = {"model": "test/model", "system_prompt": "Frozen prompt", "prompt_digest": sha256_digest(b"Frozen prompt"),
+                    "operations": [{**operation, "validation_diagnostic": diagnostic}]}
+        with self.client() as client, patch("backend.api.story_activity", return_value=activity):
+            self.session(client)
+            route = f"/api/executions/{uuid4()}/story-activity"
+            default = client.get(route)
+            self.assertEqual(default.status_code, 200, default.text)
+            self.assertEqual(default.json(), {**activity, "operations": [operation]})
+            included = client.get(route + "?include_validation_diagnostic=true")
+            self.assertEqual(included.status_code, 200, included.text)
+            self.assertEqual(included.json(), activity)
+            self.assertEqual(client.get(route + "?include_validation_diagnostic=false").json(), default.json())
+
     def state(self, client, execution_id, status):
         until = time.monotonic() + 5
         last = None

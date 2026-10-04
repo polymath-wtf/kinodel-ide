@@ -49,9 +49,9 @@
 └──────┴──────────────────────────────────────────────────────────────────────────┘
 ```
 
-- В отличие от [project hz](refs/zbs%20ref%20v1/project%20hz.png) это старт идеи, а не dashboard настроек: одна читаемая textarea и один ясный Start; убираем декоративную галерею проектов, крупные карточки из одних полей и недоступные функции. Subjects задаются явно при поддержанном brief contract; не обещаем работающий library picker.
+- В отличие от [project hz](refs/zbs%20ref%20v1/project%20hz.png) это старт идеи, а не dashboard настроек: одна читаемая textarea и один ясный Start; убираем декоративную галерею проектов, крупные карточки из одних полей и недоступные функции. Полный cinematic Brief остаётся целевым контрактом; подключённый текстовый Start использует идею и необязательный выбор локальных персонажей.
 - Перед Start видны необходимые resolved settings и readiness, полные profiles/version раскрываются при желании. Числа примера не являются универсальными preset defaults.
-- Внутри Brief creator явно выбирает персонажей из библиотеки `CharacterChunkV1`: один checkbox/чип на один конкретный subject; при реализации бекенда selection включает exact approved revision и разрешённую проекцию, а не поиск по строке имени. В standalone `web/` виден только локальный demo picker без канонических записей и отправки.
+- В подключённом `web/` creator выбирает сохранённые авторские `CharacterV1`: одна карточка/чип на subject с exact `{subject_id, revision, digest}`, не строка имени и не future `CharacterChunkV1`. Start закрепляет выбранные revisions и narrative Bio; обновление библиотеки не подменяет selection. Пустой выбор разрешён: Storytell придумывает execution-local cast. В отдельном `web/prototype/` character picker по-прежнему только demo.
 - Model/profile selectors похожи на React Flow AI template, но предлагают только совместимые backend-варианты. Missing profile — конкретная причина блокировки, не молчаливая подстановка модели.
 - Start фиксирует конфигурацию; повторный click использует тот же key. Reopen открывает сохранённый execution.
 
@@ -70,6 +70,17 @@ disclosure, one blue #366BDC “Start run” action. Show readiness only when kn
 Generous empty space and deliberate hierarchy, no decorative preview images,
 fake model names, redundant labels, extra sections, glow or gradients.
 ```
+
+## 1a. Characters — локальная авторская библиотека
+
+Это подключённая поверхность React workspace, не новый этап графа и не generated production memory. Rail **Characters** открывает список карточек; **Новый персонаж** — редактор с изображениями слева и Bio справа. На узком экране колонки становятся последовательными.
+
+- Карточка содержит 1–6 PNG/JPEG/WebP-референсов и Bio: обязательное имя, необязательные возраст, гендер и вайб. Audio/Video обозначены как будущие и отключены; генерации персонажа нет.
+- **Сохранить персонажа** — явное принятие автором этих данных для повторного использования. Backend коммитит immutable revision; редактирование создаёт следующую с проверкой `expected_revision`, не переписывает старую. Subject ID и revision видимы в списке/редакторе; canonical layout — [wiki/characters](../../wiki/characters/README.md).
+- До POST сохраняется exact mutation payload/key; неподтверждённое сохранение повторяет те же bytes. Browser storage — журнал доставки, не библиотека и не источник approval. Черновик без Save не принят.
+- В форме новой Story выбираются exact revisions; старый текстовый черновик subjects сохраняется отдельно как **неотправляемый**, поля `id: description` больше нет. Недоступная revision не заменяется на latest.
+- В текущем текстовом срезе remote Storytell получает только narrative Bio и exact ref provenance. Изображения остаются локальными для карточки/превью; они не отправляются модели. Библиотека не требует cloud, индекса или memory gate.
+- `StoryV2.generated_characters` живёт только в execution и его Story revisions. Ни генерация, ни Story approval не публикуют персонажей в Characters автоматически; `CharacterChunkV1` и публикация production memory остаются будущей функцией.
 
 ## 2. Pipeline — внешний вид матрёшек
 

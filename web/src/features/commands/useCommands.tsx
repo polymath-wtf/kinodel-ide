@@ -55,7 +55,9 @@ export type Commands = ReturnType<typeof useCommands>;
 export function DeliveryStatus({ commands }: { commands: Commands }) {
   return <section className="delivery-status" aria-label="Доставка команд" aria-live="polite">
     {commands.storageError && <p className="error" role="alert">{commands.storageError}</p>}
-    {commands.feedback && <p className="muted">{commands.feedback}</p>}
+    {commands.feedback && (commands.feedback.startsWith('Receipt:') && !commands.pending.length
+      ? <details><summary>Доставка подтверждена</summary><p className="muted">{commands.feedback}</p></details>
+      : <p className="muted">{commands.feedback}</p>)}
     {commands.pending.length > 0 && <><p className="warning">Неподтверждённая доставка · {commands.pending.length}. Snapshot не заменяет receipt. Сохранены exact payload и ключ; это не очередь будущих действий.</p>
       <button onClick={commands.resume} disabled={!navigator.onLine || !commands.ready}>Повторить exact-доставку</button></>}
   </section>;

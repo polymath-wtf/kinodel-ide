@@ -1,11 +1,13 @@
 import { z } from 'zod';
-import { artifactRefSchema, uuidSchema, text, narrative, unit, type ArtifactRef } from '../../entities/execution/contracts';
+import { artifactRefSchema, uuidSchema, text, narrative, unit, textSubjectSchema, type ArtifactRef } from '../../entities/execution/contracts';
 import { ReadError } from '../../shared/api/http';
+import { characterRefSchema } from '../../entities/character/contracts';
 
 const prefix = 'kinodel.command.v1.';
 const key = text.max(128);
 const digest = z.string().regex(/^sha256:[0-9a-f]{64}$/);
 const receiptSchema = z.strictObject({ work_id: z.string().min(1), execution_id: uuidSchema.optional(), decision_id: digest.optional() });
+const isLiveStart = (body: unknown) => !!body && typeof body === 'object' && ['subjects', 'character_refs', 'shot_duration_ms'].some(field => field in body);
 const envelopeSchema = z.strictObject({ id: uuidSchema, kind: z.enum(['start', 'respond', 'retry', 'cancel']),
   project_id: uuidSchema, execution_id: uuidSchema.nullable(),
   target: z.strictObject({ request_id: z.string().min(1), base_ref: artifactRefSchema }).nullable(),
@@ -16,9 +18,15 @@ const envelopeSchema = z.strictObject({ id: uuidSchema, kind: z.enum(['start', '
     const body = JSON.parse(e.payload);
     let endpoint: string;
     if (e.kind === 'start') {
-      z.strictObject({ project_id: uuidSchema, client_key: key, input_message: narrative,
-        shot_ids: z.array(unit).min(1).max(128).refine(a => new Set(a).size === a.length) }).parse(body);
-      endpoint = '/api/executions/internal-story';
+      const live = isLiveStart(body);
+      const fields = { project_id: uuidSchema, client_key: key, input_message: live ? text : narrative,
+        shot_ids: z.array(unit).min(1).max(live ? 8 : 128).refine(a => new Set(a).size === a.length) };
+      (live ? z.strictObject({ ...fields, subjects: z.array(textSubjectSchema).max(16), character_refs: z.array(characterRefSchema).max(16).optional(),
+        shot_duration_ms: z.number().int().positive().max(60000) }).refine(b => {
+          const ids = [...b.subjects.map(s => s.subject_id), ...(b.character_refs ?? []).map(r => r.subject_id)];
+          return ids.length <= 16 && new Set(ids).size === ids.length;
+        }) : z.strictObject(fields)).parse(body);
+      endpoint = live ? '/api/executions/live-story' : '/api/executions/internal-story';
       if (e.execution_id !== null || e.target !== null || body.project_id !== e.project_id) throw Error();
     } else {
       if (!e.execution_id) throw Error();
@@ -48,7 +56,7 @@ function validateReceipt(kind: Command['kind'], value: unknown) {
 }
 export function createCommand(kind: Command['kind'], project_id: string, execution_id: string | null,
   target: { request_id: string; base_ref: ArtifactRef } | null, body: unknown): Command {
-  const endpoint = kind === 'start' ? '/api/executions/internal-story' : kind === 'respond'
+  const endpoint = kind === 'start' ? (isLiveStart(body) ? '/api/executions/live-story' : '/api/executions/internal-story') : kind === 'respond'
     ? `/api/executions/${execution_id}/reviews/${encodeURIComponent(target!.request_id)}/respond` : `/api/executions/${execution_id}/${kind}`;
   return envelopeSchema.parse({ id: crypto.randomUUID(), kind, project_id, execution_id, target, endpoint, payload: JSON.stringify(body) });
 }

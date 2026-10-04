@@ -269,6 +269,79 @@ class StoryV1(DomainModel):
         return self
 
 
+class StoryTextSubjectV1(DomainModel):
+    subject_id: UnitKey
+    description: Text
+
+
+class StoryV2(StoryV1):
+    schema_version: Literal["2"]
+    generated_characters: Annotated[list[StoryTextSubjectV1], Field(max_length=16)]
+
+    @model_validator(mode="after")
+    def unique_generated_characters(self):
+        ids = [character.subject_id for character in self.generated_characters]
+        if len(ids) != len(set(ids)):
+            raise ValueError("Generated character IDs must be unique")
+        return self
+
+
+Story = Annotated[StoryV1 | StoryV2, Field(discriminator="schema_version")]
+
+
+class StoryTextInputV1(DomainModel):
+    """Explicit narrative input for the live text slice; not a cinematic Brief/media profile."""
+    user_vibe: Annotated[str, Field(strict=True, min_length=1, max_length=16384), AfterValidator(_valid_text)]
+    subjects: Annotated[list[StoryTextSubjectV1], Field(max_length=16)]
+    shot_duration_ms: Annotated[int, Field(strict=True, gt=0, le=60000)]
+
+    @model_validator(mode="after")
+    def unique_subjects(self):
+        ids = [subject.subject_id for subject in self.subjects]
+        if len(ids) != len(set(ids)):
+            raise ValueError("Declared subjects must be unique")
+        return self
+
+
+class StorytellResultV1(DomainModel):
+    status: Literal["ready", "needs_input", "out_of_scope"]
+    story: StoryV1 | None
+    explanation: Annotated[str, Field(strict=True, min_length=1, max_length=4096), AfterValidator(_valid_text)] | None
+
+    @model_validator(mode="after")
+    def complete_result(self):
+        if (self.status == "ready" and (self.story is None or self.explanation is not None)) or (
+            self.status != "ready" and (self.story is not None or self.explanation is None)
+        ):
+            raise ValueError("Owner result must contain a complete Story or an explanation")
+        return self
+
+
+class StorytellResultV2(StorytellResultV1):
+    story: StoryV2 | None
+
+
+def validate_story_for_text_input(story: StoryV1 | StoryV2, brief: StoryTextInputV1,
+                                  shot_ids: list[str], prior: StoryV1 | StoryV2 | None = None) -> None:
+    if [shot.shot_id for shot in story.shots] != shot_ids:
+        raise ValueError("Story shot IDs and order must match the prepared keys")
+    subjects = {subject.subject_id for subject in brief.subjects}
+    if isinstance(story, StoryV2):
+        generated = {character.subject_id for character in story.generated_characters}
+        if subjects & generated:
+            raise ValueError("Generated character IDs must be disjoint from selected subjects")
+        if len(subjects) + len(generated) > 16:
+            raise ValueError("Selected and generated cast must contain at most 16 subjects")
+        if prior is not None and (not isinstance(prior, StoryV2) or not {
+            character.subject_id for character in prior.generated_characters
+        }.issubset(generated)):
+            raise ValueError("Existing generated character identities must remain declared on revision")
+        subjects |= generated
+    if any(subject not in subjects for shot in story.shots for subject in shot.subject_ids):
+        raise ValueError("Every Story subject must be declared in the text input or generated cast" if isinstance(story, StoryV2)
+                         else "Every Story subject must be declared in the text input")
+
+
 ModelT = TypeVar("ModelT", bound=DomainModel)
 
 

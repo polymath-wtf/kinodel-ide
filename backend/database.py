@@ -15,7 +15,7 @@ from backend.ownership import own_data_root
 
 DATABASE_NAME = "application.sqlite3"
 APPLICATION_ID = 0x4B494E4F  # KINO; SQLite header identity, not a business record.
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 12
 BUSY_TIMEOUT_MS = 1000
 INITIALIZING = ".kinodel-initializing-v1"
 READY = ".kinodel-ready-v1"
@@ -130,6 +130,30 @@ DISCUSSION_SCHEMA = """
 ALTER TABLE story_operations ADD COLUMN owner_response TEXT;
 ALTER TABLE story_operations ADD COLUMN discussion_activation TEXT;
 """
+LIVE_STORY_SCHEMA = """
+ALTER TABLE executions ADD COLUMN owner_config TEXT;
+ALTER TABLE story_operations ADD COLUMN owner_request TEXT;
+ALTER TABLE story_operations ADD COLUMN owner_request_digest TEXT;
+ALTER TABLE story_operations ADD COLUMN owner_attempts INTEGER NOT NULL DEFAULT 0 CHECK(owner_attempts>=0);
+ALTER TABLE story_operations ADD COLUMN owner_budget INTEGER NOT NULL DEFAULT 2 CHECK(owner_budget>=2);
+ALTER TABLE story_operations ADD COLUMN owner_repairs INTEGER NOT NULL DEFAULT 0 CHECK(owner_repairs BETWEEN 0 AND 1);
+"""
+STORY_V2_SCHEMA = """
+CREATE TABLE new_artifacts (
+    artifact_id TEXT PRIMARY KEY, execution_id TEXT NOT NULL REFERENCES executions(execution_id),
+    operation_id TEXT NOT NULL UNIQUE, digest TEXT NOT NULL,
+    uri TEXT NOT NULL UNIQUE, schema_id TEXT NOT NULL CHECK(schema_id='story'),
+    schema_version TEXT NOT NULL CHECK(schema_version IN ('1','2')),
+    produced_by_stage TEXT NOT NULL CHECK(produced_by_stage='storytell')
+);
+INSERT INTO new_artifacts (rowid,artifact_id,execution_id,operation_id,digest,uri,schema_id,schema_version,produced_by_stage)
+    SELECT rowid,artifact_id,execution_id,operation_id,digest,uri,schema_id,schema_version,produced_by_stage FROM artifacts;
+DROP TABLE artifacts;
+ALTER TABLE new_artifacts RENAME TO artifacts;
+"""
+STORY_DIAGNOSTIC_SCHEMA = """
+ALTER TABLE story_operations ADD COLUMN owner_validation_diagnostic TEXT;
+"""
 
 
 def _schema(db: sqlite3.Connection) -> list[tuple[str, str, str]]:
@@ -151,6 +175,12 @@ def _expected_schema(version: int) -> list[tuple[str, str, str]]:
             candidate.executescript(CONTROL_SCHEMA)
         if version >= 9:
             candidate.executescript(DISCUSSION_SCHEMA)
+        if version >= 10:
+            candidate.executescript(LIVE_STORY_SCHEMA)
+        if version >= 11:
+            candidate.executescript(STORY_V2_SCHEMA)
+        if version >= 12:
+            candidate.executescript(STORY_DIAGNOSTIC_SCHEMA)
         return _schema(candidate)
 
 
@@ -169,7 +199,7 @@ def _validate(db: sqlite3.Connection) -> None:
     if db.execute("PRAGMA application_id").fetchone()[0] != APPLICATION_ID:
         raise ValueError("Unknown application database identity")
     version = db.execute("PRAGMA user_version").fetchone()[0]
-    if version not in (1, 2, 3, 4, 5, 6, 7, 8, SCHEMA_VERSION):
+    if version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, SCHEMA_VERSION):
         raise ValueError("Unsupported application database version; maintenance required")
     if _schema(db) != ([] if version == 1 else _expected_schema(version)):
         raise ValueError("Unexpected application database schema")
@@ -398,7 +428,27 @@ def open_database(root: Path) -> Iterator[sqlite3.Connection]:
             if db.execute("PRAGMA user_version").fetchone()[0] == 8:
                 db.execute("PRAGMA synchronous=FULL")
                 db.executescript(
-                    f"BEGIN IMMEDIATE; {DISCUSSION_SCHEMA} PRAGMA user_version={SCHEMA_VERSION}; COMMIT;"
+                    f"BEGIN IMMEDIATE; {DISCUSSION_SCHEMA} PRAGMA user_version=9; COMMIT;"
+                )
+                _validate(db)
+            if db.execute("PRAGMA user_version").fetchone()[0] == 9:
+                db.execute("PRAGMA synchronous=FULL")
+                db.executescript(
+                    f"BEGIN IMMEDIATE; {LIVE_STORY_SCHEMA} PRAGMA user_version=10; COMMIT;"
+                )
+                _validate(db)
+            if db.execute("PRAGMA user_version").fetchone()[0] == 10:
+                # Foreign keys are still disabled until preflight/migrations finish below.
+                # Rebuild only the version check; preserve rowids and every referencing record.
+                db.execute("PRAGMA synchronous=FULL")
+                db.executescript(
+                    f"BEGIN IMMEDIATE; {STORY_V2_SCHEMA} PRAGMA user_version=11; COMMIT;"
+                )
+                _validate(db)
+            if db.execute("PRAGMA user_version").fetchone()[0] == 11:
+                db.execute("PRAGMA synchronous=FULL")
+                db.executescript(
+                    f"BEGIN IMMEDIATE; {STORY_DIAGNOSTIC_SCHEMA} PRAGMA user_version={SCHEMA_VERSION}; COMMIT;"
                 )
                 _validate(db)
             _marker(root / READY, create=True)
