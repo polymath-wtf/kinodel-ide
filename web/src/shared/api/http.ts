@@ -62,7 +62,7 @@ export async function postJson(path: string, payload: string, expectedStatus: 20
   };
   const usedSession = await ensureSession();
   let response = await send(usedSession.csrf_token);
-  if (response.status === 401) {
+  if (response.status === 401 || response.status === 403) {
     if (session === usedSession) session = undefined;
     response = await send((await ensureSession()).csrf_token); // One replay of the exact envelope.
   }

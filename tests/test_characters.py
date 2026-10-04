@@ -1,4 +1,5 @@
 import hashlib
+from contextlib import contextmanager
 from io import BytesIO
 import json
 import os
@@ -123,6 +124,197 @@ class CharacterTests(unittest.TestCase):
             with self.subTest(kwargs=kwargs), self.assertRaisesRegex(ValueError, "mutation"):
                 self.repo.save(bio, images, mutation_id="create", **kwargs)
         self.assertEqual(self.repo.read_current(first.ref.subject_id)[0], first.ref)
+
+    def test_delete_hides_current_but_preserves_history_images_and_save_replays(self):
+        first = self.create()
+        changed, blue = CharacterBio(name="Edited"), image_input(color="blue")
+        second = self.repo.save(changed, [blue], mutation_id="edit",
+                                subject_id=first.ref.subject_id, expected_revision=1)
+        survivor = self.create("survivor")
+        historical = {ref: (self.repo.read_exact(ref), self.repo.read_image(
+            ref, self.repo.read_exact(ref).images[0].digest)) for ref in (first.ref, second.ref)}
+        files = {path: path.read_bytes() for directory in ("revisions", "images")
+                 for path in (self.root / directory).rglob("*") if path.is_file()}
+        deleted = self.repo.delete(mutation_id="delete", subject_id=first.ref.subject_id, expected_revision=2)
+        self.assertEqual(deleted.model_dump(mode="json"),
+                         {"mutation_id": "delete", "ref": second.ref.model_dump(mode="json"), "deleted": True})
+        reopened = CharacterRepository(self.root)
+        self.assertEqual([ref for ref, _ in reopened.list()], [survivor.ref])
+        with self.assertRaises(FileNotFoundError):
+            reopened.read_current(first.ref.subject_id)
+        self.assertEqual(reopened.delete(mutation_id="delete", subject_id=first.ref.subject_id,
+                                         expected_revision=2), deleted)
+        with patch("backend.characters._safe_image", side_effect=AssertionError("save replay decoded images")):
+            self.assertEqual(reopened.save(self.bio, [self.image], mutation_id="create"), first)
+            self.assertEqual(reopened.save(changed, [blue], mutation_id="edit",
+                                           subject_id=first.ref.subject_id, expected_revision=1), second)
+        for ref, (card, image) in historical.items():
+            self.assertEqual(reopened.read_exact(ref), card)
+            self.assertEqual(reopened.read_image(ref, card.images[0].digest), image)
+        self.assertEqual(files, {path: path.read_bytes() for directory in ("revisions", "images")
+                                 for path in (self.root / directory).rglob("*") if path.is_file()})
+        self.assertEqual([ref for ref, _ in reopened.list()], [survivor.ref])
+
+    def test_delete_occ_payload_and_shared_save_delete_mutation_namespace(self):
+        first = self.create()
+        second = self.repo.save(self.bio, [self.image], mutation_id="edit",
+                                subject_id=first.ref.subject_id, expected_revision=1)
+        before = (self.root / "manifest.json").read_bytes()
+        for key, expected, message in (("stale", 1, "Stale"), ("create", 2, "mutation"), ("edit", 2, "mutation")):
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, message):
+                self.repo.delete(mutation_id=key, subject_id=first.ref.subject_id, expected_revision=expected)
+            self.assertEqual((self.root / "manifest.json").read_bytes(), before)
+        receipt = self.repo.delete(mutation_id="delete", subject_id=first.ref.subject_id, expected_revision=2)
+        self.assertEqual(receipt.ref, second.ref)
+        before = (self.root / "manifest.json").read_bytes()
+        for key, subject, expected, message in (
+            ("delete", first.ref.subject_id, 1, "mutation"),
+            ("delete", "character-" + "0" * 32, 2, "mutation"),
+            ("another-delete", first.ref.subject_id, 1, "deleted"),
+            ("another-delete", first.ref.subject_id, 2, "deleted"),
+        ):
+            with self.subTest(key=key, expected=expected), self.assertRaisesRegex(ValueError, message):
+                self.repo.delete(mutation_id=key, subject_id=subject, expected_revision=expected)
+        for key, kwargs, message in (
+            ("delete", {}, "mutation"),
+            ("delete", {"subject_id": first.ref.subject_id, "expected_revision": 2}, "mutation"),
+            ("new-edit", {"subject_id": first.ref.subject_id, "expected_revision": 1}, "deleted"),
+            ("new-edit", {"subject_id": first.ref.subject_id, "expected_revision": 2}, "deleted"),
+        ):
+            with self.subTest(key=key, kwargs=kwargs), self.assertRaisesRegex(ValueError, message):
+                self.repo.save(self.bio, [self.image], mutation_id=key, **kwargs)
+        self.assertEqual((self.root / "manifest.json").read_bytes(), before)
+        self.assertEqual(self.repo.list(), [])
+        self.assertEqual(self.create("fresh").ref.revision, 1)
+        self.assertEqual(len(self.repo.list()), 1)
+
+    def test_delete_validates_before_effects_and_unknown_does_not_bootstrap(self):
+        valid = {"mutation_id": "delete", "subject_id": "character-" + "0" * 32, "expected_revision": 1}
+        for change in ({"mutation_id": ""}, {"mutation_id": "../delete"}, {"mutation_id": "x" * 129},
+                       {"subject_id": "../outside"}, {"subject_id": None}, {"expected_revision": None},
+                       {"expected_revision": True}, {"expected_revision": "1"}, {"expected_revision": 0}):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                self.repo.delete(**{**valid, **change})
+            self.assertFalse(self.root.exists())
+        with self.assertRaises(FileNotFoundError):
+            self.repo.delete(**valid)
+        self.assertFalse(self.root.exists())
+
+    def test_v1_manifest_loads_without_rewrite_and_upgrades_only_on_delete_commit(self):
+        first = self.create()
+        path = self.root / "manifest.json"
+        v1 = path.read_bytes()
+        self.assertEqual(json.loads(v1)["schema_version"], "1")
+        reopened = CharacterRepository(self.root)
+        self.assertEqual(reopened.read_current(first.ref.subject_id)[0], first.ref)
+        self.assertEqual(reopened.save(self.bio, [self.image], mutation_id="create"), first)
+        with self.assertRaisesRegex(ValueError, "Stale"):
+            reopened.delete(mutation_id="stale", subject_id=first.ref.subject_id, expected_revision=2)
+        with patch("backend.characters.os.replace", side_effect=OSError("disk failed")):
+            with self.assertRaisesRegex(OSError, "disk failed"):
+                reopened.delete(mutation_id="delete", subject_id=first.ref.subject_id, expected_revision=1)
+        self.assertEqual(path.read_bytes(), v1)
+        self.assertEqual(reopened.read_current(first.ref.subject_id)[0], first.ref)
+        self.assertFalse(list(self.root.rglob(".character-*")))
+        receipt = CharacterRepository(self.root).delete(mutation_id="delete", subject_id=first.ref.subject_id,
+                                                        expected_revision=1)
+        v2 = path.read_bytes()
+        self.assertEqual(json.loads(v2)["schema_version"], "2")
+        self.assertEqual(json.loads(v2)["mutations"]["delete"]["receipt"], receipt.model_dump(mode="json"))
+        self.assertEqual(CharacterRepository(self.root).list(), [])
+        self.assertEqual(path.read_bytes(), v2)
+
+    def test_delete_receipts_cannot_forge_or_corrupt_manifest_history(self):
+        first = self.create()
+        second = self.repo.save(self.bio, [self.image], mutation_id="edit",
+                                subject_id=first.ref.subject_id, expected_revision=1)
+        self.repo.delete(mutation_id="delete", subject_id=first.ref.subject_id, expected_revision=2)
+        path = self.root / "manifest.json"
+        original = path.read_bytes()
+        for damage in ("v1", "older-ref", "foreign-ref", "duplicate", "false", "numeric", "missing-save", "missing-current"):
+            manifest = json.loads(original)
+            deletion = manifest["mutations"]["delete"]["receipt"]
+            if damage == "v1":
+                manifest["schema_version"] = "1"
+            elif damage == "older-ref":
+                deletion["ref"] = first.ref.model_dump(mode="json")
+            elif damage == "foreign-ref":
+                deletion["ref"]["digest"] = "sha256:" + "0" * 64
+            elif damage == "duplicate":
+                manifest["mutations"]["duplicate"] = json.loads(json.dumps(manifest["mutations"]["delete"]))
+                manifest["mutations"]["duplicate"]["receipt"]["mutation_id"] = "duplicate"
+            elif damage in ("false", "numeric"):
+                deletion["deleted"] = False if damage == "false" else 1
+            elif damage == "missing-save":
+                del manifest["mutations"]["edit"]
+            else:
+                del manifest["current"][second.ref.subject_id]
+            malformed = json.dumps(manifest, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            path.write_bytes(malformed)
+            with self.subTest(damage=damage), self.assertRaises(ValueError):
+                CharacterRepository(self.root).delete(mutation_id="delete", subject_id=first.ref.subject_id,
+                                                       expected_revision=2)
+            self.assertEqual(path.read_bytes(), malformed)
+        path.write_bytes(original)
+        self.assertEqual(self.repo.read_exact(second.ref).revision, 2)
+
+    def test_delete_requires_lock_and_rechecks_current_after_acquiring_it(self):
+        first = self.create()
+        before = (self.root / "manifest.json").read_bytes()
+        with own_data_root(self.root), self.assertRaises(OSError):
+            self.repo.delete(mutation_id="delete", subject_id=first.ref.subject_id, expected_revision=1)
+        self.assertEqual((self.root / "manifest.json").read_bytes(), before)
+
+        @contextmanager
+        def edit_before_lock(root):
+            with patch("backend.characters.own_data_root", new=own_data_root):
+                self.repo.save(self.bio, [self.image], mutation_id="racing-edit",
+                               subject_id=first.ref.subject_id, expected_revision=1)
+            with own_data_root(root):
+                yield root
+
+        with patch("backend.characters.own_data_root", new=edit_before_lock):
+            with self.assertRaisesRegex(ValueError, "Stale"):
+                self.repo.delete(mutation_id="delete", subject_id=first.ref.subject_id, expected_revision=1)
+        self.assertEqual(self.repo.read_current(first.ref.subject_id)[0].revision, 2)
+        self.assertNotIn("delete", json.loads((self.root / "manifest.json").read_bytes())["mutations"])
+
+    def test_process_death_before_and_after_delete_commit_is_retryable(self):
+        child = """
+import os, sys
+from pathlib import Path
+from backend import characters
+replace = characters.os.replace
+def crash(source, destination):
+    if sys.argv[3] == 'before':
+        os._exit(17)
+    replace(source, destination)
+    os._exit(17)
+characters.os.replace = crash
+characters.CharacterRepository(Path(sys.argv[1])).delete(
+    mutation_id='delete', subject_id=sys.argv[2], expected_revision=1)
+"""
+        for point in ("before", "after"):
+            with self.subTest(point=point):
+                root = self.root / point
+                repo = CharacterRepository(root)
+                first = repo.save(self.bio, [self.image], mutation_id="create")
+                card = repo.read_exact(first.ref)
+                image = repo.read_image(first.ref, card.images[0].digest)
+                result = subprocess.run([sys.executable, "-B", "-c", child, str(root), first.ref.subject_id, point],
+                                        capture_output=True, text=True, timeout=15,
+                                        cwd=Path(__file__).resolve().parents[1])
+                self.assertEqual(result.returncode, 17, result.stderr)
+                reopened = CharacterRepository(root)
+                self.assertEqual(len(reopened.list()), 1 if point == "before" else 0)
+                receipt = reopened.delete(mutation_id="delete", subject_id=first.ref.subject_id, expected_revision=1)
+                self.assertEqual(receipt.ref, first.ref)
+                self.assertTrue(receipt.deleted)
+                self.assertEqual(reopened.list(), [])
+                self.assertEqual(reopened.read_exact(first.ref), card)
+                self.assertEqual(reopened.read_image(first.ref, card.images[0].digest), image)
+                self.assertEqual(reopened.save(self.bio, [self.image], mutation_id="create"), first)
+                self.assertEqual(reopened.list(), [])
 
     def test_idempotency_survives_a_fresh_process(self):
         first = self.create()

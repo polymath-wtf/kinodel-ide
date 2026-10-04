@@ -4,6 +4,21 @@
 
 Статус: **v0-прототип собран, дизайн пересматривается до production UI**. Ниже целевые wireframe/промпты для следующей итерации, а не описание уже реализованного HTML. Стек, tokens и backend-границы — [webui.md](webui.md). Все названия фильма, версии и счётчики ниже — **mock data** для одного согласованного примера.
 
+**Реализованы правки пользователя, 4 октября:** после [UX1–UX5](uiux-audit-2026-10-04.md#7-реализованная-итерация-ux1ux5) возвращён левый rail Pipeline / Canvas / Characters, восстановлен полный путь справа от компактного имени проекта. Все node footer-кнопки убраны: click — информация, double-click — вложенный scope; right-click в любом месте — Back. Выбор персонажей всегда виден, Character info показывает pinned images/Bio, ID видим, гендер — Male/Female. Test Start и «Что будет создано» отсутствуют. [Приёмка и screenshots v38–v40](uiux-audit-2026-10-04.md#8-правки-пользователя-после-ux1ux5); отдельное пользовательское visual approval новой версии не заявлено. v10/v11 и старые mock prompts ниже исторические, не совокупный список обязательных кнопок.
+
+### Текущая connected-композиция
+
+```text
+KINODEL [Проект ▾] / Cinematic / Storytell   [Статус · Run ▾] [+ Новая] [Chat]
+────────────────────────────────────────────────────────────────────────────────────────────
+Pipeline │ Один canvas, без дополнительных полос       │ Details 380px / Story 520px
+Canvas   │ Brief → Storytell → Wardrobe → …              │ Версия → завязка → история
+Characters                                              │ Персонажи / кадры / история ▾
+         │ [zoom / Fit / Текущий этап]                   │ [Обсудить] [Утвердить Story vN]
+```
+
+Справа один выбранный предмет, desktop canvas доступен; ниже 1280px — focused sheet. Enter открывает информацию, Shift+Enter раскрывает существующий scope. Back закрывает сначала shell menu, затем panel/editor, затем возвращает parent scope/предыдущую страницу; корень — no-op. Chat показывает тот же результат первым и общий адресный draft. Canvas пока честно пустой, media execution не подключён. Start: идея, секунды/число кадров и всегда видимый optional picker; **Character info** раскрывает выбранные изображения/Bio/параметры. Shot IDs расширенные. Неизвестная отправка остаётся рядом с действием с exact повтором; successful receipt — в Run, character-save toast короткий.
+
 ## Дизайн в одной строке
 
 Графитовый инструмент для режиссёра: Pipeline показывает путь и компактные превью, отдельный Canvas собирает все изображения и видео проекта, инспектор раскрывает выбранный материал. Chat — альтернативный вид процесса, доступный в standalone как локальный mock.
@@ -73,11 +88,13 @@ fake model names, redundant labels, extra sections, glow or gradients.
 
 ## 1a. Characters — локальная авторская библиотека
 
-Это подключённая поверхность React workspace, не новый этап графа и не generated production memory. Rail **Characters** открывает список карточек; **Новый персонаж** — редактор с изображениями слева и Bio справа. На узком экране колонки становятся последовательными.
+Это подключённая поверхность React workspace, не новый этап графа и не generated production memory. **Characters** в левом rail открывает список карточек; **Новый персонаж** — редактор с изображениями слева и Bio справа. На узком экране колонки становятся последовательными. Название страницы только в breadcrumb, без видимых повторных «Персонажи» / LOCAL LIBRARY. Компактный desktop editor показывает footer без прокрутки при 1440×768/900 с 1–6 изображениями.
 
-- Карточка содержит 1–6 PNG/JPEG/WebP-референсов и Bio: обязательное имя, необязательные возраст, гендер и вайб. Audio/Video обозначены как будущие и отключены; генерации персонажа нет.
-- **Сохранить персонажа** — явное принятие автором этих данных для повторного использования. Backend коммитит immutable revision; редактирование создаёт следующую с проверкой `expected_revision`, не переписывает старую. Subject ID и revision видимы в списке/редакторе; canonical layout — [wiki/characters](../../wiki/characters/README.md).
+- Карточка содержит 1–6 PNG/JPEG/WebP-референсов и Bio: обязательное имя, необязательные возраст, гендер и вайб. Audio/Video скрыты до реализации; генерации персонажа нет. Не повторяем пустые optional fields на каждой карточке.
+- **Сохранить персонажа** — явное принятие автором этих данных для повторного использования. Backend коммитит immutable revision; редактирование создаёт следующую с проверкой `expected_revision`, не переписывает старую. Revision и ID всегда видимы в карточке/редакторе; новый ID назначается после сохранения. «О версиях» отсутствует. Гендер — кнопки Male/Female, необязательный выбор; прежние произвольные значения и pending payload не нормализуются автоматически. Canonical layout — [wiki/characters](../../wiki/characters/README.md).
 - До POST сохраняется exact mutation payload/key; неподтверждённое сохранение повторяет те же bytes. Browser storage — журнал доставки, не библиотека и не источник approval. Черновик без Save не принят.
+- Saved Character открывается clean: Continue появляется только после изменения Bio/ordered images; exact revert снимает dirty. Continue/повторный вход в тот же subject сохраняет unsent правки и исходный OCC, не читает latest. Другой subject/New заменяет unsent draft без вопроса. [Приёмка v43](uiux-audit-2026-10-04.md#10-черновик-существующего-персонажа-и-компактный-editor).
+- **Последняя правка:** список без subtitle/счётчика «Карточки», heading actions: icon refresh, «Продолжить черновик · имя», «Новый персонаж». Click персонажа заменяет unsent draft без вопроса. Только editor содержит confirmed «Удалить черновик» / «Удалить персонажа»; draft reset не удаляет saved card, Character delete скрывает active subject с OCC, не ломает historical refs. Pending save/delete остаётся exact и восстанавливаемым; 401/403 не очищают журнал. Projects menu без крестика/connection label, refresh icon рядом с **Проекты**; закрывается outside click/right-click/Escape. [Проверки v41–v42](uiux-audit-2026-10-04.md#9-финальные-правки-characters-и-меню-проектов).
 - В форме новой Story выбираются exact revisions; старый текстовый черновик subjects сохраняется отдельно как **неотправляемый**, поля `id: description` больше нет. Недоступная revision не заменяется на latest.
 - В текущем текстовом срезе remote Storytell получает только narrative Bio и exact ref provenance. Изображения остаются локальными для карточки/превью; они не отправляются модели. Библиотека не требует cloud, индекса или memory gate.
 - `StoryV2.generated_characters` живёт только в execution и его Story revisions. Ни генерация, ни Story approval не публикуют персонажей в Characters автоматически; `CharacterChunkV1` и публикация production memory остаются будущей функцией.

@@ -20,12 +20,24 @@ revisions/<subject_id>/<revision>-<card-sha256-hex>.json
 images/<image-sha256-hex>.<png|jpg|webp>
 ```
 
-- `manifest.json` (`schema_version="1"`) is the atomic commit authority: `current` maps subjects to exact `CharacterRef`s; `mutations` retains payload digests and save receipts for idempotent replay.
+- `manifest.json` is the atomic commit authority: `current` maps subjects to last exact `CharacterRef`s; `mutations` retains payload digests and save/delete receipts for idempotent replay. Existing canonical version `1` remains readable; the first successful deletion atomically upgrades it to version `2`. Reads and rejected commands do not migrate it.
 - `CharacterRef = {subject_id, revision, digest}`; `digest` is `sha256:<hex>` of canonical card JSON. Each image entry records its own digest, MIME, byte length and dimensions. Paths are backend-derived, never client identities.
 - Images and revision JSON publish before the manifest commits. Old committed revisions/images remain readable; replay returns the original receipt without rolling current back. Reusing a mutation ID with different bytes/target or a stale update is rejected.
 - Reads do not bootstrap an empty library. Unreferenced files left by interrupted saves are not accepted cards; no automatic cleanup is active. A missing/corrupt initialized manifest or tampered bytes fail closed, never silently reset the library. Do not manually edit/delete managed files or overwrite an existing library during setup.
 
 Browser IndexedDB holds pending exact image-bearing mutations before POST, not canonical cards. The manifest/files remain authoritative after browser storage loss. Storage uses one library lock and a bounded manifest; Windows checks cover process-death recovery, not power loss or cloud/network-share storage.
+
+## Deletion
+
+Only the editor exposes **Delete draft** and **Delete character**, each requiring confirmation. Draft deletion discards unsent fields/images without changing the saved character. Opening a different character or creating a new one replaces an unsent draft without a confirmation.
+
+Opening a saved character is clean: **Continue draft** appears only when Bio or ordered image inputs differ from the opened version. Exact reversion clears dirty. Back and page navigation retain those unsent edits; Continue or reopening the same subject resumes them without fetching latest or changing the original OCC revision. Clean cards disable draft deletion. Unsent drafts live in the mounted workspace; pending delivery remains separately persisted in IndexedDB.
+
+`POST /api/characters/delete` accepts `{mutation_id, subject_id, expected_revision}` (JSON, at most 4 KiB) and returns `{mutation_id, ref, deleted:true}` for the last exact saved revision. It shares the save mutation-ID namespace, library lock and localhost security boundary. A stale revision, changed replay payload/key or already deleted target under a new key yields 409; an unknown subject yields 404. Identical replay returns the original receipt, including after restart.
+
+The durable delete receipt removes the subject from the active library; it does not unlink immutable revisions/images. Exact historical reads and frozen Story inputs remain valid, as do new Starts with an already selected exact ref. New updates cannot resurrect a deleted subject; original save replays remain idempotent. There is no restore action in this slice.
+
+Uncertain save/delete delivery cannot be discarded as a draft. The browser persists the exact request before POST, validates its receipt and only then clears the journal. Authentication/CSRF rejection retains pending delivery; one bounded session renewal retries the same bytes/key. Reload exposes **Continue deletion** and exact replay.
 
 ## Selection And Storytell
 

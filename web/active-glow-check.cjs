@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const Module = require('node:module');
 const ts = require('typescript');
+const { drill, root } = require('./acceptance-navigation.cjs');
 function load(file) {
   const m = new Module(file, module); m.paths = module.paths;
   m.require = name => name.startsWith('.') ? load(path.resolve(path.dirname(file), `${name}.ts`)) : require(name);
@@ -101,6 +102,7 @@ if (process.argv.includes('--browser')) (async () => {
       let value;
       if (pathname === '/api/session') value = { csrf_token: 'mock-session' };
       else if (pathname === '/api/story-availability') value = { configured: true, model: 'mock/story-model', reason: null };
+      else if (pathname === '/api/characters') value = { items: [] };
       else if (pathname === '/api/executions') value = { items: [{ execution_id: id, project_id: id, input_preview: p.submitted.input_message, status: p.status, current_story: p.stories[0] ?? null }] };
       else if (pathname === `/api/executions/${id}/projection`) value = p;
       else if (pathname === `/api/executions/${id}/story-activity`) value = p.graph.id === 'kinodel.live-story' ? { model: p.model, system_prompt: 'Mock frozen prompt', prompt_digest: digest,
@@ -135,11 +137,11 @@ if (process.argv.includes('--browser')) (async () => {
       p = scenarios[name];
       await page.goto(`${origin}/?execution=${id}`);
       await expect(page.locator('.execution')).toHaveAttribute('data-execution', id);
-      if (await page.locator('.pipeline-content').getAttribute('data-scope') !== 'pipeline') await page.locator('.breadcrumbs button').first().click();
+      if (await page.locator('.pipeline-content').getAttribute('data-scope') !== 'pipeline') await root(page);
       await expect(stage('storytell')).toHaveClass(new RegExp(`node-${states[0]}\\b`));
       await expect(stage('wardrobe')).toHaveClass(/node-idle\b/);
       if (name === 'running') await capture('pipeline');
-      await stage('storytell').getByRole('button').click();
+      await drill(page, '.flow-stage[data-stage="storytell"]');
       await expect(page.locator('.pipeline-content')).toHaveAttribute('data-scope', 'storytell');
       await expect(stage('storytell:model')).toHaveClass(new RegExp(`node-${states[1]}\\b`));
       await expect(stage('storytell:output')).toHaveClass(new RegExp(`node-${states[2]}\\b`));
@@ -167,6 +169,7 @@ if (process.argv.includes('--browser')) (async () => {
     await page.reload();
     await expect(stage('storytell:model')).toHaveClass(/node-idle\b/);
     await expect(stage('storytell:model')).toContainText('Fixture · без LLM');
+    await page.locator('.topbar .run-controls > summary').click();
     await page.locator('.graph-disclosure summary').click();
     await page.getByRole('button', { name: 'Открыть internal LangGraph' }).click();
     assert.equal(await page.locator('.node-active, .node-done, .node-review, .node-blocked').count(), 0, 'internal source graph never claims a trace');

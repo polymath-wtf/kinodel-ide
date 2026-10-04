@@ -22,6 +22,7 @@ Kinodel is a **runtime-vibe-factory for creators**: a user follows a production 
 | Generation and other side effects | [Tools](tools/tools.md), [ComfyUI](backend/comfyui.md) |
 | Node types, nested inspection and later composition | [Nodes](backend/node.md), [Web UI / stack](frontend/webui.md), [Pipeline / Chat wireframe](frontend/uiux-wireframe.md) |
 | First connected Story frontend, approved build | [Story workspace preproduction](frontend/story-workspace-preproduction.md), [bounded subagent assignments](frontend/story-workspace-tasks.md); work checklist remains in Local MVP step 6 |
+| Connected UI cleanup, 4 October | [UX audit](frontend/uiux-audit-2026-10-04.md), [navigation/forms](frontend/uiux-audit-2026-10-04.md#8-правки-пользователя-после-ux1ux5), [Characters deletion / Projects](frontend/uiux-audit-2026-10-04.md#9-финальные-правки-characters-и-меню-проектов), [latest draft/layout acceptance](frontend/uiux-audit-2026-10-04.md#10-черновик-существующего-персонажа-и-компактный-editor); current composition in [Web UI](frontend/webui.md) |
 | Explicit context and future memory/search | [Context](context/context.md), [RAG](rag/rag.md), [chunks](rag/chunks.md) |
 | Database/hosted decisions | [Database](database/README.md) |
 | Later features | [Product roadmap](roadmap.md), [future topics](features/future.md) |

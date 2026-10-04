@@ -9,13 +9,14 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import Field, model_validator
 
-from backend.characters import (CharacterBio, CharacterRef, CharacterRepository, CharacterSaveReceipt,
-                                CharacterV1, ImageDigest, ImageInput, MAX_IMAGE_BYTES, MutationId,
-                                Revision, SubjectId)
-from backend.domain import DomainModel, _check_depth, _unique_object
+from backend.characters import (CharacterBio, CharacterDeleteMutation, CharacterDeleteReceipt,
+                                CharacterRef, CharacterRepository, CharacterSaveReceipt, CharacterV1,
+                                ImageDigest, ImageInput, MAX_IMAGE_BYTES, MutationId, Revision, SubjectId)
+from backend.domain import DomainModel, _check_depth, _unique_object, parse_json_model
 
 
 MAX_CHARACTER_BODY_BYTES = 84 * 1024 * 1024
+MAX_DELETE_BODY_BYTES = 4 * 1024
 MAX_BASE64_CHARS = ((MAX_IMAGE_BYTES + 2) // 3) * 4
 
 
@@ -53,13 +54,13 @@ class CharacterItems(DomainModel):
 
 
 def _error(error: Exception) -> HTTPException:
-    # The repository's two explicit conflicts are ValueErrors, not HTTP concerns.
+    # Repository conflicts are ValueErrors, not HTTP concerns.
     if isinstance(error, FileNotFoundError):
         return HTTPException(404, "Character revision or image not found")
     if isinstance(error, OSError):
         # The manifest may already be committed; the client must replay exact bytes.
         return HTTPException(503, "Character library unavailable")
-    if error.args in (("Stale expected_revision",), ("Conflicting mutation payload",)):
+    if error.args in (("Stale expected_revision",), ("Conflicting mutation payload",), ("Character is deleted",)):
         return HTTPException(409, "Character mutation conflict")
     return HTTPException(422, "Invalid character data or library contents")
 
@@ -81,6 +82,26 @@ def _save(root: Path, buffered: bytearray) -> CharacterSaveReceipt:
             images.append(ImageInput(data, item.mime_type))
     return repo.save(command.bio, images, mutation_id=command.mutation_id,
                      subject_id=command.subject_id, expected_revision=command.expected_revision)
+
+
+def _delete(root: Path, buffered: bytearray) -> CharacterDeleteReceipt:
+    command = parse_json_model(bytes(buffered), CharacterDeleteMutation)
+    return CharacterRepository(root).delete(mutation_id=command.mutation_id, subject_id=command.subject_id,
+                                            expected_revision=command.expected_revision)
+
+
+async def _body(request: Request, limit: int) -> bytearray:
+    if request.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
+        raise ValueError("JSON required")
+    length = request.headers.get("content-length")
+    if length is not None and not 0 <= int(length) <= limit:
+        raise ValueError("Body too large")
+    body = bytearray()
+    async for chunk in request.stream():
+        if len(body) + len(chunk) > limit:
+            raise ValueError("Body too large")
+        body.extend(chunk)
+    return body
 
 
 def character_router(root: Path) -> APIRouter:
@@ -117,18 +138,17 @@ def character_router(root: Path) -> APIRouter:
     @router.post("", response_model=CharacterSaveReceipt)
     async def save_character(request: Request):
         try:
-            if request.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
-                raise ValueError("JSON required")
-            length = request.headers.get("content-length")
-            if length is not None and not 0 <= int(length) <= MAX_CHARACTER_BODY_BYTES:
-                raise ValueError("Body too large")
-            body = bytearray()
-            async for chunk in request.stream():
-                if len(body) + len(chunk) > MAX_CHARACTER_BODY_BYTES:
-                    raise ValueError("Body too large")
-                body.extend(chunk)
+            body = await _body(request, MAX_CHARACTER_BODY_BYTES)
             # JSON/base64 decoding and Pillow/disk work must not hold up the graph runner.
             return await asyncio.to_thread(_save, root, body)
+        except (ValueError, OSError) as error:
+            raise _error(error) from error
+
+    @router.post("/delete", response_model=CharacterDeleteReceipt)
+    async def delete_character(request: Request):
+        try:
+            body = await _body(request, MAX_DELETE_BODY_BYTES)
+            return await asyncio.to_thread(_delete, root, body)
         except (ValueError, OSError) as error:
             raise _error(error) from error
 

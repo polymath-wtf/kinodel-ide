@@ -43,6 +43,17 @@ function load(name) {
   c.validateCharacterReceipt({ mutation_id: edit.mutation_id, ref: { ...ref, revision: 2 } }, edit);
   assert.throws(() => c.validateCharacterReceipt({ mutation_id: 'wrong', ref }, mutation));
   assert.throws(() => c.validateCharacterReceipt({ mutation_id: edit.mutation_id, ref }, edit));
+  const deletion = { mutation_id: 'delete-1', subject_id: ref.subject_id, expected_revision: ref.revision };
+  c.characterDeleteSchema.parse(deletion);
+  c.characterPendingMutationSchema.parse(mutation); // Historical saves need no operation field.
+  c.characterPendingMutationSchema.parse(deletion);
+  assert.throws(() => c.characterDeleteSchema.parse({ ...deletion, operation: 'delete' }));
+  assert.throws(() => c.characterDeleteSchema.parse({ ...deletion, expected_revision: null }));
+  c.validateCharacterDeleteReceipt({ mutation_id: deletion.mutation_id, ref, deleted: true }, deletion, ref);
+  for (const changes of [{ mutation_id: 'wrong' }, { deleted: false }, { ref: { ...ref, revision: 2 } },
+    { ref: { ...ref, subject_id: `character-${'d'.repeat(32)}` } }, { ref: { ...ref, digest: `sha256:${'d'.repeat(64)}` } }]) {
+    assert.throws(() => c.validateCharacterDeleteReceipt({ mutation_id: deletion.mutation_id, ref, deleted: true, ...changes }, deletion, ref));
+  }
   const { postJson } = load('src/shared/api/http.ts');
   let attempts = 0, sessions = 0;
   const payload = JSON.stringify(mutation), sent = [];
@@ -56,5 +67,29 @@ function load(name) {
   assert.ok(sent.every(o => o.body === payload && o.credentials === 'same-origin'));
   assert.equal(sent[1].headers['X-Kinodel-CSRF'], 'session-2');
   await assert.rejects(postJson('/api/executions/internal-story', payload), /202/);
-  console.log('PASS: character strict DTOs, exact identity, 1–6 safe images, mutation/receipt, 200 transport and bounded exact CSRF replay; command default stays 202');
+  for (const [endpoint, body, status, receipt] of [
+    ['/api/characters', payload, 200, { mutation_id: mutation.mutation_id, ref }],
+    ['/api/characters/delete', JSON.stringify(deletion), 200, { mutation_id: deletion.mutation_id, ref, deleted: true }],
+    ['/api/executions/internal-story', payload, 202, { execution_id: 'command-receipt' }],
+  ]) {
+    const requests = []; let refreshes = 0;
+    global.fetch = async (url, options) => {
+      if (url === '/api/session') return Response.json({ csrf_token: `renewed-${++refreshes}` });
+      requests.push(options);
+      return requests.length === 1 ? Response.json({ detail: 'stale CSRF' }, { status: 403 }) : Response.json(receipt, { status });
+    };
+    assert.deepEqual(await postJson(endpoint, body, status), receipt);
+    assert.equal(requests.length, 2); assert.equal(refreshes, 1, '403 renews the cached session once');
+    assert.ok(requests.every(options => options.body === body));
+    assert.equal(requests[1].headers['X-Kinodel-CSRF'], 'renewed-1');
+    requests.length = 0; refreshes = 0;
+    global.fetch = async (url, options) => {
+      if (url === '/api/session') return Response.json({ csrf_token: `denied-${++refreshes}` });
+      requests.push(options); return Response.json({ detail: 'still denied' }, { status: 403 });
+    };
+    await assert.rejects(postJson(endpoint, body, status), error => error.status === 403);
+    assert.equal(requests.length, 2, 'permanent 403 is bounded, not a retry loop');
+    assert.equal(refreshes, 1); assert.ok(requests.every(options => options.body === body));
+  }
+  console.log('PASS: character strict save/delete DTOs, historical save payloads, exact identity/delete receipt, 1–6 safe images, bounded exact 401/403 renewal for saves/deletes/commands, permanent 403 stops after two attempts; command default stays 202');
 })().catch(error => { console.error(error); process.exitCode = 1; });

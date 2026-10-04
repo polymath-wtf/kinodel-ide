@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { getJson, postJson, ReadError } from '../../shared/api/http';
-import { characterExactUrl, characterItemSchema, characterListSchema, characterMutationSchema,
-  sameCharacterRef, validateCharacterReceipt, type CharacterRef } from './contracts';
+import { characterDeleteSchema, characterExactUrl, characterItemSchema, characterListSchema, characterMutationSchema,
+  sameCharacterRef, validateCharacterDeleteReceipt, validateCharacterReceipt, type CharacterRef } from './contracts';
 
 export function useCharacters(enabled: boolean) {
   return useQuery({ queryKey: ['characters'], enabled, retry: false, networkMode: 'always',
@@ -16,4 +16,8 @@ export async function readCharacter(ref: CharacterRef) {
 export async function saveCharacter(payload: string) {
   const mutation = characterMutationSchema.parse(JSON.parse(payload));
   return validateCharacterReceipt(await postJson('/api/characters', payload, 200), mutation);
+}
+export async function deleteCharacter(payload: string, ref?: CharacterRef) {
+  const mutation = characterDeleteSchema.parse(JSON.parse(payload));
+  return validateCharacterDeleteReceipt(await postJson('/api/characters/delete', payload, 200), mutation, ref);
 }

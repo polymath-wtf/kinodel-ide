@@ -119,6 +119,31 @@ class CharacterStoryTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(await self.start(db, saver), receipt)
                     self.assertEqual(db.execute("SELECT COUNT(*) FROM executions").fetchone(), (1,))
 
+    async def test_deleted_exact_ref_remains_startable_and_existing_execution_stays_frozen(self):
+        with self.transport():
+            with open_database(self.root) as db:
+                async with open_saver(self.root, db) as saver:
+                    original = await self.start(db, saver)
+                    encoded = db.execute("SELECT owner_config FROM executions").fetchone()[0]
+                    self.repo.delete(mutation_id="delete", subject_id=self.ref.subject_id, expected_revision=1)
+                    self.assertEqual(self.repo.list(), [])
+            with open_database(self.root) as db:
+                async with open_saver(self.root, db) as saver:
+                    with patch.object(CharacterRepository, "read_exact", side_effect=AssertionError("frozen replay reread library")):
+                        self.assertEqual(await self.start(db, saver), original)
+                    fresh = await start_live_story(db, saver, self.project, "after-delete", ["s1"], self.brief,
+                                                   character_refs=[self.ref], character_root=self.library)
+                    self.assertNotEqual(fresh.execution_id, original.execution_id)
+                    for row in db.execute("SELECT owner_config FROM executions"):
+                        self.assertEqual(row[0], encoded)
+                        self.assertEqual(read_owner_config(row[0]).selected_characters[0].character, self.card)
+                    await run_story_work(db, saver, fixture_story)
+                    task = json.loads(self.requests[0]["messages"][1]["content"])
+                    self.assertEqual(task["brief"], read_owner_config(encoded).brief.model_dump(mode="json"))
+                    self.assertEqual(task["context"]["selected_canon"],
+                                     [{"kind": "character", "ref": self.ref.model_dump(mode="json")}])
+                    self.assertEqual(self.repo.list(), [])
+
     async def test_invalid_duplicate_combined_and_missing_selections_do_not_accept_start(self):
         with self.transport(), open_database(self.root) as db:
             async with open_saver(self.root, db) as saver:

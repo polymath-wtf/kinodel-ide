@@ -98,13 +98,25 @@ class CharacterSaveReceipt(DomainModel):
     ref: CharacterRef
 
 
+class CharacterDeleteMutation(DomainModel):
+    mutation_id: MutationId
+    subject_id: SubjectId
+    expected_revision: Revision
+
+
+class CharacterDeleteReceipt(DomainModel):
+    mutation_id: MutationId
+    ref: CharacterRef
+    deleted: Literal[True] = True
+
+
 class _Mutation(DomainModel):
     payload_digest: ImageDigest
-    receipt: CharacterSaveReceipt
+    receipt: CharacterSaveReceipt | CharacterDeleteReceipt
 
 
 class _Manifest(DomainModel):
-    schema_version: Literal["1"] = "1"
+    schema_version: Literal["1", "2"] = "1"
     current: dict[SubjectId, CharacterRef] = Field(default_factory=dict)
     mutations: dict[MutationId, _Mutation] = Field(default_factory=dict)
 
@@ -112,10 +124,18 @@ class _Manifest(DomainModel):
     def consistent_refs(self):
         refs = set()
         versions = set()
+        deleted = {}
         for key, mutation in self.mutations.items():
             ref = mutation.receipt.ref
+            if key != mutation.receipt.mutation_id:
+                raise ValueError("Invalid mutation receipt history")
+            if isinstance(mutation.receipt, CharacterDeleteReceipt):
+                if self.schema_version != "2" or ref.subject_id in deleted:
+                    raise ValueError("Invalid character deletion history")
+                deleted[ref.subject_id] = ref
+                continue
             version = (ref.subject_id, ref.revision)
-            if key != mutation.receipt.mutation_id or version in versions:
+            if version in versions:
                 raise ValueError("Invalid mutation receipt history")
             versions.add(version)
             refs.add(ref)
@@ -128,7 +148,15 @@ class _Manifest(DomainModel):
                 raise ValueError("Invalid character history")
         if len(versions) != sum(ref.revision for ref in self.current.values()):
             raise ValueError("Incomplete character history")
+        if any(self.current.get(subject) != ref for subject, ref in deleted.items()):
+            raise ValueError("Deletion must reference the last exact character revision")
         return self
+
+    @property
+    def deleted_subjects(self) -> set[str]:
+        # Keep last refs/history; delete receipts alone are durable tombstones.
+        return {m.receipt.ref.subject_id for m in self.mutations.values()
+                if isinstance(m.receipt, CharacterDeleteReceipt)}
 
 
 class _SavePayload(DomainModel):
@@ -278,14 +306,16 @@ class CharacterRepository:
 
     def list(self) -> list[tuple[CharacterRef, CharacterV1]]:
         manifest = self._manifest()
-        return [(ref, self._read_exact(ref, manifest)) for _, ref in sorted(manifest.current.items())]
+        deleted = manifest.deleted_subjects
+        return [(ref, self._read_exact(ref, manifest)) for subject, ref in sorted(manifest.current.items())
+                if subject not in deleted]
 
     def read_current(self, subject_id: str) -> tuple[CharacterRef, CharacterV1]:
         # Reuse ref validation without accepting a filesystem path as identity.
         CharacterRef(subject_id=subject_id, revision=1, digest="sha256:" + "0" * 64)
         manifest = self._manifest()
         ref = manifest.current.get(subject_id)
-        if ref is None:
+        if ref is None or subject_id in manifest.deleted_subjects:
             raise FileNotFoundError("Unknown character")
         return ref, self._read_exact(ref, manifest)
 
@@ -332,7 +362,7 @@ class CharacterRepository:
         manifest = self._manifest()
         prior = manifest.mutations.get(mutation_id)
         if prior is not None:
-            if prior.payload_digest != payload_digest:
+            if not isinstance(prior.receipt, CharacterSaveReceipt) or prior.payload_digest != payload_digest:
                 raise ValueError("Conflicting mutation payload")
             self.read_exact(prior.receipt.ref)
             return prior.receipt
@@ -343,7 +373,7 @@ class CharacterRepository:
             manifest = self._manifest()
             prior = manifest.mutations.get(mutation_id)
             if prior is not None:
-                if prior.payload_digest != payload_digest:
+                if not isinstance(prior.receipt, CharacterSaveReceipt) or prior.payload_digest != payload_digest:
                     raise ValueError("Conflicting mutation payload")
                 self._read_exact(prior.receipt.ref, manifest)
                 return prior.receipt
@@ -353,6 +383,8 @@ class CharacterRepository:
                 current = manifest.current.get(subject_id)
                 if current is None:
                     raise FileNotFoundError("Unknown character")
+                if subject_id in manifest.deleted_subjects:
+                    raise ValueError("Character is deleted")
                 if current.revision != expected_revision:
                     raise ValueError("Stale expected_revision")
                 self._read_exact(current, manifest)
@@ -374,4 +406,42 @@ class CharacterRepository:
                 _publish(self._image_path(metadata), data)
             _publish(self._revision_path(ref), body)
             _publish(manifest_path, committed, replace=True)
+            return receipt
+
+    def delete(self, *, mutation_id: str, subject_id: str, expected_revision: int) -> CharacterDeleteReceipt:
+        """Hide an active subject, retaining all immutable bytes and exact-ref access."""
+        payload = CharacterDeleteMutation(mutation_id=mutation_id, subject_id=subject_id,
+                                          expected_revision=expected_revision)
+        payload_digest = sha256_digest(canonical_json(payload))
+        manifest = self._manifest()
+        prior = manifest.mutations.get(mutation_id)
+        if prior is not None:
+            if not isinstance(prior.receipt, CharacterDeleteReceipt) or prior.payload_digest != payload_digest:
+                raise ValueError("Conflicting mutation payload")
+            self._read_exact(prior.receipt.ref, manifest)
+            return prior.receipt
+        if subject_id not in manifest.current:
+            raise FileNotFoundError("Unknown character")  # Do not bootstrap an unknown library.
+        _directories(self.root)
+        with own_data_root(self.root):
+            manifest = self._manifest()
+            prior = manifest.mutations.get(mutation_id)
+            if prior is not None:
+                if not isinstance(prior.receipt, CharacterDeleteReceipt) or prior.payload_digest != payload_digest:
+                    raise ValueError("Conflicting mutation payload")
+                self._read_exact(prior.receipt.ref, manifest)
+                return prior.receipt
+            current = manifest.current.get(subject_id)
+            if current is None:
+                raise FileNotFoundError("Unknown character")
+            if subject_id in manifest.deleted_subjects:
+                raise ValueError("Character is deleted")
+            if current.revision != expected_revision:
+                raise ValueError("Stale expected_revision")
+            self._read_exact(current, manifest)
+            receipt = CharacterDeleteReceipt(mutation_id=mutation_id, ref=current)
+            manifest = manifest.model_copy(update={"schema_version": "2"})
+            manifest.mutations[mutation_id] = _Mutation(payload_digest=payload_digest, receipt=receipt)
+            committed = canonical_json(manifest)
+            _publish(self.root / "manifest.json", committed, replace=True)
             return receipt

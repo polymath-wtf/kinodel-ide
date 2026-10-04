@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 
 from backend.api import create_app, fixture_story
 from backend.characters import CharacterRepository, MAX_IMAGE_BYTES
+from backend.ownership import own_data_root
 from tests.test_characters import image_input
 
 
@@ -106,6 +107,114 @@ class CharacterAPITests(unittest.TestCase):
                 self.assertEqual(replay.status_code, 200, replay.text)
                 self.assertEqual(replay.json(), {"mutation_id": self.body["mutation_id"], "ref": original[0]["ref"]})
                 self.assertEqual(client.get("/api/characters").json()["items"], original)
+
+    def test_delete_receipt_occ_conflicts_restart_and_exact_history(self):
+        with self.client() as client:
+            headers = self.session(client)
+            first = client.post("/api/characters", json=self.body, headers=headers).json()
+            ref = first["ref"]
+            original = client.get(self.route(ref)).json()
+            image = original["character"]["images"][0]["digest"]
+            image_body = client.get(self.route(ref, image)).content
+            edit = {**self.body, "mutation_id": "edit", "subject_id": ref["subject_id"],
+                    "expected_revision": 1, "bio": {"name": "Edited"},
+                    "images": [{"ref": ref, "image_digest": image}]}
+            second = client.post("/api/characters", json=edit, headers=headers).json()
+            command = {"mutation_id": "delete", "subject_id": ref["subject_id"], "expected_revision": 2}
+            for change, status in (({"expected_revision": 1}, 409), ({"mutation_id": "create"}, 409),
+                                   ({"subject_id": "character-" + "0" * 32}, 404)):
+                response = client.post("/api/characters/delete", json={**command, **change}, headers=headers)
+                self.assertEqual(response.status_code, status, response.text)
+            response = client.post("/api/characters/delete", json=command, headers=headers)
+            self.assertEqual(response.status_code, 200, response.text)
+            receipt = {"mutation_id": "delete", "ref": second["ref"], "deleted": True}
+            self.assertEqual(response.json(), receipt)
+            self.assertEqual(client.get("/api/characters").json(), {"items": []})
+            self.assertEqual(client.get(self.route(ref)).json(), original)
+            self.assertEqual(client.get(self.route(ref, image)).content, image_body)
+            for change in ({"mutation_id": "another-delete"}, {"expected_revision": 1},
+                           {"subject_id": "character-" + "0" * 32}):
+                response = client.post("/api/characters/delete", json={**command, **change}, headers=headers)
+                self.assertEqual(response.status_code, 409, response.text)
+            for body in ({**self.body, "mutation_id": "delete"}, {**edit, "mutation_id": "new-edit", "expected_revision": 2}):
+                response = client.post("/api/characters", json=body, headers=headers)
+                self.assertEqual(response.status_code, 409, response.text)
+        with self.client() as client:
+            headers = self.session(client)
+            self.assertEqual(client.post("/api/characters/delete", json=command, headers=headers).json(), receipt)
+            self.assertEqual(client.post("/api/characters", json=self.body, headers=headers).json(), first)
+            self.assertEqual(client.post("/api/characters", json=edit, headers=headers).json(), second)
+            self.assertEqual(client.get("/api/characters").json(), {"items": []})
+            self.assertEqual(client.get(self.route(ref)).json(), original)
+            self.assertEqual(client.get(self.route(ref, image)).content, image_body)
+            self.assertEqual(client.get(self.route(second["ref"])).status_code, 200)
+
+    def test_delete_guards_strict_validation_and_four_kib_body_limit(self):
+        command = {"mutation_id": "delete", "subject_id": "character-" + "0" * 32, "expected_revision": 1}
+        with self.client() as client:
+            self.assertEqual(client.post("/api/characters/delete", json=command).status_code, 401)
+            headers = self.session(client)
+            self.assertEqual(client.post("/api/characters/delete", json=command).status_code, 403)
+            for hostile in ({"Host": "evil.example"}, {"Origin": "https://evil.example"}):
+                self.assertEqual(client.post("/api/characters/delete", json=command, headers={**headers, **hostile}).status_code, 403)
+            json_headers = {**headers, "Content-Type": "application/json"}
+            payload = json.dumps(command).encode()
+            with patch.object(CharacterRepository, "delete", create=True, side_effect=AssertionError("invalid body deleted")):
+                for change in ({"mutation_id": ""}, {"mutation_id": "../delete"}, {"subject_id": "../outside"},
+                               {"subject_id": None}, {"expected_revision": None}, {"expected_revision": True},
+                               {"expected_revision": "1"}, {"expected_revision": 1.0}, {"expected_revision": 0},
+                               {"deleted": True}, {"bio": {"name": "forbidden"}}):
+                    response = client.post("/api/characters/delete", json={**command, **change}, headers=headers)
+                    self.assertEqual(response.status_code, 422, response.text)
+                for malformed in (b"{}", b"not json", b"[]", b'{"mutation_id":"one","mutation_id":"two"}',
+                                  b'[' * 33 + b'0' + b']' * 33, b'{"expected_revision":NaN}', b'\xff'):
+                    response = client.post("/api/characters/delete", content=malformed, headers=json_headers)
+                    self.assertEqual(response.status_code, 422, response.text)
+                for length in ("4097", "-1", "not a length"):
+                    response = client.post("/api/characters/delete", content=payload,
+                                           headers={**json_headers, "Content-Length": length})
+                    self.assertEqual(response.status_code, 422, response.text)
+                response = client.post("/api/characters/delete", content=iter([b" " * 2048] * 2 + [payload]), headers=json_headers)
+                self.assertEqual(response.status_code, 422, response.text)
+                response = client.post("/api/characters/delete", content=payload, headers=headers)
+                self.assertEqual(response.status_code, 422, response.text)
+            self.assertFalse(self.library.exists())
+            response = client.post("/api/characters/delete", content=payload.ljust(4096, b" "), headers=json_headers)
+            self.assertEqual(response.status_code, 404, response.text)
+            self.assertFalse(self.library.exists())
+            for error, status in ((ValueError("private secret"), 422), (OSError("private secret"), 503)):
+                with patch.object(CharacterRepository, "delete", create=True, side_effect=error):
+                    response = client.post("/api/characters/delete", json=command, headers=headers)
+                    self.assertEqual(response.status_code, status, response.text)
+                    self.assertNotIn("private", response.text)
+                    self.assertNotIn(str(self.library), response.text)
+
+    def test_delete_lock_and_post_commit_sync_failure_replay(self):
+        from backend import characters
+        sync_directory = characters._sync_directory
+
+        def fail_after_commit(path):
+            if path == self.library and not self.repo.list():
+                raise OSError("private sync failure")
+            sync_directory(path)
+
+        with self.client() as client:
+            headers = self.session(client)
+            ref = client.post("/api/characters", json=self.body, headers=headers).json()["ref"]
+            command = {"mutation_id": "delete", "subject_id": ref["subject_id"], "expected_revision": 1}
+            with own_data_root(self.library):
+                response = client.post("/api/characters/delete", json=command, headers=headers)
+                self.assertEqual(response.status_code, 503, response.text)
+            self.assertEqual(len(client.get("/api/characters").json()["items"]), 1)
+            with patch.object(characters, "_sync_directory", side_effect=fail_after_commit):
+                response = client.post("/api/characters/delete", json=command, headers=headers)
+                self.assertEqual(response.status_code, 503, response.text)
+                self.assertEqual(response.json(), {"detail": "Character library unavailable"})
+                self.assertEqual(client.get("/api/characters").json(), {"items": []})
+                response = client.post("/api/characters/delete", json=command, headers=headers)
+                self.assertEqual(response.status_code, 200, response.text)
+                self.assertEqual(response.json(), {"mutation_id": "delete", "ref": ref, "deleted": True})
+                self.assertEqual(client.get(self.route(ref)).status_code, 200)
 
     def test_guards_invalid_uploads_refs_and_sanitized_storage_errors(self):
         with self.client() as client:

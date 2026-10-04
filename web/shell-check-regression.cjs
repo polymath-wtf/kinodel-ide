@@ -67,21 +67,25 @@ if (process.argv[2]) {
         }
       },
       newPage: async ({ viewport }) => {
-        let selected = viewport.width < 768 ? 'Chat' : 'Pipeline', focused = 'Pipeline', tabs = 0, authenticated = true;
+        let selected = viewport.width < 768 ? 'Chat' : 'Pipeline', focused = 'Pipeline', authenticated = true;
         const locator = name => ({
           first() { return this; },
+          click: async () => {},
+          focus: async () => { focused = name; },
+          getByText: child => locator(child),
+          getByRole: (_role, options) => locator(options.name),
           waitFor: async () => { if (scenario === 'check-error') throw new Error('shell assertion failed'); },
           innerText: async () => name === ':focus' ? focused : selected,
-          getAttribute: async () => String(name === selected),
-          evaluate: async () => name === '.workspace' ? { width: 100, height: 100 } : true,
+          getAttribute: async attribute => attribute === 'aria-label' ? focused : attribute === 'aria-current' ? 'page' : attribute === 'data-view' ? selected.toLowerCase() : String(selected === 'Chat'),
+          evaluate: async () => name === '.workspace:not([hidden])' ? { width: 100, height: 100 } : true,
         });
         return {
           on() {}, goto: async () => {}, waitForLoadState: async () => {}, close: async () => {},
           getByText: locator, getByRole: (_role, options) => locator(options.name), locator,
           evaluate: async () => [],
           keyboard: { press: async key => {
-            if (key === 'Tab') focused = ['Pipeline', 'Chat', 'Pipeline', 'Chat'][tabs++];
-            else selected = focused;
+            if (key === 'Tab') focused = 'Chat';
+            else if (key !== 'Escape') selected = focused;
           } },
           request: { get: async url => ({ status: () => {
             if (url.endsWith('/api/session')) { authenticated = true; return 200; }

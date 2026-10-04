@@ -4,15 +4,23 @@
 
 Статус: **прототип сохранён отдельно; production workspace подключён к Story foundation и live Storytell text, с локальными авторскими Characters, не к полному live cinematic; 6F визуально утверждён пользователем, отдельная приёмка 6E пройдена 3 октября 2026. Полные шаги 3 и 6 открыты до Wardrobe/media integration**. `web/prototype/` — исходники HTML-эксперимента, не обязательный фундамент приложения. Макеты и промпты — [UI/UX wireframe](uiux-wireframe.md). Порядок сборки, pins и приёмка — только в [Local MVP](../roadmap-mvp.md). Эта страница задаёт целевой стек, визуальный язык и правила взаимодействия.
 
+**Текущая композиция — правки пользователя после UX1–UX5, 4 октября:** [приёмка](uiux-audit-2026-10-04.md#8-правки-пользователя-после-ux1ux5). Topbar 64px: компактное имя проекта (до 160px, полный текст в tooltip/accessible name), полный путь `проект / Cinematic / Storytell / LangGraph`, Run и новая история; Chat — альтернативный вид Pipeline. Слева возвращён rail 72px **Pipeline / Canvas / Characters**; Canvas пока честно пустой, генерация медиа не подключена. Один клик ноды открывает информацию справа, double-click — существующий вложенный scope, без кнопок на карточках. Правый клик в любом месте приложения — один шаг Back. Details 380px / Story 520px сохраняют content-first/exact footer и responsive sheets. Персонажи перед Start всегда видны; Character info раскрывает закреплённые изображения/Bio. Screenshots v38–v40 и browser checks пройдены; самостоятельное визуальное утверждение новой версии не заявлено. Standalone-примеры ниже исторические, не совокупный список обязательных элементов.
+
 ## First UI Slice
 
 Ниже описан целевой cinematic UI и отдельный standalone mock, **не полный функционал текущего workspace**. Production 6D/6F: список/URL execution, durable Story-команды и полная объявленная карта Brief → Storytell → Wardrobe → Storyboard → Filmmaker → Montage → Final без обязательного test run. Вложенные scopes показывают точные agent/gen/HITL; Montage — сборку и tool-owned file verification. Config/Inputs/Outputs отделяют контракт от сохранённых данных; внутренний LangGraph — read-only структура `backend/story_graph.py`, не trace и не cinematic execution. Live Storytell закрепляет authored system prompt/model на Start; остальные agent resources ещё не подключены. Provider workflow unavailable вместо выдуманного графа; media generation и дальнейшее исполнение не подключены. Chat использует общий exact Story reader/review/cache/черновик; metadata/body ошибки независимы, request revision не равна output version. Точные проверки — [web/README](../../web/README.md).
 
 ### Characters: текущая локальная активация
 
-Rail **Characters** — отдельная авторская библиотека `CharacterV1`, не stage графа и не future `CharacterChunkV1`. Список открывает редактор: 1–6 локальных изображений и Bio (имя обязательно; возраст, гендер, вайб необязательны); Audio/Video пока отключены. **Сохранить персонажа** явно принимает авторскую карточку и создаёт immutable revision; обновление требует `expected_revision`. Current manifest, история и изображения канонически хранятся в [wiki/characters](../../wiki/characters/README.md), без cloud, retrieval index или production-memory gate. Exact mutation сохраняется в browser IndexedDB до POST; это журнал доставки, не каноническая библиотека.
+**Characters** в левом rail — отдельная авторская библиотека `CharacterV1`, не stage графа и не future `CharacterChunkV1`. Редактор: 1–6 локальных изображений и Bio (имя обязательно; возраст, гендер, вайб необязательны). Гендер — кнопки **Male / Female**, повторное нажатие снимает выбор; прежнее произвольное значение не меняется без явного выбора. Версия и ID видимы без раскрытия; у новой карточки ID назначается после сохранения. Неактивные Audio/Video и пояснение «О версиях» отсутствуют. **Сохранить персонажа** явно принимает авторскую карточку и создаёт immutable revision; обновление требует `expected_revision`. Current manifest, история и изображения канонически хранятся в [wiki/characters](../../wiki/characters/README.md), без cloud, retrieval index или production-memory gate. Exact mutation сохраняется в browser IndexedDB до POST; это журнал доставки, не каноническая библиотека.
 
 Новая Story выбирает необязательные exact `{subject_id, revision, digest}`. Backend замораживает карточки и narrative Bio в execution до работы модели; технический retry/reopen не читает latest. В OpenRouter уходит только Bio выбранных персонажей с provenance, не изображения. Старый текстовый subjects draft остаётся видимым как неотправляемый; прежние pending commands сохраняют свои payloads. Пустой selection позволяет Storytell создать cast в `StoryV2.generated_characters`; ни результат, ни его approval не публикуют Characters автоматически. Standalone demo picker остаётся отдельным mock. Подробный сценарий — [wireframe](uiux-wireframe.md#1a-characters--локальная-авторская-библиотека).
+
+В Start карточки выбора всегда на виду. **Character info** показывает все изображения и Bio точных выбранных версий; внутренние ID/revision/digest/image metadata раскрываются отдельно. Последующая правка библиотеки не подменяет закреплённую версию. Кнопки «Что будет создано» и создания новой тестовой Story удалены; ordinary Start создаёт live text, исторические fixture доступны для чтения/проверок через API.
+
+**Библиотека/проекты:** [приёмка v41–v42](uiux-audit-2026-10-04.md#9-финальные-правки-characters-и-меню-проектов). Другой персонаж/New заменяет несохранённый черновик без вопроса. В action row: icon refresh → «Продолжить черновик · имя» → «Новый персонаж»; subtitle и счётчик «Карточки» удалены. Только внутри редактора — confirmed «Удалить черновик» / «Удалить персонажа». Первое сбрасывает unsent изменения, второе удаляет из active library с OCC/exact replay, сохраняя исторические refs. Неопределённая доставка не удаляется как черновик. Меню **Проекты**: icon refresh рядом с заголовком, без крестика и «На связи»; outside click/right-click/Escape закрывают его. Ошибки/загрузка остаются видимыми.
+
+**Черновик и компактный editor — v43, spacing уточнение v45/v46:** [приёмка](uiux-audit-2026-10-04.md#10-черновик-существующего-персонажа-и-компактный-editor). Просмотр saved Character не создаёт unsent draft; он возникает только при отличиях Bio/ordered images от открытой версии, точный откат очищает dirty. Continue и повторный вход в тот же subject возвращают поля/images и исходный OCC, без подмены latest. Видимый повторный заголовок «Персонажи» убран; **LOCAL LIBRARY возвращён** в header row библиотеки/редактора с min-height 44px и margin-bottom 16px: заголовок и верхняя граница карточек/editor выровнены при переходе между видами, воздух под topbar сохранён. Название страницы остаётся в breadcrumb и accessible heading. Компактные metadata/spacing, bounded contained previews и footer: три действия видны без прокрутки на desktop 1440×768/900 с 1–6 images; narrow/mobile остаются scrollable и клавиатурно доступными.
 
 **Один запуск: Pipeline для производства, Canvas для медиа, Chat как альтернативный вид процесса.** Pipeline — горизонтальная дорожка из семи компактных нод с превью и краткими описаниями; зелёные галочки показывают завершённые Brief/Storytell, оранжевая рамка — текущий Wardrobe review, будущие ноды остаются waiting. Матрёшка раскрывает агента, generation tool и review. Полные изображения/видео собраны в отдельном Canvas. В standalone v10 Canvas ровно три горизонтальные строки **Anchors / Images / Video** без внешних рамок: 3 anchors, 9 start-frame attempts в одну строку, 2 pending clips. Все 14 слотов видны на 1600×1000 и 1440×900 при закрытой панели и Fit (карточки ~150/136px); при открытой панели минимум 120px, Fit сохраняет 100% и дальние Images доступны pan. Полные подписи остаются в aria-label и tooltip при сокращении текста на карточке. Отдельного shot-фильтра нет: S01/S02 подписаны на самих карточках. Единый фон всех рабочих видов — локальный `refs/zbs ref v1/background v2.png` без второй сетки точек; `New shot · coming soon` отключён. Правый клик по asset на Canvas открывает Wardrobe / Storyboard / Filmmaker по категории, по пустому полю — последний Pipeline scope и viewport; rail и breadcrumbs обеспечивают клавиатурный путь. Проект и breadcrumbs объединены в одной верхней строке; Canvas не дублирует заголовок. Левый rail: Pipeline / Canvas / Brief / Review / Final. Правая панель закрыта по умолчанию; выбор материала открывает компактный contained preview, табличные Details / Prompt / Settings / Lineage и кнопку workflow. В standalone Pipeline / Chat показывает хронологию mock-проекта; сообщения — локальные неотправленные черновики, backend не подключён.
 
@@ -103,8 +111,8 @@ Summary берётся из активного вложенного этапа: 
 
 ### Правила раскрытия
 
-- Один click/keyboard selection выделяет ноду; `Open inside` входит в scope, `Details` явно открывает панель. На фото click/Enter открывает его детали справа; закрытие возвращает focus/ширину canvas. Double-click — только дополнительный shortcut.
-- В production правый клик по **ноде/её содержимому или пустому canvas** возвращает на один scope вверх; в root навигации нет. Wire, control и toolbar исключены. Правый клик по открытому dialog или backdrop закрывает только окно, возвращает focus и сохраняет scope/черновик. Back возвращает focus к действию родительской Flow-ноды; клавиатура раскрывает реальные ноды, без дублирующего списка/меню. Верхний Story shortcut удалён: actual Story/review открывается через ноду `story-hitl` или Outputs владельца.
+- На **каждой** ноде click/Enter открывает соответствующую информацию справа; Storytell с результатом и Story output открывают общий exact reader. Double-click / Shift+Enter раскрывают существующий authored scope; leaf остаётся в информации, без выдуманного графа. На карточках нет `Читать Story`, `Внутрь`, `Подробнее` и других footer-кнопок. Первый клик может изменить размер canvas/открыть modal: второй клик остаётся частью входа в исходную ноду и не активирует оказавшийся под мышью Approve.
+- Правый клик **в любом месте приложения**, включая ноды, wires, controls, topbar, формы, панель/backdrop и Characters, выполняет один Back: открытое меню → панель/редактор → родитель scope → предыдущая страница. Корневой Pipeline — no-op; browser context menu подавляется. Единственный workspace-владелец не вызывает внешнюю browser history. Черновики/viewport сохраняются. Escape сначала закрывает shell menu, даже если focus уже в правой панели; следующий Escape — панель. Явное закрытие project menu возвращает focus имени проекта.
 - Если ждём решения, `Open review` ведёт к текущему результату и точному review inline либо в широком sheet; сам переход ничего не утверждает.
 - Breadcrumbs: `The Magic begin / Wardrobe / Anchor generation / hero_sheet / Workflow`. Длинные пути сворачиваются, текущий unit остаётся виден.
 - `Pipeline` и `Chat` сохраняют один execution и выбранный предмет. Возврат из чата восстанавливает canvas scope; ссылка из review-карточки открывает её этап.
@@ -123,13 +131,13 @@ Summary берётся из активного вложенного этапа: 
 | Review | `Your decision`, exact subject, отдельный request revision | Полный предмет review → approved selection; явное решение рядом с результатом или в review sheet |
 | Output | Результат, version, thumbnail/player | Только input; selected/approved/candidate подписываются раздельно |
 
-В L0 карточка компактна: имя, status, превью внутреннего содержимого и действие раскрытия. Brief/Storytell — текстовая выдержка; Wardrobe/Storyboard — strip миниатюр; video stages — poster при наличии файла либо честный waiting placeholder. В L1 generation показывает краткий preview и View in Canvas с нужным фильтром, без вложенной галереи. Полные prompts и metadata остаются в Details. Важные labels читаемы на начальном рабочем масштабе; Fit — обзор, а не способ ужать рабочие ноды до микротекста.
+В L0 карточка компактна: имя, status и превью внутреннего содержимого, без action footer. Brief/Storytell — текстовая выдержка; будущие Wardrobe/Storyboard — strip миниатюр, video — poster при наличии файла либо честный placeholder. В будущем L1 generation показывает краткий preview, полный материал — Canvas, без вложенной галереи. Полные prompts и metadata остаются в Details. Важные labels читаемы на начальном рабочем масштабе; Fit — обзор, а не способ ужать рабочие ноды до микротекста.
 
 Порты снаружи — краткое резюме boundary, не исчерпывающий список зависимостей. Полные exact inputs доступны в Inputs. Линия L0 обозначает порядок этапов, **не соединяет выбранный artifact с произвольным входом следующей группы**; dependency lines внутри scope обозначают конкретные named inputs и имеют подписи. Провод не является командой.
 
 ## 5. Инспектор, настройки и действия
 
-**Контекстная правая панель, закрыта по умолчанию:** открывается только для выбранного фото или по `Details` ноды. В ней header и нужный для предмета раздел `Config / Inputs / Outputs`; desktop около 360px, на узком экране — sheet. Не показываем все три раздела одновременно и не повторяем contact sheet/preview, уже видимые на canvas. Review нескольких фото разворачивается в широкий sheet; кнопка Approve связана с полным точным предметом, а не с выбором одного фото.
+**Контекстная правая панель, закрыта по умолчанию:** открывается только для выбранного фото или по `Details` ноды. В ней header и нужный для предмета раздел `Config / Inputs / Outputs`; connected desktop 380px, ниже 1280px — sheet. Story reader — отдельный вариант шириной 520px с текстом первым и доступным exact footer. Одна панель принадлежит workspace: новый предмет заменяет старый; scope/view/execution/Start/library переход закрывает устаревшую панель. Она резервирует ширину canvas, не затемняет desktop; закрытие восстанавливает viewport и focus. Не показываем все три раздела одновременно и не повторяем contact sheet/preview, уже видимые на canvas. Review нескольких фото разворачивается в широкий sheet; кнопка Approve связана с полным точным предметом, а не с выбором одного фото.
 
 Для медиа в standalone Canvas — инспектор 376px: contained preview и вкладки **Details / Prompt / Settings / Lineage**; Details содержит важные seed/prompt и honest status, технический *пример* API-workflow раскрывается в Settings. Размер, модель, steps и sampler не являются metadata stock-файла или job receipt; неизвестный seed подписан `Not recorded`. Open in workflow виден без прокрутки на 1440×900. Mock frame prompt/seed — локальный draft; Regenerate · mock не отправляет job. Смена вкладки/вида сохраняет draft до reload.
 
@@ -168,13 +176,14 @@ ComfyUI — **Tool с раскрытием внутри `anchor-gen` / `frames-g
 
 ## 6. Chat — второй вид того же запуска
 
-Это спокойная вертикальная **лента производства**, а не новый глобальный агент. Верх: название/run status и компактная строка этапов. Середина: пользовательский brief, сохранённые ответы владельцев, карточки результатов и decisions. Низ: composer, явно адресованный `To Wardrobe · anchor set 2 · request r4`.
+Это спокойная вертикальная **лента производства**, а не новый глобальный агент. В подключённом Story-срезе topbar общий с Pipeline; одна колонка показывает текущую Story первой, версии и закреплённое решение. Brief и история решений раскрываются после результата; техническая activity находится в Model Details. Composer открывается по `Обсудить`, а сохранённый текст раскрывает его автоматически; адрес остаётся exact subject/request. Для будущего cinematic лента содержит результаты других владельцев, а не постоянные polling/status-карточки.
 
 - Текущий review содержит тот же preview, версии и точные действия, что Pipeline. Оба вида используют один query cache, компоненты и mutation handlers.
 - Mode `Ask`/`Request changes` выбирается явно. Сообщение «ок» ничего не утверждает. Approve существует только отдельной кнопкой на карточке.
 - Пока run выполняется, показываем одну обновляемую activity-строку; не засоряем ленту polling-событиями и не выдаём status за ответ агента.
 - Если actionable review нет, composer объясняет, когда станет доступен. Brief до Run редактируется в стартовой форме; полноценный свободный чат/очередь сообщений не заявлены.
 - Historical cards read-only, свёрнуты до заголовка и версии; `View in pipeline` открывает связанный предмет. Во время чтения истории новое сообщение не отбирает scroll/focus.
+- В connected Story historical reader не отправляет вопрос/правку текущему subject и не утверждает его; старый draft остаётся read-only. При возвращении к текущей версии его адрес не переназначается автоматически.
 - Результаты представлены текстом, contact sheet, video player или final download. Чат не должен требовать открыть canvas, чтобы выполнить весь автоматизированный pipeline с обязательными решениями.
 - На узком экране Chat — рекомендуемый стартовый вид. Автоматизация между gates не отменяет обязательных human approvals.
 
@@ -204,6 +213,8 @@ Story approval завершает **fixture или live text execution**, а н�
 6. HTTP 202 означает принятие; UI показывает `Applying…`, затем читает committed state. Запретить повторную отправку с той же карточки в обоих видах. Не делать optimistic approval/result.
 7. Stale/conflict/budget exhaustion — refetch, сохранить draft и показать причину. Не переназначать старое сообщение новому review автоматически. При offline/reconnecting действия заблокированы; чтение последнего snapshot доступно.
 
+**Подача сообщений:** accepted receipt доступен в Run menu, не занимает постоянную строку canvas и не означает готовую Story/approval. Неизвестная доставка — постоянное короткое сообщение рядом с предметом с `Повторить отправку` того же envelope; подробности раскрываются. Ошибки ввода локальны, offline/storage/read failures не исчезают автоматически. Только успешное подтверждённое сохранение Characters даёт один toast справа снизу (340px, около 4s активного времени, пауза hover/focus, явное закрытие); сохранённый, но нечитаемый результат остаётся persistent warning.
+
 ## 8. Визуальная система — Graphite / Sky / Violet / Coral
 
 **Near-black и графит с дозированными голубыми, фиолетовыми и коралловыми акцентами.** Голубой — selection/media/navigation, фиолетовый — agents/video, коралловый — human review; primary button насыщенно-синий. В standalone v10 общая фоновая текстура охватывает рабочее поле Pipeline, Canvas, Chat и вложенных scopes; панели и ноды непрозрачные, без glow. Превью внутри pipeline-ноды помогает узнать содержимое, полноценный media Canvas открывается отдельно.
@@ -227,12 +238,12 @@ Story approval завершает **fixture или live text execution**, а н�
 Primary — главное действие, sky — selection, coral — `Your decision`, red — ошибки; текст и иконки различают состояния без цвета. Completed достаточно check + текста. Нейтральные провода — порядок этапов; sky/violet применяются к media/conditioning связям. Light-значения целевые: текущий standalone проверяется только в dark.
 
 - **Шрифт:** целевой self-hosted `IBM Plex Sans` с реальным Cyrillic subset, если интерфейс русскоязычный; моноширинный для refs/revisions при необходимости. Основной текст 14/20, вторичный не меньше 12/16 при рабочем масштабе, node title 14/20 semibold, section title 18/24. В текущем standalone `styles.css` используется `Segoe UI`, system-ui, sans-serif, без font imports; IBM Plex пока не подключён.
-- **Геометрия:** 4px spacing grid; 10–12px node radius, 6–8px controls; rail 84px с подписями, header 60px, breadcrumbs 50px. Media node 260px, inspector 376px; mobile rail снизу, inspector full-screen. Основные controls не меньше 44px на touch.
+- **Геометрия:** 4px spacing grid; 10–12px node radius, 6–8px controls. Connected shell: header 64px с полным breadcrumb, rail 72px, без второй постоянной полосы; обычный inspector 380px, Story 520px. Standalone historical: rail 84px, header 60px, media node 260px, inspector 376px. Основные controls не меньше 44px на touch.
 - **Workspace:** в standalone одна готовая texture `background v2.png` уже содержит точки и blue/coral grain; повторный dot overlay не нужен. Она покрывает все рабочие виды, но не непрозрачные панели и ноды. Edges 1.5px нейтральные, named handles 8px. Нет декоративных пунктирных потоков по всему экрану. MiniMap только по запросу, controls — zoom / fit / current stage.
 - **Media:** `object-fit: contain` на review, ratio box без обрезки важных частей; маленький cover-thumbnail допустим на внешней карточке. Video не autoplay; сеть не перегружается десятками mounted players.
-- **Motion:** 120–160ms opacity/transform для панели/selection. Не анимировать сам layout нод при polling, не делать постоянные pulses. Reduced motion отключает переходы; progress — текст, когда процент неизвестен.
-- **Responsive:** ≥1280 rail + canvas/chat, панель только по запросу; 768–1279 details/review как sheet; <768 Chat по умолчанию, детали full-screen, Pipeline доступен с pan/zoom. Ниже 1280 не сжимать одновременно ноды и панель до нечитаемости.
-- **Accessibility:** текст у каждого статуса; видимый focus, подписи icon buttons, keyboard `Open inside`/Back на реальных focusable Flow-нодах и кнопках. Offscreen-нода раскрывается через keyboard auto-pan; отдельного списка этапов рядом с controls нет. Нельзя заставлять пользователя double-click или различать только цвет. Sheet возвращает focus к вызвавшей кнопке; toast не единственное место ошибки.
+- **Motion:** не анимировать layout нод при polling. Принятая scoped v30-подсветка только actual claimed work: active glow/pulse, review coral и blocked amber статичны; не-connected/source-only ноды не пульсируют. Reduced motion отключает pulse; saved result не изображает продолжающийся provider call. Историческое правило standalone «без glow» не отменяет эту позднюю connected-итерацию.
+- **Responsive:** ≥1280 canvas/chat и неблокирующая панель по запросу; 768–1279 details/review как native sheet; <768 Chat по умолчанию, детали full-screen, Pipeline доступен с pan/zoom. Rail с тремя страницами остаётся доступен; topbar адаптируется, сохраняя полный путь, модель/редкие действия в Run. Ниже 1280 не сжимать одновременно ноды и панель до нечитаемости.
+- **Accessibility:** текст у каждого статуса; видимый focus, подписи icon buttons, Enter для информации / Shift+Enter для входа на реальных focusable Flow-нодах. Offscreen-нода раскрывается через keyboard auto-pan; отдельного списка этапов рядом с controls нет. Не требуется мышь или различение только цвета; breadcrumbs дают клавиатурный возврат. Sheet возвращает focus к исходной ноде/кнопке; toast не единственное место ошибки.
 
 ## 9. React Flow UI: публичный код и Kinodel shell
 
@@ -248,12 +259,14 @@ Registry source коммитится вместе с приложением и �
 
 ### `KinodelNode.tsx` — один shell для всех ролей
 
+Пример визуального shell; gestures принадлежат родительскому Flow. Реальная click/double-click/modal защита — в `web/src/widgets/pipeline/Pipeline.tsx`, не в footer карточки.
+
 ```tsx
 import { memo } from "react";
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import {
   BaseNode, BaseNodeHeader, BaseNodeHeaderTitle,
-  BaseNodeContent, BaseNodeFooter,
+  BaseNodeContent,
 } from "@/components/base-node";
 
 type NodeData = {
@@ -264,7 +277,6 @@ type NodeData = {
   input?: string;
   output?: string;
   nested: boolean;
-  onOpen: () => void; // view-only callback: never an execution command
 };
 
 export type KinodelFlowNode = Node<NodeData, "kinodel">;
@@ -288,13 +300,6 @@ export const KinodelNode = memo(function KinodelNode({
         <p className="text-sm">{data.status}</p>
         {data.summary && <p className="text-xs text-muted-foreground">{data.summary}</p>}
       </BaseNodeContent>
-      <BaseNodeFooter className="px-3 py-2">
-        <button type="button" className="nodrag nopan node-open"
-          aria-label={`${data.nested ? "Open inside" : "Details"} ${data.title}`}
-          onClick={(event) => { event.stopPropagation(); data.onOpen(); }}>
-          {data.nested ? "Open inside" : "Details"} <span aria-hidden>↗</span>
-        </button>
-      </BaseNodeFooter>
       {data.output && (
         <Handle id="out" type="source" position={Position.Right}
           isConnectable={false} aria-label={`Output: ${data.output}`} />
@@ -340,7 +345,7 @@ export function PipelineCanvas({ nodes, edges, onNodesChange, colorMode }: {
 }
 ```
 
-Workspace задаёт canvas реальную высоту через `100dvh` grid с `minmax(0, 1fr)`. Controlled nodes сохраняют actual `dimensions`/`measured` из `onNodesChange`, включая keyboard selection; потеря measured при пересборке сбрасывает handle bounds и вызывает мигание edges. Выделение **не** открывает inspector автоматически. Кнопка `Details` или click/Enter по фото раскрывает его явно. Adapter задаёт accessible `ariaLabel` каждой ноде и сохраняет выбор при polling. `colorMode` получает разрешённую общую тему workspace, чтобы встроенные Controls не оставались светлыми в dark UI. `fitView` нужен при первом входе в scope, не при каждом polling update. Flow владеет live viewport, приложение сохраняет его по scope на `onMoveEnd`, а не пишет sessionStorage на каждом pointer update. Browser Back/явная Back не должны запускать работу. Pan не заменяет клавиатурную навигацию по реальным нодам.
+Workspace задаёт canvas реальную высоту через `100dvh` и `min-height: 0`. Controlled nodes сохраняют actual `dimensions`/`measured` из `onNodesChange`, включая keyboard selection; потеря measured сбрасывает handle bounds и вызывает мигание edges. Click/Enter явно выбирает предмет и открывает inspector; selection из polling не открывает панель. Adapter задаёт accessible `ariaLabel` и keyboard shortcuts каждой ноде. `colorMode` разрешён workspace; controls не остаются светлыми в dark UI. Fit не вызывается при каждом polling update. Flow владеет live viewport, приложение сохраняет его по scope на `onMoveEnd`, а не на каждом pointer update. Inspector сохраняет viewport до изменения ширины и восстанавливает при закрытии. Навигация/Back не запускают работу. Pan не заменяет клавиатурную навигацию.
 
 ### Общие tokens и минимальные overrides
 

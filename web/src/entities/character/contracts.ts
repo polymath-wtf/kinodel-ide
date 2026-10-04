@@ -27,9 +27,14 @@ export const characterMutationSchema = z.strictObject({ mutation_id: z.string().
   images: z.array(characterImageInputSchema).min(1).max(6),
 }).refine(m => (m.subject_id === null) === (m.expected_revision === null));
 const receiptSchema = z.strictObject({ mutation_id: z.string(), ref: characterRefSchema });
+export const characterDeleteSchema = z.strictObject({ mutation_id: characterMutationSchema.shape.mutation_id,
+  subject_id: subject, expected_revision: revision });
+export const characterPendingMutationSchema = z.union([characterMutationSchema, characterDeleteSchema]);
+const deleteReceiptSchema = receiptSchema.extend({ deleted: z.literal(true) });
 export type CharacterRef = z.infer<typeof characterRefSchema>;
 export type CharacterItem = z.infer<typeof characterItemSchema>;
 export type CharacterMutation = z.infer<typeof characterMutationSchema>;
+export type CharacterDeleteMutation = z.infer<typeof characterDeleteSchema>;
 export type CharacterImageInput = z.infer<typeof characterImageInputSchema>;
 export function sameCharacterRef(a: CharacterRef, b: CharacterRef) {
   return a.subject_id === b.subject_id && a.revision === b.revision && a.digest === b.digest;
@@ -47,5 +52,12 @@ export function validateCharacterReceipt(value: unknown, mutation: CharacterMuta
   if (receipt.mutation_id !== mutation.mutation_id || (mutation.subject_id !== null &&
     (receipt.ref.subject_id !== mutation.subject_id || receipt.ref.revision !== mutation.expected_revision! + 1)) ||
     (mutation.subject_id === null && receipt.ref.revision !== 1)) throw Error('Receipt не совпадает с сохранённой мутацией. Доставка не подтверждена.');
+  return receipt;
+}
+export function validateCharacterDeleteReceipt(value: unknown, mutation: CharacterDeleteMutation, ref?: CharacterRef) {
+  const receipt = deleteReceiptSchema.parse(value);
+  if (receipt.mutation_id !== mutation.mutation_id || receipt.ref.subject_id !== mutation.subject_id ||
+    receipt.ref.revision !== mutation.expected_revision || ref && !sameCharacterRef(receipt.ref, ref))
+    throw Error('Receipt не совпадает с сохранённым удалением. Доставка не подтверждена.');
   return receipt;
 }

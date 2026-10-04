@@ -3,6 +3,8 @@
 Статус: **апрув пользователя получен 2 октября 2026; Story-срез 6A–6E принят 3 октября после визуального утверждения каркаса 6F**. [Bounded задания сабагентам](story-workspace-tasks.md); фактические статусы — в roadmap.
 Порядок работ и чекбоксы остаются в [шаге 6 Local MVP](../roadmap-mvp.md#frontend-story-slice). Здесь — границы, решения и критерии этого среза.
 
+**As-built уточнение 4 октября:** исторический препродакшн ниже сохраняет fixture-first контекст. Live text/Characters подключены; [последние правки пользователя](uiux-audit-2026-10-04.md#8-правки-пользователя-после-ux1ux5) возвращают rail Pipeline/Canvas/Characters, компактное имя проекта и полный breadcrumb. Click ноды — правые Details 380px / Story 520px, double-click — authored scope; node footer-кнопок нет. Right-click везде Back, keyboard Enter/Shift+Enter. Character picker всегда виден; Character info содержит pinned images/Bio/параметры. Гендер — Male/Female, ID не скрыт. Test Start, «Что будет создано», «О версиях» отсутствуют. Shot keys расширенные, секунды при прежнем ms API. Screenshots и technical/browser acceptance пройдены; пользовательское visual approval новой версии не заявлено. Полное cinematic/media исполнение отдельное; Canvas сейчас пустой.
+
 ## Где находится билд
 
 Шаги 0–2 закрыты на Windows: локальное хранение, immutable Story, durable start, вопросы/правки, exact approval, retry/cancel и process-death recovery. Это `kinodel.internal-story` с детерминированной заменой модели. Approval завершает этот execution, не запускает Wardrobe. Живой Storytell — следующий backend-шаг 3; первый подключённый UI можно собрать сейчас внутри шага 6.

@@ -49,7 +49,8 @@ async function bounded(promise, milliseconds, message) {
     const fixture = "import sys, asyncio\nimport backend.api as api\nimport uvicorn\napi.PORT = int(sys.argv[1])\nseen = set()\nasync def fixture(message, shots, prior, feedback, *, discussion=None):\n    if message == 'harness:retry' and message not in seen:\n        seen.add(message)\n        raise TimeoutError('isolated harness timeout')\n    if feedback == 'harness:slow':\n        try:\n            await asyncio.sleep(8)\n        except asyncio.CancelledError:\n            await asyncio.sleep(4)  # Isolated slow owner cleanup, not production policy.\n            raise\n    return api.fixture_story(message, shots, prior, feedback, discussion=discussion)\nuvicorn.run(api.create_app(produce_story=fixture), host='127.0.0.1', port=api.PORT, workers=1, proxy_headers=False)";
     // New Start reads Characters; every harness must use its own library, never the user's default.
     const isolatedFixture = fixture.replace('api.create_app(produce_story=fixture)', "api.create_app(produce_story=fixture, character_root=__import__('pathlib').Path(__import__('os').environ['KINODEL_DATA_ROOT']) / 'characters')");
-    const script = process.env.STORY_VISIBILITY_CHECK === '1' ? "from tests.story_visibility_server import install\ninstall()\n" + isolatedFixture : isolatedFixture;
+    const mockedLive = process.env.STORY_VISIBILITY_CHECK === '1' || process.env.SHELL_CHECK_BASELINE_ONLY !== '1' && process.env.NAVIGATION_CHECK_ONLY !== '1';
+    const script = mockedLive ? "from tests.story_visibility_server import install\ninstall()\n" + isolatedFixture : isolatedFixture;
     server = spawn(python, ['-B', '-c', script, String(port)], {
       cwd: root, env: { ...process.env, OPENROUTER_API_KEY: '', LLM_MODEL: '', KINODEL_DATA_ROOT: data }, stdio: 'pipe',
     });
@@ -103,18 +104,24 @@ async function bounded(promise, milliseconds, message) {
       page.on('response', response => { if (response.status() >= 400) failures.push([response.url(), response.status()]); });
       page.on('requestfailed', request => failures.push([request.url(), request.failure()]));
       await page.goto(origin);
-      await page.getByText('Сохранённых запусков нет.', { exact: false }).waitFor();
-      await page.getByText('Storytell · OpenRouter не настроен').waitFor();
+      await page.locator('.project-name').click();
+      await page.locator('.recent-runs').getByText('Сохранённых запусков нет.', { exact: false }).waitFor();
+      await page.keyboard.press('Escape');
+      await page.locator('.topbar .run-controls > summary').click();
+      await page.getByText(process.env.SHELL_CHECK_BASELINE_ONLY === '1' || process.env.NAVIGATION_CHECK_ONLY === '1' ? 'Storytell · OpenRouter не настроен' : 'OpenRouter · mock/story-model', { exact: true }).waitFor();
+      await page.keyboard.press('Escape');
       const bounds = async () => assert.deepEqual(await page.evaluate(() => {
         const failures = document.documentElement.scrollWidth > innerWidth ? ['document overflow'] : [];
-        for (const element of document.querySelectorAll('.model-badge, .view-switch button, .rail button')) {
+        for (const element of document.querySelectorAll('.topbar > button, .project-name, .view-switch button, .breadcrumbs button, .topbar .run-controls > summary')) {
           const rect = element.getBoundingClientRect();
+          if (!rect.width || !rect.height) continue;
           if (rect.left < 0 || rect.right > innerWidth || rect.top < 0 || rect.bottom > innerHeight) failures.push(`${element.textContent}: outside viewport`);
           if (element.tagName === 'BUTTON' && innerWidth < 1280 && (rect.width < 44 || rect.height < 44)) failures.push(`${element.textContent}: touch target below 44px`);
         }
         return failures;
       }), [], `${name}: viewport bounds`);
-      assert.equal(await page.getByRole('button', { name: width < 768 ? 'Chat' : 'Pipeline', exact: true }).first().getAttribute('aria-pressed'), 'true');
+      assert.equal(await page.locator('.view-switch button').getAttribute('aria-pressed'), String(width < 768));
+      assert.equal(await page.locator('.rail').getByRole('button', { name: 'Pipeline', exact: true }).getAttribute('aria-current'), 'page');
       await bounds();
       const api = path => page.request.get(`${origin}${path}`).then(r => r.status());
       assert.equal(await api('/api/executions'), 200); // The connected UI bootstraps the session.
@@ -122,23 +129,24 @@ async function bounded(promise, milliseconds, message) {
       assert.equal(await api('/api/executions'), 200);
       assert.equal(await api('/api/missing'), 404);
       assert.equal(await api('/docs'), 200);
-      // Tab visits both navigation surfaces; native Enter/Space must select the view and retain focus.
+      // Rail Pipeline and the single Chat toggle support native Enter/Space, retaining focus.
       for (const [index, view] of ['Pipeline', 'Chat', 'Pipeline', 'Chat'].entries()) {
-        await page.keyboard.press('Tab');
+        const action = page.locator(view === 'Pipeline' ? '.rail' : '.view-switch').getByRole('button', { name: view, exact: true });
+        await action.focus();
         const focused = page.locator(':focus');
-        assert.equal(await focused.innerText(), view);
+        assert.equal(await focused.getAttribute('aria-label'), view);
         assert.ok(await focused.evaluate(element => getComputedStyle(element).outlineStyle === 'solid' && parseFloat(getComputedStyle(element).outlineWidth) >= 2), 'visible keyboard focus');
         await page.keyboard.press(index % 2 ? 'Space' : 'Enter');
-        assert.equal(await focused.innerText(), view, 'focus retained after view switch');
-        assert.ok(await focused.evaluate((element, index) => element.closest(index < 2 ? '.view-switch' : '.rail') !== null, index), 'focus stays on the expected navigation surface');
+        assert.equal(await focused.getAttribute('aria-label'), view, 'focus retained after view switch');
+        assert.ok(await focused.evaluate(element => element.closest('.rail, .view-switch') !== null), 'focus stays on the real navigation surface');
         await bounds();
-        assert.equal(await page.getByRole('button', { name: view, exact: true }).first().getAttribute('aria-pressed'), 'true');
+        assert.equal(await page.locator('.workspace:not([hidden])').getAttribute('data-view'), view.toLowerCase());
         if (folder && process.env.SHELL_CHECK_BASELINE_ONLY === '1' && name === 'desktop' && index < 2) {
           mkdirSync(join(folder, view.toLowerCase()));
           await page.screenshot({ path: join(folder, view.toLowerCase(), 'screen-state-desktop.png') });
         }
       }
-      const background = await page.locator('.workspace').evaluate(async element => {
+      const background = await page.locator('.workspace:not([hidden])').evaluate(async element => {
         const image = new Image();
         image.src = getComputedStyle(element).backgroundImage.match(/url\("?(.*?)"?\)/)[1];
         await image.decode();
