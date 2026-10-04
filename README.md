@@ -200,4 +200,16 @@ The workspace interpreter default is `.venv313`; select it manually if your IDE 
 
 **Make something worth keeping. Keep enough to make the next thing better.**
 
-License: Apache-2.0.
+## License
+
+Copyright (C) 2026 Seryoger Kinodel.
+
+Kinodel's original application source code is licensed under the **GNU Affero General Public License, version 3 only** (`AGPL-3.0-only`). See [LICENSE](LICENSE) for the full text.
+
+Kinodel is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, version 3.
+
+Kinodel is distributed in the hope that it will be useful, but **WITHOUT ANY WARRANTY**; without even the implied warranty of **MERCHANTABILITY** or **FITNESS FOR A PARTICULAR PURPOSE**. See the GNU Affero General Public License for more details.
+
+Third-party dependencies and separately licensed materials retain their own licenses; see also [frontend dependency notices](web/NOTICES.md).
+
+Using Kinodel does not by itself place your creative projects or generated outputs under this software license. Commercial use is permitted under the terms of the license.
