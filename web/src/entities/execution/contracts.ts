@@ -90,3 +90,10 @@ export type StoryRef = z.infer<typeof storyRef>;
 export type ReviewHistory = z.infer<typeof reviewHistorySchema>;
 export const statusLabel: Record<Projection['status'], string> = { running: 'В работе', waiting_review: 'Ожидает решения', blocked: 'Заблокирован', cancelling: 'Отменяется', completed: 'Завершён', cancelled: 'Отменён', failed: 'Ошибка запуска' };
 export const versionLabel = (s: StoryRef) => s.version === null ? 'Story · версия неизвестна' : `Story v${s.version}`;
+
+export function isStoryApproved(projection: Projection, ref: ArtifactRef) {
+  return projection.status === 'completed' && projection.outcome?.outcome === 'completed'
+    && projection.outcome.subject_artifact_id === ref.artifact_id
+    && projection.reviews.some(r => r.request_id === projection.outcome?.source_id && r.applied
+      && r.result?.kind === 'approved_subject' && sameRef(r.result.ref, ref));
+}

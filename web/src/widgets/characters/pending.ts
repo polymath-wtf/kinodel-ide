@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { characterPendingMutationSchema, characterRefSchema, type CharacterRef } from './contracts';
+import { characterPendingMutationSchema, characterRefSchema, type CharacterRef } from '../../entities/character/contracts';
 
 export type PendingCharacter = { payload: string; ref?: CharacterRef };
 const pendingSchema = z.strictObject({ payload: z.string(), ref: characterRefSchema.optional() });

@@ -2,6 +2,7 @@
 const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
 const { EventEmitter } = require('node:events');
+const { resolve } = require('node:path');
 
 if (process.argv[2]) {
   const scenario = process.argv[2];
@@ -18,7 +19,10 @@ if (process.argv[2]) {
     socket.close = callback => callback();
     return socket;
   };
-  require('node:child_process').spawn = () => {
+  require('node:child_process').spawn = (python, _args, options) => {
+    const root = resolve(__dirname, '..', '..');
+    assert.equal(python, resolve(root, '.venv313/Scripts/python.exe'), 'owned backend uses repository Python');
+    assert.equal(options.cwd, root, 'owned backend starts at repository root');
     console.log('SPAWN');
     if (scenario === 'spawn-throw') throw new Error('spawn failed');
     const child = new EventEmitter();

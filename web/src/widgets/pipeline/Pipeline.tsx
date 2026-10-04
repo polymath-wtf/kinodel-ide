@@ -1,9 +1,8 @@
 import { ControlButton, Controls, Handle, MarkerType, Position, ReactFlow, type Node, type NodeProps, type ReactFlowInstance, type Viewport } from '@xyflow/react';
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { Clapperboard, FileText, Film, GitBranch, Layers, LocateFixed, MessageSquare, Sparkles, Wrench } from 'lucide-react';
-import { sameRef, statusLabel, versionLabel, type ArtifactRef, type Projection } from '../../entities/execution/contracts';
+import { isStoryApproved, sameRef, statusLabel, versionLabel, type ArtifactRef, type Projection } from '../../entities/execution/contracts';
 import { useStoryActivity, useStoryBody } from '../../entities/execution/queries';
-import { isStoryApproved } from '../../features/story-reader/StoryReader';
 import { groups, internalStory, scopes, stages, storyNodeState, storyRequest, type NodeState, type Scope, type StageContract } from './contracts';
 export type { Scope } from './contracts';
 

@@ -7,9 +7,9 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc --noEmit && vite build",
     "build:watch": "vite build --watch",
-    "check:schemas": "node schema-check.cjs",
-    "check:commands": "node command-check.cjs",
-    "check:browser": "node shell-check.cjs"
+    "check:schemas": "node checks/schema-check.cjs",
+    "check:commands": "node checks/command-check.cjs",
+    "check:browser": "node checks/shell-check.cjs"
   },
   "dependencies": {
     "@tanstack/react-query": "5.103.2",

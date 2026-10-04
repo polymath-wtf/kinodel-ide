@@ -5,7 +5,8 @@ const { createServer } = require('node:net');
 const { mkdtempSync, mkdirSync, rmSync } = require('node:fs');
 const { tmpdir } = require('node:os');
 const { join, resolve } = require('node:path');
-const root = resolve(__dirname, '..');
+const frontend = resolve(__dirname, '..');
+const root = resolve(frontend, '..');
 const pause = ms => new Promise(r => setTimeout(r, ms));
 (async () => {
   const port = Number(process.env.CHARACTER_CHECK_PORT || 8785), origin = `http://127.0.0.1:${port}`;
@@ -17,7 +18,7 @@ const pause = ms => new Promise(r => setTimeout(r, ms));
   let browser, server, exited, log = '', stopped = false;
   try {
     // Test current source without replacing the primary agent's integration build.
-    const build = spawnSync(process.execPath, [join(__dirname, 'node_modules/vite/bin/vite.js'), 'build', '--outDir', join(data, 'dist')], { cwd: __dirname, encoding: 'utf8' });
+    const build = spawnSync(process.execPath, [join(frontend, 'node_modules/vite/bin/vite.js'), 'build', '--outDir', join(data, 'dist')], { cwd: frontend, encoding: 'utf8' });
     assert.equal(build.status, 0, build.stderr || build.stdout);
     const script = "import sys\nfrom pathlib import Path\nimport backend.api as api\nimport uvicorn\napi.PORT = int(sys.argv[1])\nroot = Path(sys.argv[2])\napi.DIST_ROOT = root / 'dist'\nuvicorn.run(api.create_app(root / 'data', api.fixture_story, character_root=root / 'characters'), host='127.0.0.1', port=api.PORT, proxy_headers=False)";
     server = spawn(join(root, '.venv313/Scripts/python.exe'), ['-B', '-c', script, String(port), data], {

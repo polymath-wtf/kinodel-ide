@@ -1,18 +1,6 @@
 // Focused delivery regression; installed TypeScript, no new test dependency.
 const assert = require('node:assert/strict');
-const ts = require('typescript');
-const fs = require('node:fs');
-const path = require('node:path');
-const Module = require('node:module');
-const cache = new Map();
-function load(file) {
-  file = path.resolve(__dirname, file);
-  if (cache.has(file)) return cache.get(file).exports;
-  const m = new Module(file, module); m.paths = module.paths; cache.set(file, m);
-  m.require = name => name.startsWith('.') ? load(path.resolve(path.dirname(file), `${name}.ts`)) : require(name);
-  m._compile(ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, file);
-  return m.exports;
-}
+const load = require('./load-typescript.cjs');
 (async () => {
   const { createCommand, saveCommand, pendingCommands, deliverCommand } = load('src/features/commands/journal.ts');
   const { ReadError, postJson } = load('src/shared/api/http.ts');

@@ -1,21 +1,7 @@
 // No test runner dependency: transpile the pure wire boundary in memory.
 const assert = require('node:assert/strict');
-const ts = require('typescript');
-const fs = require('node:fs');
-const Module = require('node:module');
-const path = require('node:path');
-const file = path.join(__dirname, 'src/entities/execution/contracts.ts');
-assert.ok(fs.existsSync(file), 'wire schemas must exist');
-function load(file) {
-  const m = new Module(file, module); m.paths = module.paths;
-  m.require = name => name.startsWith('.') ? load(path.resolve(path.dirname(file), `${name}.ts`)).exports : require(name);
-  m._compile(ts.transpileModule(fs.readFileSync(file, 'utf8'), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-  }).outputText, file);
-  return m;
-}
-const module_ = load(file);
-const { activitySchema, availabilitySchema, artifactRefSchema, storyBodySchema, projectionSchema, recentSchema, sameRef, validateBody } = module_.exports;
+const load = require('./load-typescript.cjs');
+const { activitySchema, availabilitySchema, artifactRefSchema, storyBodySchema, projectionSchema, recentSchema, sameRef, validateBody } = load('src/entities/execution/contracts.ts');
 const id = '00000000-0000-0000-0000-000000000001';
 const other = '00000000-0000-0000-0000-000000000002';
 const digest = `sha256:${'a'.repeat(64)}`;

@@ -3,7 +3,7 @@
 Статус: **апрув пользователя получен 2 октября 2026; Story-срез 6A–6E принят 3 октября после визуального утверждения каркаса 6F**. [Bounded задания сабагентам](story-workspace-tasks.md); фактические статусы — в roadmap.
 Порядок работ и чекбоксы остаются в [шаге 6 Local MVP](../roadmap-mvp.md#frontend-story-slice). Здесь — границы, решения и критерии этого среза.
 
-**As-built уточнение 4 октября:** исторический препродакшн ниже сохраняет fixture-first контекст. Live text/Characters подключены; [последние правки пользователя](uiux-audit-2026-10-04.md#8-правки-пользователя-после-ux1ux5) возвращают rail Pipeline/Canvas/Characters, компактное имя проекта и полный breadcrumb. Click ноды — правые Details 380px / Story 520px, double-click — authored scope; node footer-кнопок нет. Right-click везде Back, keyboard Enter/Shift+Enter. Character picker всегда виден; Character info содержит pinned images/Bio/параметры. Гендер — Male/Female, ID не скрыт. Test Start, «Что будет создано», «О версиях» отсутствуют. Shot keys расширенные, секунды при прежнем ms API. Screenshots и technical/browser acceptance пройдены; пользовательское visual approval новой версии не заявлено. Полное cinematic/media исполнение отдельное; Canvas сейчас пустой.
+**As-built уточнение 4 октября:** исторический препродакшн ниже сохраняет fixture-first контекст. Live text/Characters подключены; текущие взаимодействия определяет [Web UI](webui.md), размещение и владельцев — [FSD](fsd.md). Полное cinematic/media исполнение отдельное; Canvas сейчас пустой. Technical/browser evidence не означает новое пользовательское visual approval.
 
 ## Где находится билд
 
@@ -68,16 +68,7 @@ Built assets раздаются FastAPI с `http://127.0.0.1:8765`, незави
 
 React 19 + TypeScript + **Vite 8.0.10** и Lucide установлены в 6B; React Flow для фиксированной схемы, React Query, typed fetch + Zod подключены в 6C. Exact pins и `package-lock.json` — в `web/`. Tailwind 4 и необходимые source-owned shadcn/React Flow UI primitives добавляются только с потребителем. Vite 8.0.16 — история удалённого эксперимента, не текущий baseline. Browser tooling остаётся внешним и не входит в frontend runtime.
 
-FSD применяется к реальным владельцам, без пустых слоёв:
-
-| Область | Ответственность |
-|---|---|
-| `app` | Bootstrap/providers/theme |
-| `pages/workspace` | Выбранный execution и композиция workspace |
-| `widgets` | Shell, Pipeline и Chat; только представление/навигация |
-| `features` | Start/reopen, общий Story review/discussion, run controls и command reconciliation |
-| `entities/execution` | Валидированные read projections, queries и точные Story refs/bodies |
-| `shared` | Низкоуровневый HTTP/session и используемые UI primitives/tokens |
+Первоначальное размещение уточнено по фактическим владельцам в [FSD-контракте](fsd.md). Start и UI cache локальны странице; Characters владеет своим editor/pending delivery, execution — reader/queries, features — review и command delivery. Widgets могут содержать локальную логику и запросы.
 
 React Flow state не становится server state. Оба вида переиспользуют review UI и mutation handlers. Canvas scope/viewport, выбранная версия и локальный draft принадлежат UI; они не пишутся в graph/artifact.
 

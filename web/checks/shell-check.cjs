@@ -6,7 +6,7 @@ const { tmpdir } = require('node:os');
 const { join, resolve } = require('node:path');
 const assert = require('node:assert/strict');
 
-const root = resolve(__dirname, '..');
+const root = resolve(__dirname, '..', '..');
 
 async function bounded(promise, milliseconds, message) {
   let timer;

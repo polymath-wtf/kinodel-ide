@@ -66,7 +66,7 @@ Use modules for actual responsibilities, not empty scaffolding:
 
 Application migrations and checkpointer setup have separate ownership. Use concrete functions until real duplication warrants an abstraction. [Implementation](implementation.md) records storage layout; [Local MVP](../roadmap-mvp.md) owns build order.
 
-Frontend organization is separate from these Python modules: `web/` builds a React/TypeScript/Vite Story workspace served from the FastAPI origin, with validated queries, fixed React Flow scopes, shared reader/review drafts and persist-before-POST exact command delivery. Receipts confirm acceptance; projections own progress/results. The standalone mock lives in `web/prototype/`; its binary photos remain in `web/assets/` and are not bundled into the client. Grow Feature-Sliced Design boundaries only with actual workspace/review/read-projection responsibilities, not empty layers. [Web UI](../frontend/webui.md#10-структура-приложения-и-fsd) owns the client layout decision.
+Frontend organization is separate from these Python modules: `web/` builds a React/TypeScript/Vite Story workspace served from the FastAPI origin, with validated queries, fixed React Flow scopes, shared reader/review drafts and persist-before-POST exact command delivery. Receipts confirm acceptance; projections own progress/results. The standalone mock lives in `web/prototype/`; its binary photos remain in `web/assets/` and are not bundled into the client. [FSD](../frontend/fsd.md) owns client layout/import/state boundaries; [Web UI](../frontend/webui.md) owns interaction and visual contracts.
 
 ## Configuration Boundary
 

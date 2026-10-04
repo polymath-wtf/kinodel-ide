@@ -4,7 +4,7 @@ import { ArrowLeft, ImagePlus, Plus, RotateCw, Users, X } from 'lucide-react';
 import { deleteCharacter, readCharacter, saveCharacter, useCharacters } from '../../entities/character/api';
 import { characterBioSchema, characterDeleteSchema, characterImageUrl, characterMutationSchema, characterPendingMutationSchema, maxImageBytes,
   type CharacterImageInput, type CharacterItem, type CharacterRef } from '../../entities/character/contracts';
-import { forgetCharacter, pendingCharacters, rememberCharacter, type PendingCharacter } from '../../entities/character/pending';
+import { forgetCharacter, pendingCharacters, rememberCharacter, type PendingCharacter } from './pending';
 import { ReadError } from '../../shared/api/http';
 import { SuccessToast } from '../../shared/ui/SuccessToast';
 

@@ -9,7 +9,7 @@ const { resolve, join } = require('node:path');
 (async () => {
   assert.ok(process.argv.includes('--live'), 'Paid smoke requires explicit --live');
   assert.ok(process.env.LIVE_ENV_FILE && process.env.PLAYWRIGHT_MODULE, 'Set LIVE_ENV_FILE and PLAYWRIGHT_MODULE explicitly');
-  const root = resolve(__dirname, '..'), port = Number(process.env.LIVE_CHECK_PORT || 8767), origin = `http://127.0.0.1:${port}`;
+  const root = resolve(__dirname, '..', '..'), port = Number(process.env.LIVE_CHECK_PORT || 8767), origin = `http://127.0.0.1:${port}`;
   await new Promise((resolve, reject) => { const server = createServer(); server.once('error', reject); server.listen(port, '127.0.0.1', () => server.close(resolve)); });
   const data = mkdtempSync(join(tmpdir(), 'kinodel-live-story-'));
   const folder = process.env.SCREENSHOT_DIR ? resolve(process.env.SCREENSHOT_DIR) : null;

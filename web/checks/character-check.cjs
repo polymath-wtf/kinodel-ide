@@ -1,18 +1,6 @@
 // Character wire/transport checks using the installed TypeScript, without a runner.
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-const ts = require('typescript');
-const Module = require('node:module');
-function load(name) {
-  const file = path.resolve(__dirname, name);
-  assert.ok(fs.existsSync(file), `character boundary must exist: ${name}`);
-  const m = new Module(file, module); m.paths = module.paths;
-  m._compile(ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: {
-    module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022,
-  } }).outputText, file);
-  return m.exports;
-}
+const load = require('./load-typescript.cjs');
 (async () => {
   const c = load('src/entities/character/contracts.ts');
   const ref = { subject_id: `character-${'a'.repeat(32)}`, revision: 1, digest: `sha256:${'b'.repeat(64)}` };

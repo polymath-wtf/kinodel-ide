@@ -2,19 +2,11 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const Module = require('node:module');
-const ts = require('typescript');
 const { drill, root } = require('./acceptance-navigation.cjs');
-function load(file) {
-  const m = new Module(file, module); m.paths = module.paths;
-  m.require = name => name.startsWith('.') ? load(path.resolve(path.dirname(file), `${name}.ts`)) : require(name);
-  m._compile(ts.transpileModule(fs.readFileSync(file, 'utf8'), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-  }).outputText, file);
-  return m.exports;
-}
-const { projectionSchema } = load(path.join(__dirname, 'src/entities/execution/contracts.ts'));
-const { storyNodeState } = load(path.join(__dirname, 'src/widgets/pipeline/contracts.ts'));
+const load = require('./load-typescript.cjs');
+const frontend = path.resolve(__dirname, '..');
+const { projectionSchema } = load('src/entities/execution/contracts.ts');
+const { storyNodeState } = load('src/widgets/pipeline/contracts.ts');
 const id = '00000000-0000-0000-0000-000000000001', digest = `sha256:${'a'.repeat(64)}`;
 const ref = { artifact_id: id, project_id: id, execution_id: id, operation_id: digest,
   schema_id: 'story', schema_version: '1', produced_by_stage: 'storytell', digest,
@@ -112,8 +104,8 @@ if (process.argv.includes('--browser')) (async () => {
         shots: [{ shot_id: 's1', action: 'Возвращает', narrative_function: 'Финал', subject_ids: [], state_before: 'До', state_after: 'После' }] } };
       else if (pathname.startsWith('/api/')) { unexpected.push(pathname); return route.abort(); }
       if (value !== undefined) return route.fulfill({ json: value });
-      const file = path.resolve(__dirname, 'dist', pathname === '/' ? 'index.html' : `.${pathname}`);
-      assert.ok(file.startsWith(path.join(__dirname, 'dist') + path.sep), 'static path stays in dist');
+      const file = path.resolve(frontend, 'dist', pathname === '/' ? 'index.html' : `.${pathname}`);
+      assert.ok(file.startsWith(path.join(frontend, 'dist') + path.sep), 'static path stays in dist');
       const contentType = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon' }[path.extname(file)];
       return route.fulfill({ body: fs.readFileSync(file), contentType });
     });

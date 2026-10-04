@@ -1,12 +1,16 @@
 import { useEffect, useState } from 'react';
 import type { Projection, ArtifactRef } from '../../entities/execution/contracts';
 import { sameRef, versionLabel } from '../../entities/execution/contracts';
-import type { Reader } from '../story-reader/StoryReader';
-import type { Commands } from '../commands/useCommands';
+import type { Reader } from '../../entities/execution/StoryReader';
 
-export type Draft = { text: string; mode: 'clarify' | 'revise'; target: { execution_id: string; request_id: string; request_digest: string; expected_revision: number; base_ref: ArtifactRef } | null };
+export type ReviewTarget = { execution_id: string; request_id: string; request_digest: string; expected_revision: number; base_ref: ArtifactRef };
+export type ReviewAction = 'clarify' | 'revise' | 'approve';
+export type Draft = { text: string; mode: 'clarify' | 'revise'; target: ReviewTarget | null };
 export const emptyDraft: Draft = { text: '', mode: 'clarify', target: null };
-export function StoryReview({ projection, reader, draft, setDraft, commands, fresh }: { projection: Projection; reader: Reader; draft: Draft; setDraft: (d: Draft) => void; commands: Commands; fresh: boolean }) {
+export function StoryReview({ projection, reader, draft, setDraft, ready, busy, fresh, onRespond }: {
+  projection: Projection; reader: Reader; draft: Draft; setDraft: (d: Draft) => void; ready: boolean; busy: boolean; fresh: boolean;
+  onRespond: (target: ReviewTarget, action: ReviewAction, message: string | null) => void;
+}) {
   const [discuss, setDiscuss] = useState(!!draft.text);
   useEffect(() => { if (draft.text) setDiscuss(true); }, [draft.text]);
   const review = reader.review;
@@ -17,17 +21,14 @@ export function StoryReview({ projection, reader, draft, setDraft, commands, fre
     || draft.target.request_digest !== currentTarget.request_digest || !sameRef(draft.target.base_ref, currentTarget.base_ref));
   const historical = !!reader.selected && !reader.selected.current;
   const selectedSubject = !!reader.selected?.current && !!review && sameRef(reader.selected.ref, review.base_ref);
-  const allowed = (action: 'clarify' | 'revise' | 'approve') => fresh && commands.ready && !commands.blocked('respond', projection.execution_id)
+  const allowed = (action: ReviewAction) => fresh && ready && !busy
     && !!review && projection.allowed_actions.includes(action) && (action === 'approve' || projection.remaining_actions[action] > 0);
   const readableSubject = selectedSubject && !!review
     && !!reader.body.data && !reader.body.error && sameRef(reader.body.data.ref, review.base_ref);
   const completion = reader.approved ? `${versionLabel(reader.selected!)} утверждена. Кадры, видео и сборка пока не подключены.` : null;
-  const send = (action: 'clarify' | 'revise' | 'approve') => {
+  const send = (action: ReviewAction) => {
     if (!currentTarget || !selectedSubject || !allowed(action) || (action === 'approve' ? !readableSubject : staleDraft || !draft.text.trim())) return;
-    commands.submit('respond', projection.project_id, projection.execution_id, { request_id: currentTarget.request_id, base_ref: currentTarget.base_ref }, {
-      command_key: crypto.randomUUID(), request_digest: currentTarget.request_digest, expected_revision: currentTarget.expected_revision,
-      action, message: action === 'approve' ? null : draft.text,
-    });
+    onRespond(currentTarget, action, action === 'approve' ? null : draft.text);
   };
   if (!review && !draft.text) return <section className="review card" aria-label="Review и черновик"><p className={reader.approved ? 'approved' : 'muted'}>{historical ? 'Историческая версия · только чтение.' : completion ?? 'Сейчас решение не требуется.'}</p></section>;
   return <section className="review card" aria-label="Review и черновик">

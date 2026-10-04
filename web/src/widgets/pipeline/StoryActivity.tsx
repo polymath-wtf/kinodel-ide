@@ -23,12 +23,3 @@ export function StoryActivity({ projection: p, select }: { projection: Projectio
     </>}
   </section>;
 }
-
-export function StoryProgress({ projection: p, open }: { projection: Projection; open?: () => void }) {
-  const text = p.status === 'running' ? 'Storytell работает. Сохранённая история появится здесь; затем остановимся для вашего решения.'
-    : p.status === 'waiting_review' ? 'История готова. Прочитайте её и утвердите или обсудите со Storytell.'
-    : p.status === 'completed' ? 'История утверждена. Продолжение до фильма пока недоступно.'
-    : p.status === 'blocked' ? 'Storytell остановлен с ошибкой. Результат не подменён тестовым.'
-    : p.status === 'cancelling' ? 'Останавливаем работу…' : p.status === 'cancelled' ? 'Запуск отменён.' : 'Не удалось завершить запуск.';
-  return <section className="story-progress" aria-label="Ход истории" role="status"><div><strong>Идея → Storytell → ваше решение</strong><p>{text}</p></div>{open && <button onClick={open}>{p.status === 'waiting_review' || p.status === 'completed' ? 'Читать историю' : 'Открыть работу'}</button>}</section>;
-}
