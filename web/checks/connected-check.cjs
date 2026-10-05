@@ -316,7 +316,7 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
     await page.getByRole('button', { name: 'Новая история', exact: true }).click();
     await page.getByLabel('Идея истории', { exact: true }).fill(liveMessage);
     await page.getByLabel('Количество кадров', { exact: true }).fill('2');
-    await page.getByLabel('Общая длительность · секунды', { exact: true }).fill('12');
+    await page.getByLabel('Длительность · секунды', { exact: true }).fill('12');
     if (folder) {
       mkdirSync(join(folder, 'new-run'));
       await page.screenshot({ path: join(folder, 'new-run', 'screen-state-desktop.png') });

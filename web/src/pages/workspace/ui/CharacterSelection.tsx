@@ -1,4 +1,5 @@
 import { useQueries } from '@tanstack/react-query';
+import { Check, RotateCw, Users } from 'lucide-react';
 import { readCharacter, useCharacters } from '../../../entities/character/api';
 import { characterImageUrl, type CharacterRef } from '../../../entities/character/contracts';
 
@@ -9,10 +10,11 @@ export function CharacterSelection({ refs, change }: { refs: CharacterRef[]; cha
   const options = [...refs.map((ref, i) => ({ ref, item: pinned[i].data, error: pinned[i].error })),
     ...(list.data?.items ?? []).filter(item => !refs.some(ref => ref.subject_id === item.ref.subject_id)).map(item => ({ ref: item.ref, item, error: null }))];
   return <section className="character-selection" aria-label="Персонажи истории">
-    <div className="character-selection-heading"><h2>Персонажи <span className="muted">· необязательно{refs.length ? ` · ${refs.length} / 16` : ''}</span></h2></div>
+    <div className="character-selection-heading"><div className="start-section-heading"><Users aria-hidden="true" /><h2>Персонажи</h2><span className="muted">Необязательно</span></div>
+      <span className="character-selection-count muted">Выбрано: {refs.length} / 16</span>
+      <button type="button" disabled={list.isFetching} onClick={() => void list.refetch()}><RotateCw aria-hidden="true" />Обновить персонажей</button></div>
     {!refs.length && <p className="muted">Storytell придумает персонажей, если никого не выбрать.</p>}
     <div className="character-picker">
-      <button type="button" disabled={list.isFetching} onClick={() => void list.refetch()}>Обновить персонажей</button>
       {list.isPending && <p role="status">Загружаем библиотеку…</p>}
       {list.error && <p className="error" role="alert">{list.error.message} <span>Выбранные refs не заменены.</span></p>}
       {list.data?.items.length === 0 && !refs.length && <p className="muted">Библиотека пока пуста. Добавить карточку можно в Characters.</p>}
@@ -23,7 +25,8 @@ export function CharacterSelection({ refs, change }: { refs: CharacterRef[]; cha
         aria-label={`${selected ? 'Убрать' : 'Выбрать'} ${name}`} disabled={!selected && (refs.length >= 16 || !!list.error || list.isFetching)}
         onClick={() => change(selected ? refs.filter(r => r.subject_id !== ref.subject_id) : [...refs, ref])}>
         {item ? <img src={characterImageUrl(ref, item.character.images[0].digest)} alt={`Портрет ${name}`} /> : <span className="muted">{error ? 'Карточка недоступна' : 'Читаем…'}</span>}
-        <span><strong>{name}</strong><small>{selected ? 'Выбран · ' : ''}r{ref.revision}</small></span>
+        <span className="character-choice-name"><strong>{name}</strong><small>{selected ? 'Выбран · ' : ''}r{ref.revision}</small></span>
+        {selected && <span className="character-choice-check" aria-hidden="true"><Check /></span>}
       </button>;
     })}</div></div>
     {refs.length > 0 && <details className="character-info"><summary>Character info</summary>{refs.map((ref, i) => {

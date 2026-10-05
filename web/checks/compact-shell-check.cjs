@@ -51,7 +51,8 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
     assert.equal(bounds.height, 900 - headerHeight, 'canvas uses remaining workspace height');
     assert.equal(await page.locator('.execution-header, .scope-toolbar, .pipeline-content > .scope-note, .execution > .story-progress, .scope-back, .node-open, .node-expand').count(), 0);
     assert.equal(await page.locator('.rail button').count(), 3, 'restored Pipeline / Canvas / Characters rail');
-    assert.equal(await page.locator('.topbar').getByRole('button', { name: 'Pipeline', exact: true }).count(), 0, 'no duplicated topbar Pipeline');
+    assert.equal(await page.locator('.topbar > button').filter({ hasText: /^Pipeline$/ }).count(), 0, 'no separate topbar Pipeline action');
+    await expect(page.locator('.breadcrumbs')).toContainText('Pipeline');
     assert.equal(await page.getByRole('button', { name: 'Chat', exact: true }).count(), 1);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, 'long titles fit');
     assert.deepEqual(await page.locator('.topbar > button, .topbar .project-name, .topbar .view-switch button, .topbar .breadcrumbs button, .topbar .run-controls > summary').evaluateAll(elements => elements.flatMap(e => {

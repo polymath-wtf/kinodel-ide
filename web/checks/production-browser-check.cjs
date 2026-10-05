@@ -1,5 +1,6 @@
 // Unified New Story: owned disposable backend/library, mocked external HTTP, no paid/render calls.
 const assert = require('node:assert/strict');
+const { mkdirSync } = require('node:fs');
 const { join } = require('node:path');
 process.env.PLAYWRIGHT_MODULE ||= 'C:/Users/Seryoger/AppData/Local/Temp/opencode/node_modules/playwright';
 process.env.SHELL_CHECK_PORT ||= '8820';
@@ -21,8 +22,8 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
   const form = page.getByRole('form', { name: 'Создать Story · OpenRouter', exact: true });
   const idea = form.getByLabel('Идея истории', { exact: true });
   const count = form.getByLabel('Количество кадров', { exact: true });
-  const total = form.getByLabel('Общая длительность · секунды', { exact: true });
-  const mode = form.getByRole('combobox', { name: 'Режим видео', exact: true });
+  const total = form.getByLabel('Длительность · секунды', { exact: true });
+  const mode = form.getByRole('combobox', { name: 'Video workflow', exact: true });
   const submit = form.getByRole('button', { name: 'Начать историю', exact: true });
    try {
      await page.goto(origin); await page.waitForLoadState('networkidle'); await open();
@@ -50,7 +51,7 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
     await expect(page.locator('form')).toHaveCount(1);
     await expect(form.getByLabel('Идея истории', { exact: true })).toHaveCount(1);
     await expect(form.locator('.character-selection')).toHaveCount(1);
-    await expect(form.locator('.production-timing')).toHaveCount(1);
+     await expect(form.locator('.production-group')).toHaveCount(5);
     await expect(page.getByRole('button', { name: 'Настройки фильма', exact: true })).toHaveCount(0);
     await expect(form.getByLabel('shot_ids', { exact: true })).toHaveCount(0);
     await expect(form.getByLabel('Длительность кадра · секунды', { exact: true })).toHaveCount(0);
@@ -60,11 +61,57 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
      await expect(form.getByText('Проверка настроек · без генерации', { exact: true })).toHaveCount(0);
      await expect(form.getByRole('button', { name: 'Проверить настройки', exact: true })).toHaveCount(0);
      await expect(page.getByRole('button', { name: '← К карте Cinematic', exact: true })).toHaveCount(0);
-    await expect(form).toContainText('ComfyUI'); await expect(form).toContainText('не подключена');
+    await expect(mode.locator('option')).toHaveText(['img2vid', 'ref2vid']);
+    await expect(form.locator('.production-duration > span:not(.sr-only)')).toHaveText('сек');
+    await expect(form.locator('.production-group > p, .production-notes, .production-timing-summary')).toHaveCount(0);
     for (const field of [count, total, mode, form.getByLabel('Ширина видео', { exact: true })])
       assert.equal(await field.evaluate(e => !!e.closest('details')), false, 'settings immediately inline');
-    const row = await Promise.all([count, total, mode].map(e => e.boundingBox()));
-    assert.equal(row[0].y, row[1].y); assert.equal(row[1].y, row[2].y, 'desktop count/total/mode share one row');
+     const desktopRow = async () => {
+       const groups = await form.locator('.production-group').evaluateAll(es => es.map(e => e.getBoundingClientRect().toJSON()));
+       assert.equal(groups.length, 5);
+       assert.equal(await form.locator('.production-group').evaluateAll(es => es.every(e => getComputedStyle(e).borderTopStyle === 'solid' && parseFloat(getComputedStyle(e).borderTopWidth) >= 1)), true, 'each generation group has its own border');
+        assert.ok(groups.every(b => Math.abs(b.y + b.height / 2 - groups[0].y - groups[0].height / 2) < 1), 'all FIVE bordered generation groups share one desktop row');
+        const grid = await form.locator('.production-grid').boundingBox();
+        const trailingSpace = grid.x + grid.width - groups[4].x - groups[4].width;
+        assert.ok(trailingSpace >= 0 && trailingSpace <= 8, 'form fits the settings row without an empty right-hand strip');
+       const fields = await Promise.all(['Ширина изображения', 'Высота изображения', 'Ширина видео', 'Высота видео', 'Количество кадров', 'Длительность · секунды', 'Video workflow'].map(name => form.getByLabel(name, { exact: true }).boundingBox()));
+       assert.ok(fields.every(b => Math.abs(b.y + b.height / 2 - fields[0].y - fields[0].height / 2) < 1), 'all seven input centers share one desktop row');
+       assert.ok(fields.slice(0, 4).every(b => b.width >= 72 && b.width <= 90 && b.height >= 44), 'compact 72–90px dimensions with 44px targets');
+       assert.ok(fields.slice(4, 6).every(b => b.width >= 64 && b.width <= 90 && b.height >= 44), 'compact count/total inputs retain 44px targets');
+       assert.ok(groups[2].width <= 170 && groups[3].width <= 140, 'count/duration groups do not expand into empty space');
+       const unit = await form.locator('.production-duration > span:not(.sr-only)').boundingBox();
+       assert.ok(unit.x >= fields[5].x + fields[5].width && Math.abs(unit.y + unit.height / 2 - fields[5].y - fields[5].height / 2) < 1, 'seconds unit follows the number on the same line');
+       assert.deepEqual(await form.locator('.production-group legend, .start-section-heading h2, .start-section-heading strong').evaluateAll(es => es.filter(e => e.scrollWidth > e.clientWidth + 1 || e.scrollHeight > e.clientHeight + 1).map(e => e.textContent)), [], 'generation/section headings are not clipped');
+       assert.equal(await form.locator('.production-group legend, .production-group .draft-label, .production-group > p, .production-group select').evaluateAll(es => es.every(e => parseFloat(getComputedStyle(e).fontSize) >= 12)), true, 'generation labels/helpers are at least 12px');
+      };
+      await desktopRow();
+      const collapsedBottom = async () => {
+        await page.locator('.workspace:visible').evaluate(e => { e.scrollTop = 0; });
+        const b = await form.boundingBox(), legacy = await form.locator('.legacy-subjects').count();
+        assert.ok(b.y + b.height <= (legacy ? 890 : 880), `whole collapsed form/card bottom${legacy ? ' including legacy disclosure' : ''}: ${b.y + b.height}`);
+        const margin = await form.evaluate(e => parseFloat(getComputedStyle(e).marginBottom));
+        assert.ok(b.y + b.height + margin <= 900, 'card bottom and bottom margin are both visible');
+        return b.y + b.height;
+      };
+      const ordinaryBottom = await collapsedBottom();
+     const modelSettings = form.getByRole('button', { name: 'Изменить модель', exact: true });
+     const disclosure = form.getByRole('region', { name: 'Настройки модели', exact: true });
+     const beforeSettings = await cache(), beforeSettingsPosts = posts.length;
+     await expect(modelSettings).toHaveAttribute('aria-expanded', 'false');
+     await modelSettings.focus(); await page.keyboard.press('Enter');
+     await expect(modelSettings).toHaveAttribute('aria-expanded', 'true'); await expect(disclosure).toBeVisible();
+     await expect(disclosure).toContainText('mock/story-model'); await expect(disclosure).toContainText('LLM_MODEL');
+     await expect(disclosure).toContainText('перезапустите');
+      await expect(form.getByText('Готов к работе', { exact: true })).toHaveCount(0);
+      await expect(form.locator('.model-configured-badge')).toHaveText('Настроена');
+     const refreshStatus = disclosure.getByRole('button', { name: 'Обновить статус', exact: true });
+     await refreshStatus.focus();
+     const statusResponse = page.waitForResponse(r => new URL(r.url()).pathname === '/api/story-availability' && r.request().method() === 'GET');
+     await page.keyboard.press('Space'); assert.equal((await statusResponse).status(), 200);
+     await expect(refreshStatus).toBeEnabled();
+     await modelSettings.focus(); await page.keyboard.press('Space');
+     await expect(disclosure).toHaveCount(0); await expect(modelSettings).toHaveAttribute('aria-expanded', 'false');
+     assert.deepEqual(await cache(), beforeSettings); assert.equal(posts.length, beforeSettingsPosts, 'model disclosure/refetch never mutates or POSTs');
     // Older Start-only cache inherits meaningful count/duration without losing other drafts.
     await idea.fill('Старый текстовый черновик');
      const original = await cache(); delete original.cinematic; delete original.video_defaults_version;
@@ -77,10 +124,9 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
     assert.deepEqual((await cache()).start, original.start);
     assert.deepEqual((await cache()).states, original.states); assert.deepEqual((await cache()).overview, original.overview);
     await expect(count).toHaveValue('3'); await expect(total).toHaveValue('3.021');
-    await expect(form.locator('.production-timing-summary')).toContainText('1.007 с на кадр');
     const numericFields = [['Количество кадров', 'shot_count'], ['Ширина изображения', 'image_width'],
       ['Высота изображения', 'image_height'], ['Ширина видео', 'video_width'], ['Высота видео', 'video_height'],
-      ['Общая длительность · секунды', 'target_seconds']];
+      ['Длительность · секунды', 'target_seconds']];
     const beforeOversized = await cache();
     for (const [label, key] of numericFields) {
       const field = form.getByLabel(label, { exact: true });
@@ -93,7 +139,6 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
     }
     await expect(submit).toBeEnabled(); await expect(page.locator('.workspace > .error')).toHaveCount(0);
     await idea.fill('Лея возвращает потерянную ленту'); await total.fill('12'); await count.fill('2');
-    await expect(form.locator('.production-timing-summary')).toHaveText('12 с / 2 кадра = 6 с на кадр');
     await mode.selectOption('ref2vid');
     const csrf = (await (await page.request.get(`${origin}/api/session`)).json()).csrf_token;
     const image = await page.evaluate(() => {
@@ -118,6 +163,7 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
      assert.equal((await cache()).cinematic.idea, '', 'stale independent idea preserved, not silently rewritten');
      assert.deepEqual((await cache()).cinematic.selected_characters, [], 'shared refs do not rewrite old independent refs');
      await form.getByRole('button', { name: 'Убрать Лея', exact: true }).click();
+     await expect(form.locator('.character-choice-check')).toHaveCount(0);
     await total.fill('1.0001'); await count.fill('-');
     await page.getByRole('button', { name: 'Characters', exact: true }).click(); await open();
     await expect(total).toHaveValue('1.0001'); await expect(count).toHaveValue('-');
@@ -159,7 +205,6 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
     await idea.fill('Лея возвращает потерянную ленту');
     await form.getByRole('button', { name: 'Выбрать Лея r2', exact: true }).click();
     await count.fill('3'); await total.fill('12.012');
-    await expect(form.locator('.production-timing-summary')).toContainText('4.004 с на кадр');
     const shared = (await cache()).start;
     await submit.click();
     await expect.poll(() => new URL(page.url()).searchParams.get('execution')).toMatch(/^[0-9a-f-]{36}$/);
@@ -171,23 +216,73 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
     for (const width of [1440, 820, 390]) {
       await page.setViewportSize({ width, height: 900 });
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-       for (const field of [idea, count, total, mode, submit, form.getByLabel('Ширина видео', { exact: true })]) {
+        for (const field of [idea, count, total, mode, submit, ...['Ширина изображения', 'Высота изображения', 'Ширина видео', 'Высота видео'].map(name => form.getByLabel(name, { exact: true })), modelSettings, form.getByRole('button', { name: 'Обновить персонажей', exact: true }), form.locator('.character-choice').first()]) {
         await field.scrollIntoViewIfNeeded(); const box = await field.boundingBox();
         assert.ok(box.width >= 44 && box.height >= 44 && box.x >= 0 && box.x + box.width <= width);
       }
     }
     await page.setViewportSize({ width: 1440, height: 900 }); await count.fill('2'); await total.fill('12');
-    await form.getByLabel('Ширина видео', { exact: true }).fill('480'); await form.getByLabel('Высота видео', { exact: true }).fill('480');
+     await form.getByLabel('Ширина видео', { exact: true }).fill('480'); await form.getByLabel('Высота видео', { exact: true }).fill('480');
+     await desktopRow();
+     const selectedTile = form.getByRole('button', { name: 'Убрать Лея r2', exact: true });
+     await expect(selectedTile).toHaveAttribute('aria-pressed', 'true'); await expect(selectedTile.locator('.character-choice-check')).toBeVisible();
+     const tile = await selectedTile.boundingBox(); assert.ok(tile.width >= 280 && tile.width <= 310 && tile.height <= 96, 'compact portrait/name/revision/check tile');
+     const characterHeading = await Promise.all([form.locator('.character-selection-heading h2'), form.locator('.character-selection-count'), form.getByRole('button', { name: 'Обновить персонажей', exact: true })].map(e => e.boundingBox()));
+     assert.ok(characterHeading.every(b => Math.abs(b.y + b.height / 2 - characterHeading[0].y - characterHeading[0].height / 2) < 1), 'heading/count/refresh aligned horizontally');
+     const beforeKeyboardRefs = (await cache()).start.character_refs;
+     await selectedTile.focus(); await page.keyboard.press('Space');
+     await expect(form.getByRole('button', { name: 'Выбрать Лея r2', exact: true })).toHaveAttribute('aria-pressed', 'false');
+     await page.keyboard.press('Enter'); await expect(selectedTile.locator('.character-choice-check')).toBeVisible();
+     assert.deepEqual((await cache()).start.character_refs, beforeKeyboardRefs, 'keyboard toggle restores exact selected revision');
      await page.locator('.workspace:visible').evaluate(e => { e.scrollTop = 0; });
-     const action = await submit.boundingBox();
-     assert.ok(action.y + action.height <= 900, `compact desktop Start with selected character: ${action.y + action.height}`);
-    if (folder) await page.screenshot({ path: join(folder, 'screen-state-desktop.png') });
+       const legacy = form.locator('.legacy-subjects');
+       await expect(legacy).toBeVisible(); await expect(legacy).not.toHaveAttribute('open');
+       const legacyBottom = await collapsedBottom();
+     if (folder) {
+       const capture = async name => { mkdirSync(join(folder, name)); await page.screenshot({ path: join(folder, name, 'screen-state-desktop.png') }); };
+       await capture('start');
+        await page.locator('.rail').getByRole('button', { name: 'Pipeline', exact: true }).click();
+       await page.locator('.breadcrumbs').getByRole('button', { name: 'Pipeline', exact: true }).click();
+       await expect(page.locator('.pipeline-content:visible')).toHaveAttribute('data-scope', 'pipeline'); await capture('pipeline');
+       await page.getByRole('button', { name: 'Characters', exact: true }).click();
+       await expect(page.getByRole('button', { name: 'Открыть Лея r2', exact: true })).toBeVisible(); await capture('characters');
+       await page.getByRole('button', { name: 'Canvas', exact: true }).click();
+       await expect(page.getByRole('heading', { name: 'Медиа пока нет', exact: true })).toBeVisible(); await capture('canvas');
+     }
+     await open();
+     for (let i = 2; i <= 17; i++) {
+       const response = await page.request.post(`${origin}/api/characters`, { headers: { 'X-Kinodel-CSRF': csrf }, data: { ...mutation,
+         mutation_id: crypto.randomUUID(), bio: { ...mutation.bio, name: `Персонаж ${i}` } } });
+       assert.equal(response.status(), 200);
+     }
+     await form.getByRole('button', { name: 'Обновить персонажей', exact: true }).click();
+     for (let i = 2; i <= 16; i++) await form.getByRole('button', { name: `Выбрать Персонаж ${i}`, exact: true }).click();
+     await expect(form.locator('.character-selection-count')).toHaveText('Выбрано: 16 / 16');
+     await expect(form.getByRole('button', { name: 'Выбрать Персонаж 17', exact: true })).toBeDisabled();
+     await expect(form.locator('.character-choice-check')).toHaveCount(16);
+     assert.equal((await cache()).start.character_refs.length, 16);
+     for (const width of [1440, 820, 390]) {
+       await page.setViewportSize({ width, height: 900 });
+       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `17 tiles at ${width}: no horizontal overflow`);
+       const lastSelected = form.getByRole('button', { name: 'Убрать Персонаж 16', exact: true });
+       await lastSelected.focus(); await expect(lastSelected).toBeFocused();
+       await lastSelected.scrollIntoViewIfNeeded();
+       const b = await lastSelected.boundingBox(); assert.ok(b.width >= 44 && b.height >= 44 && b.x >= 0 && b.x + b.width <= width, 'last selected tile remains reachable');
+       await expect(form.locator('.character-info > summary')).toBeVisible();
+     }
+     await modelSettings.click();
+     await page.route('**/api/story-availability', route => route.fulfill({ json: { configured: false, model: null, reason: 'Нет настроек модели' } }));
+     await form.getByRole('button', { name: 'Обновить статус', exact: true }).click();
+      await expect(form).toContainText('Нет настроек модели'); await expect(submit).toBeDisabled();
+      await expect(form.locator('.model-configured-badge')).toHaveCount(0);
+     await expect(form).toContainText('Как подключить');
+     await page.unroute('**/api/story-availability');
     assert.deepEqual((await cache()).states[Object.keys(original.states)[0]], original.states[Object.keys(original.states)[0]]);
     assert.equal((await cache()).start.subjects, original.start.subjects);
     assert.deepEqual(catalogs, [], 'ordinary form does not read/refresh profile catalog');
      assert.equal(posts.length, 1); assert.equal(posts[0].url, '/api/executions/live-story', 'only explicit text Start: zero production validate/catalog/render calls');
     assert.deepEqual(errors, []); assert.deepEqual(foreign, []);
-     console.log('PASS final Story: no diagnostic/back controls; old 1024 video defaults migrate once to 480, explicit 1024 then persists; custom/rectangular/invalid text, shared and independent refs/idea, timing/review/unknown pins preserved; old Start inheritance, six oversized guards, local limits/exact text timing+IDs, 44px desktop/mobile; zero catalog/validate/render/paid calls.');
+      console.log(`PASS compact Story settings: collapsed card bottom=${ordinaryBottom}, with selected character/legacy=${legacyBottom}; FIVE bordered desktop groups/seven aligned inputs, 72–90px dimensions/72px count/84px duration with inline сек, compact group widths, img2vid/ref2vid labels, no helper/footer copy; >=12px uncut headings, neutral configured badge, keyboard model disclosure + GET refetch/no mutation; exact refs/drafts/timing preserved; 1440/820/390px 44px targets; one mocked Start, no render/paid calls.`);
   } finally { await context.close(); }
 } };
 require('./shell-check.cjs');

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, Images, Layers, MessageSquare, Plus, RotateCw, Users } from 'lucide-react';
+import { ChevronDown, ChevronRight, Clapperboard, Images, Layers, MessageSquare, Plus, RotateCw, Users } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useProjection, useRecentExecutions, useStoryAvailability } from '../../entities/execution/queries';
 import { statusLabel, uuidSchema, type ArtifactRef } from '../../entities/execution/contracts';
@@ -192,7 +192,7 @@ export function Workspace() {
   };
   const openLive = () => { navigate('start'); persist({ start: { ...cacheRef.current.start, live: true } }); };
   const valid = selection !== null && uuidSchema.safeParse(selection).success;
-  const title = executionTitle?.id === selection ? executionTitle.text : recent.data?.items.find(item => item.execution_id === selection)?.input_preview || 'Cinematic workspace';
+  const title = executionTitle?.id === selection ? executionTitle.text : recent.data?.items.find(item => item.execution_id === selection)?.input_preview || 'Проекты';
   const selectedTitle = executionTitle?.id === selection ? executionTitle : null;
   const configuredModel = availability.data?.configured ? `OpenRouter · ${availability.data.model}` : 'Storytell · OpenRouter не настроен';
   const modelBadge = startOpen ? configuredModel
@@ -230,17 +230,17 @@ export function Workspace() {
   </>;
   return <div className="shell" onKeyDown={event => { if (event.key === 'Escape' && panel && !listOpen && !document.querySelector('.topbar .run-controls[open]')) { event.preventDefault(); event.stopPropagation(); closePanel(); } }}>
     <header className="topbar"><strong className="brand">KINODEL</strong>
-      <div className="project-picker"><button className="project-name" aria-label={`Проекты · ${title}`} aria-expanded={listOpen} onClick={() => { document.querySelectorAll<HTMLDetailsElement>('.topbar .run-controls[open]').forEach(menu => { menu.open = false; }); setListOpen(!listOpen); }} title={title}><span>{title}</span><ChevronDown aria-hidden="true" /></button>
+      <div className="project-picker"><button className="project-name" aria-label={`Проекты · ${title}`} aria-expanded={listOpen} onClick={() => { document.querySelectorAll<HTMLDetailsElement>('.topbar .run-controls[open]').forEach(menu => { menu.open = false; }); setListOpen(!listOpen); }} title={title}><Clapperboard aria-hidden="true" /><span>{title}</span><ChevronDown aria-hidden="true" /></button>
         {listOpen && <section className="recent-runs shell-menu" aria-label="Проекты"><div className="menu-heading"><strong>Проекты</strong><button className="projects-refresh" aria-label="Обновить проекты" title="Обновить проекты" disabled={recent.isFetching} onClick={() => void recent.refetch()}><RotateCw aria-hidden="true" /></button></div>
           {recent.error && <p className="error" role="alert">{recent.error.message}</p>}{recent.isPending && <p>Загрузка списка…</p>}
           {recent.data?.items.length === 0 && <p>Сохранённых запусков нет. Начните новую Story.</p>}
           <ul>{recent.data?.items.map(item => <li key={item.execution_id}><button aria-current={selection === item.execution_id ? 'true' : undefined} onClick={() => open(item.execution_id)}><span>{item.input_preview}</span><small>{statusLabel[item.status]}</small></button></li>)}</ul>
         </section>}
       </div>
-      <nav className="breadcrumbs" aria-label="Scope">{page === 'production' && ui.scope === 'pipeline' ? <span aria-current="page">Cinematic</span> : <>
-        <button onClick={root}>Cinematic</button><span aria-hidden="true">/</span>
+      <nav className="breadcrumbs" aria-label="Scope"><ChevronRight aria-hidden="true" />{page === 'production' && ui.scope === 'pipeline' ? <span aria-current="page">Pipeline</span> : <>
+        <button className="scope-root" onClick={root} title="К карте Pipeline">Pipeline</button><ChevronRight aria-hidden="true" />
         {page !== 'production' ? <span aria-current="page">{libraryOpen ? 'Characters' : canvasOpen ? 'Canvas' : 'Новая Story'}</span> : ui.scope === 'storytell:graph' ? <>
-          <button onClick={() => updateUI({ scope: 'storytell' })}>Storytell</button><span aria-hidden="true">/</span><span aria-current="page">LangGraph</span>
+          <button onClick={() => updateUI({ scope: 'storytell' })}>Storytell</button><ChevronRight aria-hidden="true" /><span aria-current="page">LangGraph</span>
         </> : <span aria-current="page">{groups.find(g => g.id === ui.scope)?.title}</span>}
       </>}</nav>
       <div className="run-slot" ref={setRunSlot}>{(!valid || startOpen) && <details className="run-controls"><summary><span className="status">Запуск</span><ChevronDown aria-hidden="true" /></summary><div><DeliveryStatus commands={commands} execution={null} placement="menu" />{runExtras}</div></details>}</div>

@@ -12,7 +12,6 @@ export const productionDraftSchema = z.strictObject({ idea: z.string().max(13107
 export type ProductionDraft = z.infer<typeof productionDraftSchema>;
 export const initialProductionDraft = (): ProductionDraft => ({ idea: '', selected_characters: [], image_width: '1024', image_height: '1024',
   video_width: '480', video_height: '480', shot_count: '2', target_seconds: '12', video_mode: 'img2vid', image_profile: null, video_profile: null });
-const seconds = (ms: number) => `${Math.floor(ms / 1000)}${ms % 1000 ? `.${String(ms % 1000).padStart(3, '0').replace(/0+$/, '')}` : ''}`;
 export function productionShotTiming(draft: ProductionDraft, live = false) {
   const total = secondsToMilliseconds(draft.target_seconds, 600000), count = Number(draft.shot_count);
   let error: string | null = null;
@@ -23,11 +22,6 @@ export function productionShotTiming(draft: ProductionDraft, live = false) {
   else if (live && total / count > 60000) error = 'Длительность кадра текстовой Story — от 0.001 до 60 секунд.';
   if (error !== null || total === null) return { count: null, total: null, duration: null, error: error! };
   return { count, total, duration: total / count, error: null };
-}
-export function productionTiming(draft: ProductionDraft): string | null {
-  const timing = productionShotTiming(draft);
-  if (timing.error !== null) return null;
-  return `${seconds(timing.total!)} с / ${timing.count} кадра = ${seconds(timing.duration!)} с на кадр`;
 }
 export function productionInput(draft: ProductionDraft): { input: CinematicDraft; error: null } | { input: null; error: string } {
   const timing = productionShotTiming(draft);

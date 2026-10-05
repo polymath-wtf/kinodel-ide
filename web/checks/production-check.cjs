@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const load = require('./load-typescript.cjs');
 const contracts = load('src/entities/production/contracts.ts');
-const { initialProductionDraft, productionInput, productionTiming, productionShotTiming } = load('src/pages/workspace/model/productionDraft.ts');
+const { initialProductionDraft, productionInput, productionShotTiming } = load('src/pages/workspace/model/productionDraft.ts');
 const { secondsToMilliseconds } = load('src/pages/workspace/model/time.ts');
 const digest = `sha256:${'a'.repeat(64)}`;
 const pin = { profile_id: 'unknown', version: 'old', digest };
@@ -20,7 +20,6 @@ assert.equal(productionShotTiming({ ...draft, shot_count: '9', target_seconds: '
 const input = productionInput(draft);
 assert.equal(input.error, null);
 assert.equal(input.input.production.target_duration_ms, 12000);
-assert.equal(productionTiming(draft), '12 с / 2 кадра = 6 с на кадр');
 assert.equal(productionInput({ ...draft, shot_count: '7' }).input, null);
 assert.match(productionInput({ ...draft, shot_count: '7' }).error, /без округления/);
 assert.equal(secondsToMilliseconds('1.001'), 1001);

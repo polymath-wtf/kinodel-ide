@@ -46,12 +46,15 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
       assert.ok(b.width >= 44 && b.height >= 44, 'rail touch target');
       await rail(name).focus(); await expect(rail(name)).toBeFocused();
     }
-    assert.deepEqual(await page.locator('.topbar .project-name, .topbar > button, .topbar .view-switch button, .breadcrumbs > *, .topbar .run-controls > summary').evaluateAll(elements => elements.flatMap(e => {
+    assert.deepEqual(await page.locator('.topbar .project-name, .topbar > button, .topbar .view-switch button, .breadcrumbs > button, .breadcrumbs > [aria-current], .topbar .run-controls > summary').evaluateAll(elements => elements.flatMap(e => {
       const r = e.getBoundingClientRect(), hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
       return r.width && (r.left < 0 || r.right > innerWidth || r.top < 0 || r.bottom > innerHeight || !e.contains(hit)) ? [e.textContent] : [];
     })), [], 'full path and header actions usable');
   };
   try {
+    await page.goto(origin); await scope('pipeline');
+    await expect(page.locator('.project-name > span')).toHaveText('Проекты');
+    await expect(page.locator('.breadcrumbs [aria-current]')).toHaveText('Pipeline');
     await page.goto(`${origin}/?execution=${p.execution_id}`); await scope('pipeline');
     await expect(page.locator('.node-open, .node-expand, .node-actions, .flow-stage button')).toHaveCount(0); // RED: footer links still exist.
     assert.equal(await page.getByRole('button', { name: /тестов.*Story/i }).count(), 0);
@@ -59,6 +62,8 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
     const picker = page.locator('.project-name');
     assert.ok((await picker.boundingBox()).width <= 180, 'project picker is ~one third of old 480px');
     await expect(picker).toHaveAttribute('title', p.submitted.input_message);
+    await expect(picker).toHaveText(p.submitted.input_message); await expect(picker.locator('svg')).toHaveCount(2);
+    await expect(page.locator('.breadcrumbs [aria-current]')).toHaveText('Pipeline');
     assert.ok((await picker.getAttribute('aria-label')).includes(p.submitted.input_message), 'full accessible project name');
     await picker.click();
     const projects = page.getByRole('region', { name: 'Проекты', exact: true });
@@ -123,8 +128,9 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
     for (const other of [null, 'brief', 'storytell']) {
       if (other) { await node(other).click(); await expect(page.locator('.context-panel')).toBeVisible(); }
       await node('storytell').dblclick({ delay: 100 }); await scope('storytell'); await none();
-      await expect(page.locator('.breadcrumbs')).toHaveText('Cinematic/Storytell');
-      await page.locator('.breadcrumbs').getByRole('button', { name: 'Cinematic', exact: true }).click(); await scope('pipeline');
+      await expect(page.locator('.breadcrumbs [aria-current]')).toHaveText('Storytell');
+      await expect(page.locator('.breadcrumbs')).toHaveText('PipelineStorytell');
+      await page.locator('.breadcrumbs').getByRole('button', { name: 'Pipeline', exact: true }).click(); await scope('pipeline');
     }
     // Every root node selects info; only existing scopes drill in. No invented provider graph.
     for (const [id, title] of [['brief', 'Brief'], ['wardrobe', 'Wardrobe'], ['storyboard', 'Storyboard'], ['filmmaker', 'Filmmaker'], ['montage', 'Montage'], ['final', 'Final']]) {
@@ -159,7 +165,7 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
     await back(page.getByLabel('Неприменённый черновик', { exact: true })); await none(); await scope('storytell');
     await page.locator('.topbar .run-controls > summary').click(); await page.locator('.graph-disclosure > summary').click();
     await page.getByRole('button', { name: 'Открыть internal LangGraph', exact: true }).click(); await scope('storytell:graph');
-    await expect(page.locator('.breadcrumbs')).toHaveText('Cinematic/Storytell/LangGraph');
+    await expect(page.locator('.breadcrumbs [aria-current]')).toHaveText('LangGraph');
     await expect(page.locator('.flow-stage button')).toHaveCount(0);
     await screenshot('langgraph');
     await page.locator('.flow-stage').first().click(); await expect(page.locator('.details-sheet')).toBeVisible();
@@ -194,10 +200,12 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
     await rail('Canvas').focus(); await page.keyboard.press('Enter'); await expect(page.locator('[data-view="canvas"]')).toBeVisible();
     await expect(page.locator('[data-view="canvas"]')).toContainText('Медиа пока нет');
     assert.equal(await page.locator('[data-view="canvas"] img, [data-view="canvas"] video, [data-view="canvas"] .react-flow').count(), 0);
-    await expect(page.locator('.breadcrumbs')).toHaveText('Cinematic/Canvas'); await screenshot('canvas');
+    await expect(page.locator('.breadcrumbs [aria-current]')).toHaveText('Canvas'); await screenshot('canvas');
     await rail('Characters').click(); await page.getByRole('button', { name: 'Новый персонаж', exact: true }).click();
     await page.getByLabel('Имя', { exact: true }).fill('Навигационный черновик');
+    await screenshot('character-editor');
     await back(page.getByLabel('Имя', { exact: true })); await expect(page.locator('.character-editor')).toHaveCount(0); await expect(page.locator('.characters-library')).toBeVisible();
+    await screenshot('characters');
     await back(page.locator('.characters-heading')); await expect(page.locator('[data-view="canvas"]')).toBeVisible();
     await back(page.locator('[data-view="canvas"] h1')); await scope('storytell');
     await rail('Characters').click(); await page.getByRole('button', { name: /Продолжить черновик/ }).click(); await expect(page.getByLabel('Имя', { exact: true })).toHaveValue('Навигационный черновик');
@@ -205,8 +213,10 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
     await page.getByRole('button', { name: 'Новая история', exact: true }).click(); await page.getByLabel('Идея истории', { exact: true }).fill('Сохранить идею при Back');
     await back(page.getByLabel('Идея истории', { exact: true })); await scope('storytell');
     await page.getByRole('button', { name: 'Новая история', exact: true }).click(); await expect(page.getByLabel('Идея истории', { exact: true })).toHaveValue('Сохранить идею при Back');
+    await screenshot('start');
     await back(page.locator('.topbar')); await scope('storytell');
     await page.getByRole('button', { name: 'Chat', exact: true }).click(); await expect(page.locator('.chat-column')).toBeVisible();
+    await screenshot('chat');
     await rail('Canvas').click(); await back(page.locator('.topbar')); await expect(page.locator('.chat-column')).toBeVisible();
     await rail('Pipeline').click(); await scope('storytell'); assert.deepEqual((await cache()).draft, draft);
     for (const width of [820, 390]) {
@@ -216,7 +226,7 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
       assert.ok(refreshBox.width >= 44 && refreshBox.height >= 44 && refreshBox.x >= 0 && refreshBox.x + refreshBox.width <= width, 'project refresh touch target fits');
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
       await page.keyboard.press('Escape'); await expect(projects).toHaveCount(0); await expect(picker).toBeFocused();
-      await expect(page.locator('.breadcrumbs')).toHaveText('Cinematic/Storytell');
+      await expect(page.locator('.breadcrumbs [aria-current]')).toHaveText('Storytell');
       await wrapper('storytell:output').focus(); await page.keyboard.press('Enter');
       assert.equal(await page.locator('.review-sheet').evaluate(e => e.matches(':modal')), true);
       if (width === 820) {
@@ -236,16 +246,16 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
       assert.equal(await page.locator('.details-sheet').evaluate(e => e.matches(':modal')), true);
       await back(page.locator('.details-sheet')); await none();
       await expect(wrapper('storytell:model')).toBeFocused();
-      await rail('Canvas').click(); await geometry(); await expect(page.locator('.breadcrumbs')).toHaveText('Cinematic/Canvas');
+      await rail('Canvas').click(); await geometry(); await expect(page.locator('.breadcrumbs [aria-current]')).toHaveText('Canvas');
       await back(page.locator('[data-view="canvas"] h1')); await scope('storytell');
       await page.locator('.topbar .run-controls > summary').click(); await page.locator('.graph-disclosure > summary').click();
       await page.getByRole('button', { name: 'Открыть internal LangGraph', exact: true }).click(); await scope('storytell:graph');
-      await geometry(); await expect(page.locator('.breadcrumbs')).toHaveText('Cinematic/Storytell/LangGraph');
+      await geometry(); await expect(page.locator('.breadcrumbs [aria-current]')).toHaveText('LangGraph');
       await page.locator('.breadcrumbs').getByRole('button', { name: 'Storytell', exact: true }).focus(); await page.keyboard.press('Enter'); await scope('storytell');
       if (width === 390) {
         // Put a genuine node double-click at the modal's Approve coordinates. Click two
         // must belong to navigation, NEVER to a newly mounted mutation button.
-        await page.locator('.breadcrumbs').getByRole('button', { name: 'Cinematic', exact: true }).click();
+        await page.locator('.breadcrumbs').getByRole('button', { name: 'Pipeline', exact: true }).click();
         await wrapper('storytell').focus(); await page.keyboard.press('Enter');
         const a = await page.getByRole('button', { name: 'Утвердить Story v1', exact: true }).boundingBox();
         await back(page.locator('.review-sheet'));
@@ -268,11 +278,13 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
     }
     await page.setViewportSize({ width: 1440, height: 900 });
     await picker.click(); await page.locator('.recent-runs li button').filter({ hasText: fixture.submitted.input_message }).click(); await scope('pipeline');
+    await expect(picker).toHaveText(fixture.submitted.input_message);
+    await page.reload(); await scope('pipeline'); await expect(picker).toHaveText(fixture.submitted.input_message);
     await node('storytell').click(); await expect(page.getByRole('article', { name: 'Story reader' })).toContainText('Старый fixture');
     await back(page.locator('.review-sheet')); await back(page.locator('.topbar')); await scope('pipeline');
     assert.equal(page.url(), `${origin}/?execution=${fixture.execution_id}`, 'root Back never uses external/history navigation');
     assert.deepEqual(posts, [], 'zero navigation mutation POSTs'); assert.deepEqual(foreign, []); assert.deepEqual(errors, []);
-    console.log('PASS navigation: Projects icon refresh, no close/connection label, outside click/right-click/Escape dismissal + focus; menu-first Escape from panel, second Escape closes panel; real single/double clicks + keyboard in every scope, no footer buttons, inspector races, global Back, exact Story/fixture + drafts/viewport, rail/Canvas/Chat/full path/160px picker, 1440/820/390 sheets/overflow; zero browser mutations/errors/foreign requests.');
+    console.log('PASS navigation: visible selected project + Pipeline/stage path, project switch/reload and unselected Projects fallback; Projects icon refresh, outside click/right-click/Escape dismissal + focus; menu-first Escape from panel, second Escape closes panel; real single/double clicks + keyboard in every scope, inspector races, global Back, exact Story/fixture + drafts/viewport, rail/Canvas/Chat, 1440/820/390 sheets/full-path geometry; zero browser mutations/errors/foreign requests.');
   } catch (error) {
     console.log('navigation failure geometry', JSON.stringify(await page.evaluate(() => ({ width: innerWidth, viewport: document.querySelector('.react-flow__viewport')?.getAttribute('style'), nodes: [...document.querySelectorAll('.react-flow__node')].map(n => ({ id: n.dataset.id, rect: n.getBoundingClientRect().toJSON() })), modal: !!document.querySelector(':modal'), gesture: window.__gesture }))), posts);
     throw error;

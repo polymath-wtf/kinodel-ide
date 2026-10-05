@@ -14,7 +14,7 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
   page.on('pageerror', e => errors.push(e.message));
   page.on('request', r => { if (new URL(r.url()).origin !== origin) foreign.push(r.url()); if (r.method() === 'POST') posts.push({ url: r.url(), body: r.postData() }); });
   const form = page.locator('.start-form'), idea = page.getByLabel('Идея истории', { exact: true });
-  const duration = form.getByLabel('Общая длительность · секунды', { exact: true }), count = form.getByLabel('Количество кадров', { exact: true });
+  const duration = form.getByLabel('Длительность · секунды', { exact: true }), count = form.getByLabel('Количество кадров', { exact: true });
   const submit = form.locator('button[type="submit"]');
   const start = async () => { await page.getByRole('button', { name: 'Новая история', exact: true }).click(); await expect(submit).toBeEnabled(); };
   const cache = () => page.evaluate(() => JSON.parse(sessionStorage.getItem('kinodel.workspace.v1')));
@@ -75,7 +75,7 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
       await count.fill(invalid); await submit.click(); await expect(form.getByRole('alert')).toBeVisible();
       assert.equal(posts.length, beforeInvalid, 'invalid/oversized count never POSTs');
     }
-    await count.fill('2'); await expect(form.locator('.production-timing-summary')).toContainText('1.25 с на кадр');
+    await count.fill('2');
     // Create/edit a real library card, then retain the selected r1 (not latest r2).
     const csrf = (await (await page.request.get(`${origin}/api/session`)).json()).csrf_token;
     const images = await page.evaluate(() => ['#293745', '#3a4945'].map(color => { const c = document.createElement('canvas'); c.width = 480; c.height = 600; const x = c.getContext('2d'); x.fillStyle = color; x.fillRect(0, 0, 480, 600); x.fillStyle = '#cfb79e'; x.beginPath(); x.ellipse(240, 260, 88, 115, 0, 0, 7); x.fill(); return { mime_type: 'image/png', data_base64: c.toDataURL('image/png').split(',')[1] }; }));
