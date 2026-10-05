@@ -72,7 +72,7 @@ class StoryCastTests(unittest.IsolatedAsyncioTestCase):
             if result is None:
                 result = {"status": "ready", "story": draft(), "explanation": None}
             return httpx.Response(200, json={"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(result)}}]})
-        return patch("backend.openrouter.httpx.AsyncClient", partial(httpx.AsyncClient, transport=httpx.MockTransport(respond)))
+        return patch("backend.openrouter_client.httpx.AsyncClient", partial(httpx.AsyncClient, transport=httpx.MockTransport(respond)))
 
     async def start(self, db, saver):
         return await start_live_story(db, saver, self.project, "start", ["s1"], self.brief)

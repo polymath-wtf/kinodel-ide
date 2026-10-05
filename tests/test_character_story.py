@@ -54,7 +54,7 @@ class CharacterStoryTests(unittest.IsolatedAsyncioTestCase):
             story.update(schema_version="2", generated_characters=[])
             story["shots"][0]["subject_ids"] = [subject["subject_id"] for subject in task["brief"]["subjects"]]
             return httpx.Response(200, json={"choices": [{"finish_reason": "stop", "message": {"content": json.dumps({"status": "ready", "story": story, "explanation": None})}}]})
-        return patch("backend.openrouter.httpx.AsyncClient", partial(httpx.AsyncClient, transport=httpx.MockTransport(respond)))
+        return patch("backend.openrouter_client.httpx.AsyncClient", partial(httpx.AsyncClient, transport=httpx.MockTransport(respond)))
 
     async def start(self, db, saver, refs=None, brief=None):
         return await start_live_story(db, saver, self.project, "start", ["s1"], brief or self.brief,

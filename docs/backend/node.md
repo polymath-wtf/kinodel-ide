@@ -42,6 +42,7 @@
 ## Границы
 
 - Экземпляр использует `stage_id`, тип — известную capability/tool/HITL; у каждого выхода один writer и собственный slot.
+- Механизм `Model` общий; prompt, model, prepared inputs, output schema и budgets задают конкретный экземпляр. Общий OpenRouter вызов реализован для Storytell/Wardrobe; настройки известных нод в UI остаются следующим расширением. Typed validators и operation ownership принадлежат этапу, не provider transport.
 - Соединение передаёт точный именованный результат с назначением, типом и количеством: история не заменяет image prompt, переписка не становится downstream input; обязательный HITL нельзя обойти.
 - Character chunk, wiki style и другие sources — явный [контекст](../context/context.md) выбранной ноды, а не дополнительные исполняемые агенты; два экземпляра одного типа не делят входы/выходы неявно.
 - Агент сохраняет план до запуска `*-gen`; tools выполняют побочные эффекты, LangGraph один управляет маршрутом, UI не создаёт второй scheduler.

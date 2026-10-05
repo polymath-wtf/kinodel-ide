@@ -2,6 +2,7 @@
 
 import asyncio
 from functools import partial
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -54,7 +55,7 @@ class LiveStoryTests(unittest.IsolatedAsyncioTestCase):
                     shot["subject_ids"] = ["fox"]
                 result = {"status": "ready", "story": story, "explanation": None}
             return httpx.Response(200, json={"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(result)}}]})
-        return patch("backend.openrouter.httpx.AsyncClient", partial(httpx.AsyncClient, transport=httpx.MockTransport(respond)))
+        return patch("backend.openrouter_client.httpx.AsyncClient", partial(httpx.AsyncClient, transport=httpx.MockTransport(respond)))
 
     async def start(self, db, saver):
         from backend.domain import StoryTextInputV1
@@ -65,6 +66,48 @@ class LiveStoryTests(unittest.IsolatedAsyncioTestCase):
 
     def review(self, db, execution):
         return db.execute("SELECT request_id,request_digest,binding_revision FROM review_requests WHERE execution_id=? ORDER BY request_revision DESC LIMIT 1", (execution,)).fetchone()
+
+    async def test_shared_provider_preserves_v2_request_bytes_and_envelope_diagnostic(self):
+        self.assertIsNotNone(importlib.util.find_spec("backend.openrouter_client"), "Shared provider adapter is absent")
+        from backend import openrouter_client as provider
+        from backend.domain import canonical_json, sha256_digest
+        from backend.openrouter import read_owner_config
+        from backend.story_reads import story_activity
+
+        def output(request, body):
+            finish = "length" if len(self.requests) == 1 else "stop"
+            result = {"status": "needs_input", "story": None, "explanation": "Required canon is missing."}
+            return httpx.Response(200, json={"choices": [{"finish_reason": finish, "message": {"content": json.dumps(result)}}]})
+
+        with self.transport(output), patch.object(provider, "structured_request", wraps=provider.structured_request) as builder, \
+                patch.object(provider, "model_metadata", wraps=provider.model_metadata) as metadata, \
+                patch.object(provider, "parse_completion", wraps=provider.parse_completion) as parser:
+            with open_database(self.root) as db:
+                async with open_saver(self.root, db) as saver:
+                    receipt = await self.start(db, saver)
+                    frozen_config = db.execute("SELECT owner_config FROM executions").fetchone()[0]
+                    config = read_owner_config(frozen_config)
+                    self.assertEqual(canonical_json(config).decode(), frozen_config)
+                    with self.assertRaisesRegex(ValueError, "Storytell needs_input"):
+                        await run_story_work(db, saver, fixture_story)
+                    frozen, digest = db.execute("SELECT owner_request,owner_request_digest FROM story_operations").fetchone()
+                    task = json.loads(self.requests[0]["messages"][1]["content"])
+                    expected = {"model": config.model, "stream": False, "max_tokens": 8192,
+                                "provider": {"require_parameters": True}, "reasoning": {"effort": "low"},
+                                "messages": [{"role": "system", "content": config.system_prompt},
+                                             {"role": "user", "content": json.dumps(task, ensure_ascii=False, sort_keys=True, separators=(",", ":"))}],
+                                "response_format": {"type": "json_schema", "json_schema": {
+                                    "name": "storytell_result", "strict": True, "schema": config.result_schema}}}
+                    self.assertEqual(frozen, json.dumps(expected, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+                    self.assertEqual(digest, sha256_digest(frozen.encode()))
+                    self.assertEqual(story_activity(db, receipt.execution_id)["operations"][0]["validation_diagnostic"],
+                                     {"attempt": 1, "stage": "finish", "code": "incomplete_output",
+                                      "paths": ["choices[0].finish_reason"], "finish_reason": "length"})
+                    self.assertEqual(db.execute("SELECT owner_attempts,owner_repairs FROM story_operations").fetchone(), (2, 1))
+                    self.assertEqual(db.execute("SELECT owner_config FROM executions").fetchone()[0], frozen_config)
+        self.assertEqual(builder.call_count, 1)
+        self.assertEqual(metadata.call_count, 1)
+        self.assertEqual(parser.call_count, 2)
 
     async def test_live_and_fixture_are_separate_and_clarify_revise_approve_survive_reopen(self):
         from backend.story_start import LIVE_GRAPH_ID, load_test_story_start
@@ -167,6 +210,8 @@ class LiveStoryTests(unittest.IsolatedAsyncioTestCase):
             (envelope({**valid, "story": {**story, "generated_characters": [{"subject_id": f"new-{i}", "description": secret} for i in range(16)]}}), "constraints", "cast_limit", "story.generated_characters", "stop"),
             (envelope({**valid, secret: secret}), "schema", "schema_validation", "*", "stop"),
             ({"choices": []}, "envelope", "invalid_envelope", "choices", "missing"),
+            ({"choices": envelope(finish="length")["choices"] + envelope()["choices"]},
+             "finish", "incomplete_output", "choices[0].finish_reason", "length"),
             ({"choices": [{"finish_reason": "stop", "message": []}]}, "envelope", "invalid_envelope", "choices[0].message", "stop"),
             ({"choices": [{"finish_reason": "stop", "message": {"content": None}}]}, "content", "non_text_content", "choices[0].message.content", "stop"),
             ({"choices": [{"finish_reason": "stop", "message": {"content": [{"text": secret}]}}]}, "content", "non_text_content", "choices[0].message.content", "stop"),
@@ -283,6 +328,126 @@ class LiveStoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.requests), 2)
         self.assertEqual(self.requests[0], self.requests[1])
 
+    async def test_http_statuses_preserve_story_errors_and_single_reserved_attempt(self):
+        from backend.openrouter import produce_live_story
+        from backend.story_graph import StoryOwnerUnavailable, initial_story_state
+        from backend.story_store import prepare_story_operation
+
+        with self.transport(), open_database(self.root) as db:
+            async with open_saver(self.root, db) as saver:
+                receipt = await self.start(db, saver)
+            activation = initial_story_state(self.project, receipt.execution_id, live=True)["story_activation"]
+            prepare_story_operation(db, receipt.execution_id, activation)
+            for status in (302, 400, 401, 403, 408, 429, 500, 503):
+                self.requests.clear()
+                db.execute("UPDATE story_operations SET owner_attempts=0")
+                transient = status in (408, 429, 500, 503)
+                error = StoryOwnerUnavailable if transient else ValueError
+                message = ("Story owner unavailable" if transient else
+                           f"OpenRouter request rejected (HTTP {status}); check server configuration")
+                with self.subTest(status=status), self.transport(lambda request, _: httpx.Response(
+                        status, content=b"private-test-secret", headers={"location": "https://elsewhere.test/"})), \
+                        self.assertRaises(error) as raised:
+                    await produce_live_story(db, receipt.execution_id, activation, None, None, None)
+                self.assertEqual(str(raised.exception), message)
+                self.assertEqual(len(self.requests), 1)
+                self.assertEqual(db.execute("SELECT owner_attempts,owner_repairs,owner_validation_diagnostic FROM story_operations").fetchone(),
+                                 (1, 0, None))
+
+    async def test_oversized_completions_repair_or_exhaust_without_unsafe_commit_and_replay(self):
+        from backend.domain import MAX_JSON_BYTES, sha256_digest
+        from backend.openrouter import produce_live_story
+        from backend.story_reads import story_activity
+
+        story = fixture_story("Only the repaired Story", ["s1", "s2"], None, None).model_dump(mode="json")
+        story.update(schema_version="2", generated_characters=[])
+        for shot in story["shots"]:
+            shot["subject_ids"] = ["fox"]
+        valid = {"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(
+            {"status": "ready", "story": story, "explanation": None})}}]}
+        rejected_story = {**story, "hook": "Rejected oversized Story"}
+        # A valid-looking creative result precedes oversized private provider data: never salvage it.
+        prefix = (json.dumps({"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(
+            {"status": "ready", "story": rejected_story, "explanation": None})}}]})[:-1] + ',"reasoning":"').encode()
+        chunk = (b"private-test-secret" * 4000)[:65536]
+        parent = self.root.parent
+        for repair_succeeds in (True, False):
+            with self.subTest(repair_succeeds=repair_succeeds):
+                self.root = parent / ("cap-repaired" if repair_succeeds else "cap-exhausted")
+                self.requests.clear()
+                consumed, closed = [], []
+                class Oversized(httpx.AsyncByteStream):
+                    async def __aiter__(self):
+                        yield prefix
+                        for index in range(MAX_JSON_BYTES // len(chunk) + 3):
+                            consumed.append(index)
+                            yield chunk
+                        yield b'"}'
+                    async def aclose(self):
+                        closed.append(True)
+                diagnostic = {"attempt": 1 if repair_succeeds else 2, "stage": "envelope", "code": "invalid_envelope",
+                              "paths": ["choices"], "finish_reason": "missing"}
+                def respond(request, body):
+                    if len(self.requests) == 2:
+                        self.assertEqual(db.execute("SELECT COUNT(*) FROM artifacts").fetchone(), (0,))
+                        self.assertEqual(db.execute("SELECT owner_attempts,owner_repairs FROM story_operations").fetchone(), (2, 1))
+                        self.assertEqual(story_activity(db, receipt.execution_id)["operations"][0]["validation_diagnostic"],
+                                         {**diagnostic, "attempt": 1})
+                        if repair_succeeds:
+                            return httpx.Response(200, json=valid)
+                    return httpx.Response(200, stream=Oversized())
+                with self.transport(respond), open_database(self.root) as db:
+                    async with open_saver(self.root, db) as saver:
+                        receipt = await self.start(db, saver)
+                        config = db.execute("SELECT owner_config FROM executions").fetchone()[0]
+                        failure = None
+                        try:
+                            await run_story_work(db, saver, fixture_story)
+                        except ValueError as error:
+                            failure = error
+                        attempts, repairs, diagnostic_body = db.execute(
+                            "SELECT owner_attempts,owner_repairs,owner_validation_diagnostic FROM story_operations").fetchone()
+                        self.assertEqual(((attempts, repairs), len(self.requests), diagnostic_body is not None),
+                                         ((2, 1), 2, True))
+                        self.assertEqual(json.loads(diagnostic_body), diagnostic)
+                        self.assertEqual(diagnostic_body, json.dumps(diagnostic, sort_keys=True, separators=(",", ":")))
+                        frozen = db.execute("SELECT owner_request,owner_request_digest FROM story_operations").fetchone()
+                        self.assertEqual(frozen[0], json.dumps(self.requests[0], ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+                        self.assertEqual(frozen[1], sha256_digest(frozen[0].encode()))
+                        self.assertEqual(self.requests[1]["messages"][:2], self.requests[0]["messages"])
+                        repair = self.requests[1]["messages"][-1]["content"]
+                        self.assertIn(json.dumps({**diagnostic, "attempt": 1}, sort_keys=True, separators=(",", ":")), repair)
+                        self.assertNotIn("private-test-secret", diagnostic_body + repair + str(failure))
+                        if repair_succeeds:
+                            self.assertIsNone(failure)
+                            saved = read_story(db, receipt.execution_id)
+                            self.assertEqual(saved[1].hook, story["hook"])
+                            self.assertEqual(db.execute("SELECT COUNT(*) FROM artifacts").fetchone(), (1,))
+                        else:
+                            self.assertIsInstance(failure, ValueError)
+                            self.assertEqual(str(failure), "OpenRouter invalid_output: structured repair budget exhausted; "
+                                             "envelope/invalid_envelope; paths=choices; finish_reason=missing")
+                            self.assertEqual(db.execute("SELECT COUNT(*) FROM artifacts").fetchone(), (0,))
+                self.assertEqual(len(closed), 1 if repair_succeeds else 2)
+                self.assertLess(len(consumed), len(closed) * (MAX_JSON_BYTES // len(chunk) + 3))
+                with self.transport(lambda *_: self.fail("Replay sent a third POST")), open_database(self.root) as db:
+                    async with open_saver(self.root, db) as saver:
+                        self.assertEqual(await self.start(db, saver), receipt)
+                        self.assertEqual(await run_story_work(db, saver, fixture_story), 0)
+                        if repair_succeeds:
+                            self.assertEqual(read_story(db, receipt.execution_id), saved)
+                        else:
+                            activation = db.execute("SELECT activation_id FROM story_operations").fetchone()[0]
+                            with self.assertRaisesRegex(ValueError, "invalid_output.*invalid_envelope.*missing") as replay_error:
+                                await produce_live_story(db, receipt.execution_id, activation, None, None, None)
+                            self.assertEqual(str(replay_error.exception), str(failure))
+                        self.assertEqual(db.execute("SELECT owner_config FROM executions").fetchone()[0], config)
+                        self.assertEqual(db.execute("SELECT owner_request,owner_request_digest FROM story_operations").fetchone(), frozen)
+                        self.assertEqual(db.execute("SELECT owner_attempts,owner_repairs,owner_validation_diagnostic FROM story_operations").fetchone(),
+                                         (2, 1, diagnostic_body))
+                        self.assertEqual(story_activity(db, receipt.execution_id)["operations"][0]["validation_diagnostic"], diagnostic)
+                self.assertEqual(len(self.requests), 2)
+
     async def test_cancel_stops_live_await_and_prevents_binding(self):
         entered = asyncio.Event()
         stopped = asyncio.Event()
@@ -294,7 +459,7 @@ class LiveStoryTests(unittest.IsolatedAsyncioTestCase):
                 await asyncio.sleep(30)
             finally:
                 stopped.set()
-        with patch("backend.openrouter.httpx.AsyncClient", partial(httpx.AsyncClient, transport=httpx.MockTransport(slow))):
+        with patch("backend.openrouter_client.httpx.AsyncClient", partial(httpx.AsyncClient, transport=httpx.MockTransport(slow))):
             with open_database(self.root) as db:
                 async with open_saver(self.root, db) as saver:
                     receipt = await self.start(db, saver)

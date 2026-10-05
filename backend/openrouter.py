@@ -1,30 +1,28 @@
 """One bounded HTTP Storytell adapter. Secrets and provider errors never enter records."""
 
-import asyncio
 import json
 import os
 from pathlib import Path
 import sqlite3
 from typing import Annotated, Any, Literal
 
-import httpx
 from pydantic import Field, ValidationError, model_validator
 
+from backend import openrouter_client as provider
+from backend.openrouter_client import FinishReason, credential as _credential, encode
 from backend.characters import CharacterRef, CharacterV1
-from backend.domain import (Digest, DomainModel, Narrative, OwnerResponseV1, StoryTextInputV1, StoryTextSubjectV1, StoryV1, StoryV2,
+from backend.domain import (Digest, DomainModel, MAX_JSON_BYTES, Narrative, OwnerResponseV1, StoryTextInputV1, StoryTextSubjectV1, StoryV1, StoryV2,
                             StorytellResultV1, StorytellResultV2, canonical_json, parse_json_model, sha256_digest,
                             validate_story_for_text_input)
 from backend.story_graph import StoryOwnerUnavailable
 from backend.story_store import _assert_writable
 
 
-BASE_URL = "https://openrouter.ai/api/v1"
 PROMPT = Path(__file__).resolve().parent.parent / ".agents" / "storytell" / "system.md"
 
 # Only structural names/indices may leave validation; extra keys can contain personal data.
 _PATH_FIELDS = "choices|message|content|finish_reason|tool_calls|status|story|explanation|schema_id|schema_version|hook|shots|shot_id|action|narrative_function|subject_ids|state_before|state_after|generated_characters|subject_id|description"
 DiagnosticPath = Annotated[str, Field(max_length=192, pattern=rf"^(?:\$|(?:{_PATH_FIELDS}|\*)(?:\[[0-9]{{1,3}}\])?(?:\.(?:{_PATH_FIELDS}|\*)(?:\[[0-9]{{1,3}}\])?)*)$")]
-FinishReason = Literal["stop", "length", "content_filter", "tool_calls", "function_call", "error", "missing", "unknown", "invalid_type"]
 
 
 class StoryValidationDiagnostic(DomainModel):
@@ -126,10 +124,6 @@ class StoryOwnerConfigV2(StoryOwnerConfig):
         return self
 
 
-def encode(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
-
-
 def read_owner_config(body: str) -> StoryOwnerConfig | StoryOwnerConfigV2:
     if type(body) is not str:
         raise ValueError("Missing frozen Story owner configuration")
@@ -139,13 +133,6 @@ def read_owner_config(body: str) -> StoryOwnerConfig | StoryOwnerConfigV2:
     if canonical_json(config).decode("utf-8") != body or sha256_digest(config.system_prompt.encode("utf-8")) != config.prompt_digest:
         raise ValueError("Frozen Story owner configuration mismatch")
     return config
-
-
-def _credential() -> str:
-    key = os.environ.get("OPENROUTER_API_KEY", "").strip()
-    if not key or any(ord(char) < 33 or ord(char) > 126 for char in key):
-        raise ValueError("OPENROUTER_API_KEY is missing or invalid in the server environment")
-    return key
 
 
 def story_availability() -> dict:
@@ -166,21 +153,10 @@ async def pin_story_owner(brief: StoryTextInputV1, selected_characters: list[Sel
     if not model or len(model) > 256:
         raise ValueError("LLM_MODEL is required in the server environment")
     try:
-        async with asyncio.timeout(15), httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
-            response = await client.get(f"{BASE_URL}/models")  # Public metadata, no credential.
-            if response.status_code != 200:
-                raise ValueError("OpenRouter model metadata unavailable")
-            models = response.json()["data"]
-    except (httpx.HTTPError, TimeoutError, KeyError, json.JSONDecodeError):
+        selected = await provider.model_metadata(model)
+    except (provider.OpenRouterUnavailable, provider.OpenRouterRejected, provider.OpenRouterResponseTooLarge):
         raise ValueError("OpenRouter model metadata unavailable") from None
-    selected = next((item for item in models if item.get("id") == model), None)
-    if selected is None:
-        raise ValueError("Requested OpenRouter model is unavailable; no model substitution")
-    if not {"response_format", "structured_outputs"}.issubset(selected.get("supported_parameters", [])):
-        raise ValueError("Requested OpenRouter model does not advertise structured outputs")
-    efforts = selected.get("reasoning", {}).get("supported_efforts")
-    if efforts is not None and "low" not in efforts:
-        raise ValueError("Requested OpenRouter model does not support the bounded low reasoning profile")
+    provider.require_capabilities(selected, model)
     prompt = PROMPT.read_text(encoding="utf-8")
     config = StoryOwnerConfigV2(adapter_version="2", model=model, brief=brief, system_prompt=prompt,
                               selected_characters=selected_characters or [],
@@ -210,14 +186,10 @@ async def produce_live_story(db: sqlite3.Connection, execution_id: str, activati
         task["context"]["selected_canon"] = [{"kind": "character", "ref": item.ref.model_dump(mode="json")}
                                              for item in config.selected_characters]
     clarification = action == "clarify"
-    request = {"model": config.model, "stream": False, "max_tokens": config.max_tokens,
-               "provider": {"require_parameters": True}, "reasoning": {"effort": config.reasoning_effort},
-               "messages": [{"role": "system", "content": config.system_prompt},
-                            {"role": "user", "content": encode(task)}],
-               "response_format": {"type": "json_schema", "json_schema": {
-                   "name": "story_clarification" if clarification else "storytell_result", "strict": True,
-                   "schema": config.clarification_schema if clarification else config.result_schema}}}
-    encoded = encode(request)
+    encoded = provider.structured_request(config.model, config.system_prompt, encode(task),
+                                          config.clarification_schema if clarification else config.result_schema,
+                                          "story_clarification" if clarification else "storytell_result",
+                                          config.max_tokens, config.reasoning_effort)
     digest = sha256_digest(encoded.encode("utf-8"))
     if operation[3] is None:
         _assert_writable(db, execution_id)
@@ -244,35 +216,13 @@ async def produce_live_story(db: sqlite3.Connection, execution_id: str, activati
             if config.adapter_version == "2" and diagnostic is not None:
                 repair += " Rejection diagnostic: " + encode(diagnostic.model_dump(mode="json"))
             payload["messages"].append({"role": "user", "content": repair})
-        try:
-            async with asyncio.timeout(config.timeout_seconds), httpx.AsyncClient(timeout=config.timeout_seconds, follow_redirects=False) as client:
-                response = await client.post(f"{BASE_URL}/chat/completions", json=payload,
-                                             headers={"Authorization": f"Bearer {key}"})
-        except (httpx.HTTPError, TimeoutError):
-            raise StoryOwnerUnavailable("Story owner unavailable") from None
-        if response.status_code in (408, 429) or response.status_code >= 500:
-            raise StoryOwnerUnavailable("Story owner unavailable")
-        if response.status_code != 200:
-            raise ValueError(f"OpenRouter request rejected (HTTP {response.status_code}); check server configuration")
         stage, code, paths, finish = "envelope", "invalid_envelope", ["choices"], "missing"
+        response = None
         try:
-            choice = response.json()["choices"][0]
-            reason = choice.get("finish_reason")
-            finish = ("missing" if reason is None else "invalid_type" if type(reason) is not str else
-                      reason if reason in ("stop", "length", "content_filter", "tool_calls", "function_call", "error") else "unknown")
-            stage, code, paths = "finish", "incomplete_output", ["choices[0].finish_reason"]
-            if finish != "stop":
-                raise ValueError("Incomplete model output")
-            stage, code, paths = "envelope", "invalid_envelope", ["choices[0].message"]
-            message = choice["message"]
-            if message.get("tool_calls"):
-                stage, code, paths = "finish", "tool_calls", ["choices[0].message.tool_calls"]
-                raise ValueError("Unexpected tool calls")
-            stage, code, paths = "content", "non_text_content", ["choices[0].message.content"]
-            content = message["content"]
-            if type(content) is not str:
-                raise ValueError("Expected text content")
-            code = "invalid_json"
+            response = await provider.http("POST", "chat/completions", config.timeout_seconds,
+                                           MAX_JSON_BYTES, encode(payload), key)
+            content = provider.parse_completion(response)
+            stage, code, paths, finish = "content", "invalid_json", ["choices[0].message.content"], "stop"
             body = content.encode("utf-8")
             if clarification:
                 result = parse_json_model(body, OwnerResponseV1)
@@ -286,7 +236,16 @@ async def produce_live_story(db: sqlite3.Connection, execution_id: str, activati
                     validate_story_for_text_input(result.story, config.brief, task["shot_ids"], prior)
                     stage, code, paths = "canonical", "invalid_canonical", ["story"]
                     canonical_json(result.story)
+        except provider.OpenRouterUnavailable:
+            raise StoryOwnerUnavailable("Story owner unavailable") from None
+        except provider.OpenRouterRejected as error:
+            raise ValueError(str(error)) from None
         except (ValueError, KeyError, IndexError, TypeError, AttributeError) as error:
+            # Other pre-response failures are not malformed model output.
+            if response is None and not isinstance(error, provider.OpenRouterResponseTooLarge):
+                raise
+            if isinstance(error, provider.CompletionRejected):
+                stage, code, paths, finish = error.stage, error.code, error.paths, error.finish
             diagnostic = _diagnose(error, attempts + 1, stage, code, paths, finish)
             repair_allowed = repairs < config.repair_limit and attempts + 1 < budget
             _assert_writable(db, execution_id)

@@ -44,6 +44,8 @@ User feedback follows the [HITL revision contract](../hilp/hilp.md#revision-cont
 
 Use one bounded structured model response per operation, with bounded output repair. A static capability record pins instructions, schemas, permitted tools, model modalities and budgets. Wardrobe/Storyboard/Filmmaker have only their declared generation tool, dispatched by the next graph node from the saved plan. They neither poll jobs nor select provider endpoints. [Tools](../tools/tools.md) defines optional native tool-call handling without a second execution path.
 
+Storytell and Wardrobe reuse `backend/openrouter_client.py` for the Model call: transport, advertised capabilities, request envelope and response parsing. Stage adapters own input projections, output schemas/semantic validation and operation integration; each instance has separate frozen inputs and results. No per-agent provider implementation is needed.
+
 No marketplace, universal handoff dictionary or agent framework is required. The authored [prompt index](../../.agents/README.md) lists one folder per agent; schemas, model bindings and runtime registration remain implementation work. Do not inject this catalog or backend contracts into model context.
 
 ### Consumer Context

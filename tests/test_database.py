@@ -49,7 +49,8 @@ class DatabaseTests(unittest.TestCase):
                     self.assertEqual(db.execute(f"PRAGMA {pragma}").fetchone()[0], expected)
                 self.assertEqual({row[0] for row in db.execute("SELECT name FROM sqlite_schema WHERE type='table'")},
                                   {"executions", "artifacts", "execution_bindings", "story_operations",
-                                    "review_requests", "execution_work", "execution_outcomes", "execution_controls"})
+                                    "review_requests", "execution_work", "execution_outcomes", "execution_controls",
+                                    "wardrobe_operations"})
             with self.assertRaises(sqlite3.ProgrammingError):
                 db.execute("SELECT 1")
 

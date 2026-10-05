@@ -4,7 +4,7 @@ Kinodel is a **runtime-vibe-factory for creators**: a user follows a production 
 
 ## Start Here
 
-1. [Local MVP](roadmap-mvp.md) — repository/dependencies, overall implementation sequence and first-build acceptance. [ComfyUI Local](roadmap-comfyui.md) owns the detailed render/media checklist within steps 3–6.
+1. [Local MVP](roadmap-mvp.md) — repository/dependencies, overall implementation sequence, agent backend/LLM/text checklist and first-build acceptance. [ComfyUI Local](roadmap-comfyui.md) owns the detailed generation/workflow/media checklist consuming saved agent plans within steps 4–6.
 2. [Architecture](backend/architecture.md) — stack, ownership and system boundaries.
 3. [Cinematic](pipelines/cinematic.md) — node route, inputs/results and direct revisions; [JSON](pipelines/cinematic.v1.json) is its non-executable inspection reference.
 4. Read the domain page being implemented; do not redesign the entire catalog before writing code.
