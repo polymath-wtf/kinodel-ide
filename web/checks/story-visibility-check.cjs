@@ -95,7 +95,7 @@ module.exports = async ({ browser, origin, folder, restart }) => {
     await page.getByRole('button', { name: 'Новая история', exact: true }).click();
     await expect(page.locator('.start-form')).toHaveAttribute('data-live', 'true');
     await expect(page.locator('.start-form')).toContainText('mock/story-model');
-    await page.getByLabel('input_message', { exact: true }).fill('Лис возвращает ленту');
+    await page.getByLabel('Идея истории', { exact: true }).fill('Лис возвращает ленту');
     await expect(page.locator('.start-form')).toContainText('Storytell придумает персонажей');
     await expect(page.getByLabel('subjects', { exact: true })).toHaveCount(0);
     await capture('start');
@@ -192,7 +192,7 @@ module.exports = async ({ browser, origin, folder, restart }) => {
     await view(page, 'Pipeline');
     await page.getByRole('button', { name: 'Новая история', exact: true }).click();
     await expect(page.locator('.legacy-subjects')).toContainText('не отправляется');
-    await page.getByLabel('input_message', { exact: true }).fill('Лея возвращает потерянную ленту');
+    await page.getByLabel('Идея истории', { exact: true }).fill('Лея возвращает потерянную ленту');
     await expect(page.locator('.character-picker')).toBeVisible();
     const card = page.getByRole('button', { name: 'Выбрать Лея', exact: true });
     await expect(card).toBeVisible(); await card.focus(); await page.keyboard.press('Space');
@@ -238,7 +238,7 @@ module.exports = async ({ browser, origin, folder, restart }) => {
     await cast(); await expect(page.locator('.story-cast')).toContainText('fox'); await capture('cast-chat');
     assert.equal((await (await page.request.get(`${origin}/api/characters`)).json()).items.length, 1, 'generated actors never auto-save to library');
     await page.getByRole('button', { name: 'Новая история', exact: true }).click();
-    await page.getByLabel('input_message', { exact: true }).fill('harness:live-error');
+    await page.getByLabel('Идея истории', { exact: true }).fill('harness:live-error');
     await page.locator('.start-form button[type="submit"]').click();
     await expect(page.locator('.topbar .run-controls > summary .status')).toHaveText('Заблокирован', { timeout: 15000 });
     await view(page, 'Pipeline');

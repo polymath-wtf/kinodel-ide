@@ -13,8 +13,9 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
   const page = await context.newPage(), posts = [], errors = [], foreign = [];
   page.on('pageerror', e => errors.push(e.message));
   page.on('request', r => { if (new URL(r.url()).origin !== origin) foreign.push(r.url()); if (r.method() === 'POST') posts.push({ url: r.url(), body: r.postData() }); });
-  const form = page.locator('.start-form'), idea = page.getByLabel('input_message', { exact: true });
-  const duration = form.locator('input[type="number"]'), submit = form.locator('button[type="submit"]');
+  const form = page.locator('.start-form'), idea = page.getByLabel('Идея истории', { exact: true });
+  const duration = form.getByLabel('Общая длительность · секунды', { exact: true }), count = form.getByLabel('Количество кадров', { exact: true });
+  const submit = form.locator('button[type="submit"]');
   const start = async () => { await page.getByRole('button', { name: 'Новая история', exact: true }).click(); await expect(submit).toBeEnabled(); };
   const cache = () => page.evaluate(() => JSON.parse(sessionStorage.getItem('kinodel.workspace.v1')));
   let lastExecution = null;
@@ -30,13 +31,13 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
     await page.goto(origin); await page.waitForLoadState('networkidle'); await start();
     await idea.fill('Лис возвращает потерянную ленту');
     if (process.argv.includes('--red-seconds')) {
-      await duration.fill('1.25'); await submit.click(); await waitStory();
+      await count.fill('1'); await duration.fill('1.25'); await submit.click(); await waitStory();
       assert.equal(JSON.parse(posts.at(-1).body).shot_duration_ms, 1250, 'seconds must become exact integer milliseconds');
       return;
     }
     const ideaBox = await idea.boundingBox(), actionBox = await submit.boundingBox();
     assert.ok(ideaBox.y < (await form.locator('.model-availability').boundingBox()).y, 'idea precedes model/setup explanation');
-    assert.ok(actionBox.y + actionBox.height <= 900, 'initial idea and Start above desktop fold');
+    assert.ok(actionBox.y + actionBox.height <= 900, `initial idea and Start above desktop fold: ${actionBox.y + actionBox.height}`);
     await expect(form.locator('.character-selection-grid')).toBeVisible();
     assert.equal(await form.locator('.character-selection-grid').evaluate(e => !!e.closest('details')), false, 'picker is immediately visible, never a disclosure');
     await expect(form.getByText('Что будет создано', { exact: true })).toHaveCount(0);
@@ -47,11 +48,12 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
     await expect(form).toContainText('Bio'); await expect(form).toContainText('не изображения');
     await expect(page.getByLabel('shot_ids', { exact: true })).toBeHidden();
     await expect(idea).toHaveAttribute('maxlength', '16384');
-    await expect(duration).toHaveAttribute('step', '0.001');
-    await expect(duration).toHaveValue('5');
-    // Custom integer-ms cache stays exact through reload; seconds payload is not rounded.
+    await expect(duration).toHaveAttribute('inputmode', 'decimal');
+    await expect(duration).toHaveValue('12');
+    await expect(count).toHaveValue('2'); await count.fill('1');
+    // Auto per-shot integer ms stays exact through reload; the total is never rounded.
     for (const ms of [1, 1250, 60000, 1001, 1007]) {
-      await duration.fill(String(ms / 1000)); assert.equal((await cache()).start.duration, ms);
+      await duration.fill(String(ms / 1000)); assert.equal((await cache()).cinematic.target_seconds, String(ms / 1000));
       await page.reload(); await start(); await expect(duration).toHaveValue(String(ms / 1000));
       await submit.click(); const p = await waitStory();
       assert.equal(JSON.parse(posts.at(-1).body).shot_duration_ms, ms);
@@ -66,17 +68,14 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
     for (const invalid of ['', '0', '60.001', '1.0001']) {
       await duration.fill(invalid); await submit.click();
       assert.equal(posts.length, beforeInvalid, `invalid ${invalid} seconds never submits`);
-      assert.equal((await cache()).start.duration, 1007, 'invalid input never changes the stored custom value');
+      assert.equal((await cache()).cinematic.target_seconds, invalid, 'invalid numeric text is preserved, never clamped');
     }
-    await duration.fill('1.25');
-    await form.getByText('Дополнительные настройки', { exact: true }).click();
-    const shots = page.getByLabel('shot_ids', { exact: true });
-    await shots.fill('opening, opening'); await submit.click(); await expect(form.getByRole('alert')).toBeVisible();
-    await shots.fill('a,b,c,d,e,f,g,h,i'); await submit.click(); assert.equal(posts.length, beforeInvalid);
-    await shots.fill(''); await form.getByText('Дополнительные настройки', { exact: true }).click();
-    await submit.click(); await expect(shots).toBeVisible(); assert.equal(posts.length, beforeInvalid, 'empty hidden required shot input reveals its setting');
-    await shots.fill('opening, closing'); await expect(form.locator('.start-summary')).toContainText('Кадров: 2');
-    await form.getByText('Дополнительные настройки', { exact: true }).click();
+    await duration.fill('2.5');
+    for (const invalid of ['1.5', '9', '']) {
+      await count.fill(invalid); await submit.click(); await expect(form.getByRole('alert')).toBeVisible();
+      assert.equal(posts.length, beforeInvalid, 'invalid/oversized count never POSTs');
+    }
+    await count.fill('2'); await expect(form.locator('.production-timing-summary')).toContainText('1.25 с на кадр');
     // Create/edit a real library card, then retain the selected r1 (not latest r2).
     const csrf = (await (await page.request.get(`${origin}/api/session`)).json()).csrf_token;
     const images = await page.evaluate(() => ['#293745', '#3a4945'].map(color => { const c = document.createElement('canvas'); c.width = 480; c.height = 600; const x = c.getContext('2d'); x.fillStyle = color; x.fillRect(0, 0, 480, 600); x.fillStyle = '#cfb79e'; x.beginPath(); x.ellipse(240, 260, 88, 115, 0, 0, 7); x.fill(); return { mime_type: 'image/png', data_base64: c.toDataURL('image/png').split(',')[1] }; }));
@@ -180,7 +179,7 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
     assert.equal(posts.length, beforeNavigation, 'library/card/ID disclosure navigation never POSTs');
     const before = await cache();
     await submit.click(); const selected = await waitStory(); const payload = JSON.parse(posts.at(-1).body);
-    assert.deepEqual(payload.character_refs, [pinned]); assert.deepEqual(payload.subjects, []); assert.deepEqual(payload.shot_ids, ['opening', 'closing']); assert.equal(payload.shot_duration_ms, 1250);
+    assert.deepEqual(payload.character_refs, [pinned]); assert.deepEqual(payload.subjects, []); assert.deepEqual(payload.shot_ids, ['shot-001', 'shot-002']); assert.equal(payload.shot_duration_ms, 1250);
     assert.deepEqual(selected.submitted.selected_characters, [exact]);
     assert.equal((await cache()).start.subjects, before.start.subjects);
     // Start pending bytes remain untouched even if the form's library/settings change.

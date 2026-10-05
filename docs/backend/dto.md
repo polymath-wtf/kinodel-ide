@@ -1,6 +1,6 @@
 # DTO Contracts
 
-Status: **Foundation refs, InitialRequestV1, BriefV1, StoryV1 and canonical JSON are executable in `backend/domain.py`; review/media schemas remain proposed.** This page owns DTO shapes and boundary validation. [Artifacts](artifacts.md) owns persistence/provenance, [HITL](../hilp/hilp.md) human actions, and [cinematic](../pipelines/cinematic.md) stage ownership. Build order and acceptance live in [Local MVP](../roadmap-mvp.md). Hosted wire activates separately.
+Status: **Foundation refs, V1 bodies/canonical JSON and separate V2 cinematic production/Motion input validators are executable in `backend/domain.py`; cinematic Run and review/media storage remain pending.** This page owns DTO shapes and boundary validation. [Artifacts](artifacts.md) owns persistence/provenance, [HITL](../hilp/hilp.md) human actions, and [cinematic](../pipelines/cinematic.md) stage ownership. Build order and acceptance live in [Local MVP](../roadmap-mvp.md). Hosted wire activates separately.
 
 ## Trust And Encoding
 
@@ -68,7 +68,7 @@ The message is immutable; missing required Brief fields resolve before Run. A no
 
 ### BriefV1
 
-**Граница следующей интеграции, 5 октября:** таблица ниже сохраняет существующий foundation `BriefV1`: одна пара размеров, per-shot duration и fixed `i2v`. Новый public cinematic contract отдельно задаёт image/video sizes, total target duration с равномерным per-shot распределением и `video_mode:"img2vid"|"ref2vid"`, согласованный с exact video profile pin; принимает authored `CharacterV1` refs вместо обязательного future chunk. Downstream subject validation учитывает cast из approved `StoryV2`, не дописывая его в frozen Brief. [Поля и приёмка](../roadmap-comfyui.md#brief-что-вводит-автор) запланированы; schema/graph version фиксируется при подключении, сохранённые V1/text records не переписываются.
+**Граница V1/V2, 5 октября:** таблица ниже сохраняет foundation `BriefV1`: одна пара размеров, per-shot duration и fixed `i2v`. Отдельные V2 input/settings contracts и diagnostics реализованы ниже; public cinematic Run ещё отсутствует. V2 принимает authored `CharacterV1` refs вместо обязательного future chunk. Downstream subject validation при активации учтёт cast из approved `StoryV2`, не дописывая его в frozen Brief. [Поля и приёмка](../roadmap-comfyui.md#brief-что-вводит-автор); новую executable graph identity закрепим при подключении, сохранённые V1/text records не переписываются.
 
 | Field | Type / rule |
 |---|---|
@@ -85,6 +85,16 @@ The input adapter preserves intent, validates visible settings and supplies trus
 This is the first cinematic Brief, not a universal input for future pipelines. Both profiles must support all required [stage roles](comfyui.md#profile-selection), dimensions, start-image input, duration and output constraints; a pin alone does not prove support. No audio profile, generated/supplied audio mode or `flf2v` variant belongs to this DTO.
 
 Internal text/image-only checks use their own minimal test inputs and frozen graph identities, not nullable production fields in cinematic Brief. They do not establish full cinematic render readiness. Future pipelines define their body rules when activated.
+
+### New cinematic input contracts (implemented, not executable Run)
+
+`backend/domain.py` preserves V1 bodies and adds `CinematicDraftV2 {schema_version:"2",idea,selected_characters:CharacterRef[],production:SubmittedProductionSettingsV2,image_profile:ProfilePin|null,video_profile:ProfilePin|null}`. CharacterRef is the existing authored-library `{subject_id,revision,digest}`, not an artifact/chunk selector. Only drafts permit missing pins.
+
+Submitted production contains separate `image_size/video_size:{width,height}`, numeric `shot_count`, integer `target_duration_ms`, `video_mode:"img2vid"|"ref2vid"`, fixed `provider:"comfyui"`, `output_format:"mp4"`, `audio_policy:"silent"`. Strict validators enforce count 1–128, total ≤600000 ms, equal aspect by cross multiplication and exact integer division. Effective `ProductionSettingsV2` additionally requires exact `shot_duration_ms`; preparation derives it once, never rounds. Those ceilings are structural, not installed video limits.
+
+`BriefV2 {schema_id:"brief",schema_version:"2",idea,selected_characters,pipeline,generation_profiles,production}` requires both exact profile pins and effective settings. No endpoint publishes/accepts it as an execution yet. `ImageOnlyInputV1 {schema_version:"1",idea,selected_characters,image_size,image_profile}` is separate, requires an exact preparation bundle pin and rejects video fields.
+
+`backend/production.py` exposes a preparation-only image bundle derived from registry snapshots and explicit diagnostics; confirmed cinematic choices/defaults are empty/null, video unavailable and `can_run:false`. `settings_valid` is not video capability. [Guarded API, MotionPlanV2, UI and evidence](../roadmap-comfyui.md#3-production-settings-и-профильные-ограничения). Frozen V1/text inputs are not migrated.
 
 ### StoryV1
 
@@ -150,6 +160,8 @@ These are minimum physical handoff fields, implemented with their stages and com
 | `MontageResultV1` | `{asset_ref:AssetRef,plan_ref:<exact internal MontagePlan record ref>,duration_ms,width,height,audio_stream_count:int}`; measured by executor; silent requires zero audio streams; physical plan-ref shape is fixed with montage storage, not assumed to be an artifact |
 
 Agent refs are input aliases resolved by adapters; media identities/measurements are tool-owned. Body-to-slot mapping: VisualAnchorPlanV1 → `wardrobe_plan`, FramePlanV1 → `storyboard_plan`, MotionPlanV1 → `video_plan`; no extra nodes. For first `i2v`, FramePlan's `representative_moment` depicts the action's opening consistent with Story's `state_before`, leaving development for the video; Krea-derived guidance uses `negative_prompt:null`. MontagePlan is an internal tool record. Revisions preserve corresponding shot keys, but changed Story invalidates descendants. `flf2v`, audio, serial/chunk and reuse extensions activate separately.
+
+Implemented V2 preparation: `MotionPlanV2` and `FilmmakerInputV2` are strict mode-discriminated unions in `backend/domain.py`. `backend/production.validate_motion_plan` matches mode, exact Story, ordered keys/durations and supplied media selectors. Full ref2vid roles are mandatory; no reduced profile is confirmed. Structural selector equality does not certify approval/authorization/lineage: future stage resolution owns those checks. The single `.agents/filmmaker/system.md` matches these shapes but has no runtime activation.
 
 **Next cinematic activation:** keep the V1 MotionPlan above as its original i2v contract. A new version uses a strict top-level `video_mode` discriminator equal to Brief; common `story_ref` and ordered unit fields (`unit_key`, `duration_ms`, action/motion/camera, `video_prompt`, `preserve`) remain. Img2vid units require `start_frame:SelectedMedia` for the same shot and `end_frame:null`; ref2vid units require ordered `reference_images:[{source:SelectedMedia,role}]` and no exact-start-frame field. Full character ref2vid roles are `[storyboard_frame,portrait,character_sheet]`, resolved from approved frames/anchors, without background. Declared reduced role sets must pass the pinned profile; missing required roles cannot be dropped. Extend agent input projections/prompts and stage dependencies with this version, not by reinterpreting stored MotionPlanV1. [Mode semantics and workflow mappings](../roadmap-comfyui.md#адаптивные-image-inputs-и-два-video-mode).
 

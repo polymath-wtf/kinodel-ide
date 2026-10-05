@@ -57,3 +57,4 @@ activitySchema.parse(activity);
 assert.throws(() => activitySchema.parse({ ...activity, reasoning: 'private' }));
 assert.throws(() => activitySchema.parse({ ...activity, operations: [{ ...activity.operations[0], reserved_attempts: -1 }] }));
 console.log('PASS: strict V1/V2 DTOs, generated cast, historical selected defaults, pinned character snapshots, schema/ref version match, full exact ref/ownership');
+require('./production-check.cjs');

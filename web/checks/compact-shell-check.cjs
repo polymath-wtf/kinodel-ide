@@ -202,7 +202,7 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
     await expect(denied.getByRole('button', { name: 'Отменить запуск', exact: true })).toBeDisabled(); await denied.close();
     // One explicit mocked Start also leaves the canvas clear; only its confirmed receipt moves to Run.
     await page.getByRole('button', { name: 'Новая история', exact: true }).click();
-    await page.getByLabel('input_message', { exact: true }).fill('UX1 явный Start');
+    await page.getByLabel('Идея истории', { exact: true }).fill('UX1 явный Start');
     await page.locator('.start-form button[type="submit"]').click();
     await expect(page.locator('.topbar .run-controls')).toContainText('Доставка подтверждена');
     await geometry(page);

@@ -492,3 +492,263 @@ def validate_story_for_brief(
     declared_subjects = {subject.subject_id for subject in brief.subjects}
     if any(subject_id not in declared_subjects for shot in story.shots for subject_id in shot.subject_ids):
         raise ValueError("Every Story subject must be declared in Brief")
+
+
+# New cinematic contracts are separate from historical V1/text inputs.
+class CharacterRef(DomainModel):
+    subject_id: Annotated[str, Field(pattern=r"^character-[0-9a-f]{32}$")]
+    revision: Annotated[int, Field(ge=1)]
+    digest: Annotated[str, Field(pattern=r"^sha256:[0-9a-f]{64}$")]
+
+
+def _nonblank_idea(value: str) -> str:
+    if not value.strip():
+        raise ValueError("Idea must be nonblank")
+    return value
+
+
+Idea = Annotated[Narrative, AfterValidator(_nonblank_idea)]
+
+
+def _exact_profile_pin(pin: ProfilePin) -> ProfilePin:
+    if re.fullmatch(_DIGEST_PATTERN, pin.digest) is None:
+        raise ValueError("Profile digest must use exact lowercase sha256 encoding")
+    return pin
+
+
+ExactProfilePin = Annotated[ProfilePin, AfterValidator(_exact_profile_pin)]
+
+
+def _exact_generation_profiles(profiles: GenerationProfiles) -> GenerationProfiles:
+    _exact_profile_pin(profiles.image)
+    _exact_profile_pin(profiles.video)
+    return profiles
+
+
+def _exact_pipeline_pin(pin: PipelinePin) -> PipelinePin:
+    if re.fullmatch(_DIGEST_PATTERN, pin.spec_digest) is None:
+        raise ValueError("Pipeline digest must use exact lowercase sha256 encoding")
+    return pin
+
+
+def _exact_artifact_ref(ref: ArtifactRef) -> ArtifactRef:
+    if any(re.fullmatch(_DIGEST_PATTERN, value) is None for value in (ref.digest, ref.operation_id)):
+        raise ValueError("Artifact digests must use exact lowercase sha256 encoding")
+    return ref
+
+
+class MediaSize(DomainModel):
+    width: Annotated[int, Field(strict=True, gt=0, le=MAX_DIMENSION)]
+    height: Annotated[int, Field(strict=True, gt=0, le=MAX_DIMENSION)]
+
+
+VideoMode = Literal["img2vid", "ref2vid"]
+DurationMs = Annotated[int, Field(strict=True, gt=0, le=MAX_DURATION_MS)]
+
+
+class SubmittedProductionSettingsV2(DomainModel):
+    image_size: MediaSize
+    video_size: MediaSize
+    shot_count: Annotated[int, Field(strict=True, gt=0, le=MAX_SHOTS)]
+    target_duration_ms: DurationMs
+    video_mode: VideoMode
+    provider: Literal["comfyui"]
+    output_format: Literal["mp4"]
+    audio_policy: Literal["silent"]
+
+    @model_validator(mode="after")
+    def exact_distribution_and_ratio(self):
+        if self.target_duration_ms % self.shot_count:
+            raise ValueError("Target duration must divide exactly into whole-millisecond shots")
+        if self.image_size.width * self.video_size.height != self.image_size.height * self.video_size.width:
+            raise ValueError("Image and video dimensions must have the same aspect ratio")
+        return self
+
+
+class ProductionSettingsV2(SubmittedProductionSettingsV2):
+    """Effective settings; only preparation derives the required per-shot value."""
+
+    shot_duration_ms: DurationMs
+
+    @model_validator(mode="after")
+    def exact_shot_duration(self):
+        if self.shot_duration_ms * self.shot_count != self.target_duration_ms:
+            raise ValueError("Shot duration must equal target duration divided by shot count")
+        return self
+
+
+def _selected_character_refs(refs: list[CharacterRef]) -> list[CharacterRef]:
+    identities = [ref.subject_id for ref in refs]
+    if len(identities) != len(set(identities)):
+        raise ValueError("Selected character identities must be unique")
+    return refs
+
+
+SelectedCharacterRefs = Annotated[
+    list[CharacterRef], Field(max_length=MAX_SUBJECTS), AfterValidator(_selected_character_refs)
+]
+
+
+class CinematicDraftV2(DomainModel):
+    schema_version: Literal["2"]
+    idea: Idea
+    selected_characters: SelectedCharacterRefs
+    production: SubmittedProductionSettingsV2
+    image_profile: ExactProfilePin | None
+    video_profile: ExactProfilePin | None
+
+
+class BriefV2(DomainModel):
+    """Future accepted cinematic body, not a nullable draft or execution permission."""
+
+    schema_id: Literal["brief"]
+    schema_version: Literal["2"]
+    idea: Idea
+    selected_characters: SelectedCharacterRefs
+    pipeline: Annotated[PipelinePin, AfterValidator(_exact_pipeline_pin)]
+    generation_profiles: Annotated[GenerationProfiles, AfterValidator(_exact_generation_profiles)]
+    production: ProductionSettingsV2
+
+
+class ImageOnlyInputV1(DomainModel):
+    schema_version: Literal["1"]
+    idea: Idea
+    selected_characters: SelectedCharacterRefs
+    image_size: MediaSize
+    image_profile: ExactProfilePin
+
+
+def _story_ref(ref: ArtifactRef) -> ArtifactRef:
+    _exact_artifact_ref(ref)
+    if ref.schema_id != "story" or ref.schema_version not in ("1", "2"):
+        raise ValueError("Motion input requires an exact StoryV1/V2 ref")
+    return ref
+
+
+MotionStoryRef = Annotated[ArtifactRef, AfterValidator(_story_ref)]
+
+
+class SelectedMedia(DomainModel):
+    """Structural selector only; the future store resolves selection/approval/rights."""
+
+    render_result_ref: ArtifactRef
+    unit_key: UnitKey
+
+    @model_validator(mode="after")
+    def render_result_schema(self):
+        _exact_artifact_ref(self.render_result_ref)
+        if (self.render_result_ref.schema_id, self.render_result_ref.schema_version) != ("render_result", "1"):
+            raise ValueError("Selected media requires an exact RenderResultV1 ref")
+        return self
+
+
+class MotionReferenceImageV2(DomainModel):
+    source: SelectedMedia
+    role: Literal["storyboard_frame", "portrait", "character_sheet"]
+
+
+def _full_video_references(refs: list[MotionReferenceImageV2]) -> list[MotionReferenceImageV2]:
+    if [ref.role for ref in refs] != ["storyboard_frame", "portrait", "character_sheet"]:
+        raise ValueError("Ref2vid requires ordered storyboard_frame, portrait, character_sheet roles")
+    identities = [(ref.source.render_result_ref.project_id, ref.source.render_result_ref.artifact_id,
+                   ref.source.unit_key) for ref in refs]
+    if len(set(identities)) != len(identities):
+        raise ValueError("Reference image selectors must be distinct")
+    return refs
+
+
+FullVideoReferencesV2 = Annotated[
+    list[MotionReferenceImageV2], Field(min_length=3, max_length=3), AfterValidator(_full_video_references)
+]
+
+
+class FilmmakerImg2VidUnitV2(DomainModel):
+    unit_key: UnitKey
+    duration_ms: DurationMs
+    start_frame: SelectedMedia
+
+    @model_validator(mode="after")
+    def same_shot_frame(self):
+        if self.start_frame.unit_key != self.unit_key:
+            raise ValueError("Start frame must select the same shot key")
+        return self
+
+
+class FilmmakerRef2VidUnitV2(DomainModel):
+    unit_key: UnitKey
+    duration_ms: DurationMs
+    reference_images: FullVideoReferencesV2
+
+    @model_validator(mode="after")
+    def same_shot_frame(self):
+        if self.reference_images[0].source.unit_key != self.unit_key:
+            raise ValueError("Storyboard frame must select the same shot key")
+        return self
+
+
+class MotionImg2VidUnitV2(FilmmakerImg2VidUnitV2):
+    end_frame: Literal[None]
+    action: Text
+    motion: Text
+    camera: Text
+    video_prompt: Narrative
+    preserve: Annotated[list[Text], Field(max_length=MAX_LIST_ITEMS)]
+
+
+class MotionRef2VidUnitV2(FilmmakerRef2VidUnitV2):
+    action: Text
+    motion: Text
+    camera: Text
+    video_prompt: Narrative
+    preserve: Annotated[list[Text], Field(max_length=MAX_LIST_ITEMS)]
+
+
+def _unique_motion_keys(units):
+    keys = [unit.unit_key for unit in units]
+    if len(keys) != len(set(keys)):
+        raise ValueError("Motion shot keys must be unique")
+    return units
+
+
+class FilmmakerImg2VidInputV2(DomainModel):
+    """Exact aliases supplied by the caller after trusted resolution, not proof of approval."""
+
+    schema_version: Literal["2"]
+    video_mode: Literal["img2vid"]
+    story_ref: MotionStoryRef
+    units: Annotated[list[FilmmakerImg2VidUnitV2], Field(min_length=1, max_length=MAX_SHOTS),
+                     AfterValidator(_unique_motion_keys)]
+
+
+class FilmmakerRef2VidInputV2(DomainModel):
+    schema_version: Literal["2"]
+    video_mode: Literal["ref2vid"]
+    story_ref: MotionStoryRef
+    units: Annotated[list[FilmmakerRef2VidUnitV2], Field(min_length=1, max_length=MAX_SHOTS),
+                     AfterValidator(_unique_motion_keys)]
+
+
+FilmmakerInputV2 = Annotated[
+    FilmmakerImg2VidInputV2 | FilmmakerRef2VidInputV2, Field(discriminator="video_mode")
+]
+
+
+class MotionPlanImg2VidV2(DomainModel):
+    schema_id: Literal["motion_plan"]
+    schema_version: Literal["2"]
+    video_mode: Literal["img2vid"]
+    story_ref: MotionStoryRef
+    units: Annotated[list[MotionImg2VidUnitV2], Field(min_length=1, max_length=MAX_SHOTS),
+                     AfterValidator(_unique_motion_keys)]
+
+
+class MotionPlanRef2VidV2(DomainModel):
+    schema_id: Literal["motion_plan"]
+    schema_version: Literal["2"]
+    video_mode: Literal["ref2vid"]
+    story_ref: MotionStoryRef
+    units: Annotated[list[MotionRef2VidUnitV2], Field(min_length=1, max_length=MAX_SHOTS),
+                     AfterValidator(_unique_motion_keys)]
+
+
+MotionPlanV2 = Annotated[MotionPlanImg2VidV2 | MotionPlanRef2VidV2, Field(discriminator="video_mode")]

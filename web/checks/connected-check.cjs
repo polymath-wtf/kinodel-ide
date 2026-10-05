@@ -294,7 +294,9 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
     await expect(page.getByRole('form', { name: 'Создать Story · OpenRouter' })).toBeVisible();
     await expect(page.locator('.start-form')).toContainText('OpenRouter недоступен');
     await expect(page.locator('.start-form button[type="submit"]')).toBeDisabled();
-    await page.getByRole('button', { name: '← К карте Cinematic', exact: true }).click();
+    await page.locator('.rail').getByRole('button', { name: 'Pipeline', exact: true }).click();
+    await expect(page.locator('.start-form')).toHaveCount(0);
+    await expect(page.locator('.pipeline-content')).toHaveAttribute('data-scope', 'pipeline');
     await expect(page.locator('.react-flow__node.selected')).toHaveAttribute('data-id', 'pipeline-0');
     assert.equal(mutations.length, 0, 'all cinematic scopes/inspection/reload are navigation-only');
     if (folder) {
@@ -312,9 +314,9 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
     // fixture command/recovery coverage below is separately seeded through the API.
     await page.unroute('**/api/story-availability'); await page.reload();
     await page.getByRole('button', { name: 'Новая история', exact: true }).click();
-    await page.getByLabel('input_message', { exact: true }).fill(liveMessage);
-    await page.locator('.start-advanced > summary').click();
-    await page.getByLabel('shot_ids', { exact: true }).fill('s1, s2');
+    await page.getByLabel('Идея истории', { exact: true }).fill(liveMessage);
+    await page.getByLabel('Количество кадров', { exact: true }).fill('2');
+    await page.getByLabel('Общая длительность · секунды', { exact: true }).fill('12');
     if (folder) {
       mkdirSync(join(folder, 'new-run'));
       await page.screenshot({ path: join(folder, 'new-run', 'screen-state-desktop.png') });
@@ -330,7 +332,11 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
     });
     await page.locator('.start-form button[type="submit"]').click();
     await expect(await deliveryError()).toContainText('Ответ доставки потерян');
-    assert.equal(new URL(page.url()).searchParams.get('execution'), null, 'start opens only from receipt');
+     assert.equal(new URL(page.url()).searchParams.get('execution'), null, 'start opens only from receipt');
+     // Migrate the old video default while a Start command has uncertain delivery.
+     await page.evaluate(() => { const c = JSON.parse(sessionStorage.getItem('kinodel.workspace.v1'));
+       delete c.video_defaults_version; c.cinematic.video_width = '1024'; c.cinematic.video_height = '1024';
+       sessionStorage.setItem('kinodel.workspace.v1', JSON.stringify(c)); });
     await page.reload();
     await expect(page.locator('.execution')).toBeVisible();
     await expect(page.locator('.pipeline-content')).toHaveAttribute('data-scope', 'storytell', { timeout: 15000 });
@@ -345,7 +351,10 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
     await page.keyboard.press('Escape');
     await openStory();
     await expect(page.locator('.story-body')).toContainText('Сохранённый ответ OpenRouter');
-    assert.equal(starts.length, 2); assert.equal(starts[0], starts[1], 'lost start replays exact envelope');
+     assert.equal(starts.length, 2); assert.equal(starts[0], starts[1], 'lost start replays exact envelope');
+     const migratedVideo = await page.evaluate(() => JSON.parse(sessionStorage.getItem('kinodel.workspace.v1')));
+     assert.equal(migratedVideo.video_defaults_version, 1);
+     assert.equal(migratedVideo.cinematic.video_width, '480'); assert.equal(migratedVideo.cinematic.video_height, '480');
     await page.unroute('**/api/executions/live-story');
     assert.equal((await (await harness.get('/api/executions?limit=100')).json()).items.filter(x => x.input_preview === liveMessage).length, 1, 'lost live Start creates one execution');
     const liveProjection = await projection(id);

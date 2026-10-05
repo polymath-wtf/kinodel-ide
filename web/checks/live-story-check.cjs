@@ -85,8 +85,9 @@ uvicorn.run(api.create_app(),host='127.0.0.1',port=api.PORT,workers=1,proxy_head
     page.on('request', r => { if (r.method() === 'POST') posts.push({ endpoint: new URL(r.url()).pathname, body: r.postDataJSON() }); });
     await page.goto(origin);
     await page.getByRole('button', { name: 'Новая история', exact: true }).click();
-    await page.getByLabel('input_message', { exact: true }).fill('Напиши на русском. Любопытный лис на лесной поляне замечает старую ленту у дерева и вешает её обратно на низкую ветку. Два простых связанных действия, тихий радостный финал. Без других персонажей.');
-    await page.getByLabel('shot_ids', { exact: true }).fill('s1, s2');
+    await page.getByLabel('Идея истории', { exact: true }).fill('Напиши на русском. Любопытный лис на лесной поляне замечает старую ленту у дерева и вешает её обратно на низкую ветку. Два простых связанных действия, тихий радостный финал. Без других персонажей.');
+    await page.getByLabel('Количество кадров', { exact: true }).fill('2');
+    await page.getByLabel('Общая длительность · секунды', { exact: true }).fill('12');
     const capture = async name => { if (folder) { mkdirSync(join(folder, name)); await page.screenshot({ path: join(folder, name, 'screen-state-desktop.png') }); } };
     await capture('start');
     await page.getByRole('button', { name: 'Начать историю', exact: true }).click();

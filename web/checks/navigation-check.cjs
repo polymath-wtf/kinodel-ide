@@ -202,9 +202,9 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
     await back(page.locator('[data-view="canvas"] h1')); await scope('storytell');
     await rail('Characters').click(); await page.getByRole('button', { name: /Продолжить черновик/ }).click(); await expect(page.getByLabel('Имя', { exact: true })).toHaveValue('Навигационный черновик');
     await back(page.locator('.topbar')); await back(page.locator('.topbar')); await scope('storytell');
-    await page.getByRole('button', { name: 'Новая история', exact: true }).click(); await page.getByLabel('input_message', { exact: true }).fill('Сохранить идею при Back');
-    await back(page.getByLabel('input_message', { exact: true })); await scope('storytell');
-    await page.getByRole('button', { name: 'Новая история', exact: true }).click(); await expect(page.getByLabel('input_message', { exact: true })).toHaveValue('Сохранить идею при Back');
+    await page.getByRole('button', { name: 'Новая история', exact: true }).click(); await page.getByLabel('Идея истории', { exact: true }).fill('Сохранить идею при Back');
+    await back(page.getByLabel('Идея истории', { exact: true })); await scope('storytell');
+    await page.getByRole('button', { name: 'Новая история', exact: true }).click(); await expect(page.getByLabel('Идея истории', { exact: true })).toHaveValue('Сохранить идею при Back');
     await back(page.locator('.topbar')); await scope('storytell');
     await page.getByRole('button', { name: 'Chat', exact: true }).click(); await expect(page.locator('.chat-column')).toBeVisible();
     await rail('Canvas').click(); await back(page.locator('.topbar')); await expect(page.locator('.chat-column')).toBeVisible();

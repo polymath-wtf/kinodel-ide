@@ -5,6 +5,7 @@ import { characterRefSchema } from '../../../entities/character/contracts';
 import { emptyDraft, type Draft } from '../../../features/story-review/StoryReview';
 import { initialNodes, initialViewports, type Scope } from '../../../widgets/pipeline/Pipeline';
 import { scopes } from '../../../widgets/pipeline/contracts';
+import { initialProductionDraft, productionDraftSchema } from './productionDraft';
 
 export type View = 'pipeline' | 'chat';
 export type UI = { scope: Scope; viewports: Record<Scope, Viewport>; selectedNodes: Record<Scope, string>; selectedStory: string | null; draft: Draft };
@@ -21,13 +22,27 @@ const uiSchema = z.strictObject({ scope: z.enum([...scopes, 'storytell:agent']),
     viewports: ui.scope === 'storytell:agent' ? { ...ui.viewports, storytell: ui.viewports['storytell:agent'] ?? ui.viewports.storytell } : ui.viewports,
     selectedNodes: ui.scope === 'storytell:agent' ? { ...ui.selectedNodes, storytell: ui.selectedNodes['storytell:agent']?.replace(/^storytell:agent-/, 'storytell-') ?? ui.selectedNodes.storytell } : ui.selectedNodes }));
 export const cacheSchema = z.strictObject({ states: z.record(uuidSchema, uiSchema), overview: uiSchema.default(initialUI), view: z.enum(['pipeline', 'chat']), start: z.strictObject({ message: z.string().max(131072), shots: z.string(), live: z.boolean().default(false), subjects: z.string().max(32768).default(''), duration: z.number().int().positive().max(60000).default(5000),
-  character_refs: z.array(characterRefSchema).max(16).refine(a => new Set(a.map(r => r.subject_id)).size === a.length).default([]) }) })
+  character_refs: z.array(characterRefSchema).max(16).refine(a => new Set(a.map(r => r.subject_id)).size === a.length).default([]) }),
+  cinematic: productionDraftSchema.optional(), video_defaults_version: z.literal(1).optional() })
+  .transform(c => {
+    if (c.cinematic) {
+      const cinematic = c.video_defaults_version === undefined && c.cinematic.video_width === '1024' && c.cinematic.video_height === '1024'
+        ? { ...c.cinematic, video_width: '480', video_height: '480' } : c.cinematic;
+      return { ...c, cinematic, video_defaults_version: 1 as const };
+    }
+    const cinematic = initialProductionDraft(), shots = c.start.shots.split(',').map(s => s.trim());
+    if (shots.length >= 1 && shots.length <= 8 && shots.every(s => s && s.length <= 128) && new Set(shots).size === shots.length) {
+      cinematic.shot_count = String(shots.length);
+      cinematic.target_seconds = String(c.start.duration * shots.length / 1000);
+    }
+    return { ...c, cinematic, video_defaults_version: 1 as const };
+  })
   .refine(c => Object.entries(c.states).every(([id, ui]) => !ui.draft.target || (ui.draft.target.execution_id === id && ui.draft.target.base_ref.execution_id === id)));
 export type Cache = z.infer<typeof cacheSchema>;
 export const cacheKey = 'kinodel.workspace.v1';
 export const uiStorageError = 'Не удалось сохранить черновики в браузере. Отправка отключена; чтение доступно. Скопируйте нужный текст перед перезагрузкой и проверьте разрешения браузера.';
 export function readCache(): { cache: Cache; error: string } {
-  const empty: Cache = { states: {}, overview: initialUI(), view: window.matchMedia('(max-width: 767px)').matches ? 'chat' : 'pipeline', start: { message: '', shots: 's1, s2', live: false, subjects: '', duration: 5000, character_refs: [] } };
+  const empty: Cache = { states: {}, overview: initialUI(), view: window.matchMedia('(max-width: 767px)').matches ? 'chat' : 'pipeline', start: { message: '', shots: 's1, s2', live: false, subjects: '', duration: 5000, character_refs: [] }, cinematic: initialProductionDraft(), video_defaults_version: 1 };
   try {
     const saved = window.sessionStorage.getItem(cacheKey);
     return { cache: saved ? cacheSchema.parse(JSON.parse(saved)) : empty, error: '' };

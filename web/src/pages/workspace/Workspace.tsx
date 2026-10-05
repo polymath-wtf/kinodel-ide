@@ -257,7 +257,8 @@ export function Workspace() {
       {(!valid || startOpen) && recent.error && !listOpen && <div className="error" role="alert">{recent.error.message}<button onClick={() => void recent.refetch()}>Перечитать список</button></div>}
       {stored.error && <p className="error" role="alert">{stored.error}</p>}
       <StartStoryForm active={startOpen} draft={stored.cache.start} change={change => persist({ start: { ...cacheRef.current.start, ...change } })}
-        availability={availability} fresh={fresh} ready={commands.ready} busy={commands.blocked('start', null)} back={back} onStart={start} />
+        cinematic={stored.cache.cinematic} changeCinematic={change => persist({ cinematic: { ...cacheRef.current.cinematic, ...change } })}
+        availability={availability} fresh={fresh} ready={commands.ready} busy={commands.blocked('start', null)} onStart={start} />
       {!startOpen && (valid ? <Execution key={selection} id={selection!} view={view} ui={ui} commands={commands} runSlot={runSlot} runExtras={runExtras} setTitle={setExecutionTitle} storageError={stored.error} update={updateUI} panel={panel} inspect={inspect} read={opener => setPanel({ kind: 'story', opener: panelOpener(opener) })} closePanel={closePanel} />
         : selection === null ? <div className={`overview ${view}`}>
           {view === 'pipeline' ? <div className="context-layout"><Pipeline scope={overview.scope} setScope={scope => updateOverview({ scope })} viewports={overview.viewports} inspect={inspect} inspecting={panel?.kind === 'details'}

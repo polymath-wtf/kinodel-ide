@@ -15,7 +15,7 @@ Open `http://127.0.0.1:8765/`. For configured live text, explicitly launch from 
 
 Saved data defaults to repository-local `stuff`: both SQLite DBs at the root, project JSON/media in `stuff/projects/<project_id>/`, excluded from Git. Browser storage is only client state/delivery, not project storage.
 
-**Новая история** opens live Storytell, never a silent fixture. Missing key/model disables Start with setup guidance; configured is not proof of remote availability. Enter an idea, 1–8 shot keys, duration in seconds and optional exact Character revisions. API/cache retain integer ms, without rounding. Idea/Bio/prior Story/feedback go to the remote model; images remain local. Historical fixtures remain API-readable. Saved executions reopen via project list or `/?execution=<canonical UUID>` without browser storage.
+**Новая история** opens live Storytell, never a silent fixture. Missing key/model disables Start with setup guidance; configured is not proof of remote availability. One idea and optional exact Character revisions share visible image/video sizes, ComfyUI and a compact count/total-seconds/video-mode row. Fresh defaults: images 1024×1024, video 480×480. Old unmarked video 1024×1024 migrates once to 480×480; custom sizes and later explicit 1024 selections persist. Live text accepts 1–8 shots and derives `shot-001…` and integer per-shot ms (1–60000) from total/count, without rounding. Invalid numeric text survives navigation/reload. Image/video generation is not connected yet; diagnostic controls and the hardcoded Back button are removed. Idea/Bio/prior Story/feedback go to the remote model; images remain local. Historical fixtures remain API-readable. Saved executions reopen via project list or `/?execution=<canonical UUID>` without browser storage.
 
 ## Behavior and persistence
 
@@ -53,6 +53,8 @@ The shared TypeScript loader checks pure wire modules using the installed compil
 `check:browser` covers desktop/tablet/mobile, assets/focus/navigation/pan, exact start → clarify → revise → approve, lost-response/reload/restart replay, stale drafts/OCC/budgets, Retry/Cancel, unreadable body and storage-loss/denial. It requires 12 exact command/replay POSTs and zero ordinary navigation POSTs. All backends/data/libraries are owned disposable resources; occupied ports fail rather than attaching to a user's server. Exit must be confirmed before cleanup.
 
 Focused checks: `node checks/{navigation,compact-shell,details-panel,story-focus,feedback,creator-forms}-check.cjs` (run each named file separately), plus `node checks/characters-browser-check.cjs` with optional unused `CHARACTER_CHECK_PORT`. Mock-live transport: `$env:STORY_VISIBILITY_CHECK='1'; npm run check:browser`; unset afterward. `NAVIGATION_CHECK_ONLY=1` uses fixture setup for read/navigation checks. No paid requests in these checks.
+
+Unified creation/settings regression: `node checks/production-browser-check.cjs` (owned unused port 8820 by default). Covers fresh defaults, one-time old video 1024×1024 → 480×480 migration, subsequent explicit 1024 persistence, shared fields, exact live timing/IDs/refs, local limits, invalid-text persistence, absence of diagnostic/Back controls and desktop/mobile geometry using mocked provider HTTP. The form never calls production catalog/validate.
 
 ### Screenshots
 

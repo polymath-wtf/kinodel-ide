@@ -24,7 +24,7 @@ from PIL import Image, ImageOps
 from pydantic import AfterValidator, Field, model_validator
 
 from backend.database import _check_file, _sync_directory
-from backend.domain import DomainModel, MAX_JSON_BYTES, canonical_json, parse_json_model, sha256_digest
+from backend.domain import CharacterRef, DomainModel, MAX_JSON_BYTES, canonical_json, parse_json_model, sha256_digest
 from backend.ownership import own_data_root
 
 
@@ -85,12 +85,6 @@ class CharacterV1(DomainModel):
     revision: Revision
     bio: CharacterBio
     images: Annotated[list[CharacterImage], Field(min_length=1, max_length=6)]
-
-
-class CharacterRef(DomainModel):
-    subject_id: SubjectId
-    revision: Revision
-    digest: ImageDigest
 
 
 class CharacterSaveReceipt(DomainModel):

@@ -68,5 +68,6 @@ const load = require('./load-typescript.cjs');
   assert.equal(calls[3][1].headers['X-Kinodel-CSRF'], 'session-2');
   global.fetch = async url => url === '/api/session' ? Response.json({ csrf_token: 'next' }) : Response.json({ detail: 'still expired' }, { status: 401 });
   await assert.rejects(postJson(start.endpoint, exact), e => e.status === 401);
+  await require('./production-check.cjs')();
   console.log('PASS: persist-before-POST, lost response/exact replay, durable receipt-before-finish, no projection inference, multi-tab isolation/OCC, corruption, bounded 401 renewal');
 })().catch(e => { console.error(e); process.exitCode = 1; });

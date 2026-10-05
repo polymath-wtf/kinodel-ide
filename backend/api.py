@@ -14,10 +14,15 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import Field, model_validator
 
+from backend import comfyui, production
 from backend.config import resolve_data_root
 from backend.character_api import character_router
 from backend.characters import CharacterRef
-from backend.domain import ArtifactRef, CanonicalUUID, Digest, DomainModel, Narrative, OwnerResponseV1, Story, StoryTextInputV1, StoryTextSubjectV1, StoryV1, Text, UnitKey
+from backend.domain import (
+    ArtifactRef, CanonicalUUID, CinematicDraftV2, Digest, DomainModel, ImageOnlyInputV1,
+    MediaSize, Narrative, OwnerResponseV1, ProductionSettingsV2, ProfilePin, Story,
+    StoryTextInputV1, StoryTextSubjectV1, StoryV1, Text, UnitKey,
+)
 from backend.story_control import open_story_runtime
 from backend.openrouter import SelectedCharacter, StoryValidationDiagnostic
 from backend.story_start import DEFAULT_CHARACTER_ROOT, InvalidCharacterSelection, STORY_GRAPH_IDS
@@ -209,6 +214,84 @@ class StoryAvailability(DomainModel):
     reason: str | None
 
 
+class ComfyUIWorkflows(DomainModel):
+    items: list[str]
+
+
+class ImagePreprocessing(DomainModel):
+    crop_policy: dict[str, str | int]
+    geometry_rule: str
+
+
+class ImageProfileOutput(DomainModel):
+    media_type: str
+    history_key: str
+
+
+class ImageProfileRole(DomainModel):
+    role: Literal["portrait", "background", "sheet", "frame"]
+    workflow_id: str
+    workflow_version: str
+    reference_roles: list[str]
+    supported_sizes: list[MediaSize]
+    preprocessing: ImagePreprocessing
+    output: ImageProfileOutput
+
+
+class ImagePreparationProfile(DomainModel):
+    pin: ProfilePin
+    provider: Literal["comfyui"]
+    readiness: Literal["preparation_only"]
+    can_run: Literal[False]
+    roles: list[ImageProfileRole]
+    supported_sizes: list[MediaSize]
+
+
+class CinematicProfiles(DomainModel):
+    # No confirmed cinematic profile shape or choices exist in this slice.
+    image_profiles: list[dict] = Field(max_length=0)
+    video_profiles: list[dict] = Field(max_length=0)
+    default_image_profile: None
+    default_video_profile: None
+    video_readiness: Literal["unavailable"]
+    can_run: Literal[False]
+
+
+class ImageOnlyProfiles(DomainModel):
+    profiles: list[ImagePreparationProfile]
+    default_profile: None
+    can_run: Literal[False]
+
+
+class ProductionCatalog(DomainModel):
+    schema_version: Literal["1"]
+    cinematic: CinematicProfiles
+    image_only: ImageOnlyProfiles
+
+
+class ProductionReadinessIssue(DomainModel):
+    code: Literal["image_profile_missing", "image_profile_unavailable", "image_profile_unknown",
+                  "image_profile_stale", "image_size_unsupported", "image_preparation_only",
+                  "video_profile_missing", "video_profile_unknown", "video_unverified"]
+    field: Literal["image_profile", "production.image_size", "video_profile"]
+
+
+class ProductionValidation(DomainModel):
+    schema_version: Literal["1"]
+    settings_valid: bool
+    production: ProductionSettingsV2
+    shot_keys: list[UnitKey]
+    readiness_issues: list[ProductionReadinessIssue]
+    can_run: Literal[False]
+
+
+class ImageOnlyValidation(DomainModel):
+    schema_version: Literal["1"]
+    prepared_input: ImageOnlyInputV1
+    readiness: Literal["preparation_only"]
+    can_run: Literal[False]
+
+
 class StoryOperationState(DomainModel):
     operation_id: Digest
     action: Literal["generate", "revise", "clarify"]
@@ -340,6 +423,34 @@ def create_app(root: Path | None = None, produce_story=fixture_story, *,
     async def read_story_availability():
         from backend.openrouter import story_availability
         return story_availability()
+
+    @app.get("/api/comfyui/workflows", response_model=ComfyUIWorkflows)
+    async def read_comfyui_workflows():
+        return {"items": comfyui.list_workflows()}
+
+    @app.get("/api/comfyui/preflight", response_model=comfyui.PreflightReport)
+    async def read_comfyui_preflight(connection: Literal["local", "server"] | None = None,
+                                    workflow: str = Query(comfyui.DEFAULT_WORKFLOW, max_length=160)):
+        return await comfyui.preflight(connection, workflow)
+
+    @app.get("/api/production/profiles", response_model=ProductionCatalog)
+    async def read_production_profiles():
+        return production.production_catalog()
+
+    @app.post("/api/production/validate", response_model=ProductionValidation)
+    async def validate_production(body: CinematicDraftV2):
+        return production.validate_draft(body)
+
+    @app.post("/api/production/image-only/validate", response_model=ImageOnlyValidation)
+    async def validate_image_only(body: ImageOnlyInputV1):
+        try:
+            return production.validate_image_only(body)
+        except ValueError as error:
+            code = str(error)
+            if code not in ("image_profile_missing", "image_profile_unavailable", "image_profile_unknown",
+                            "image_profile_stale", "image_size_unsupported"):
+                code = "image_input_invalid"
+            raise HTTPException(422, code) from error
 
     @app.get("/", include_in_schema=False)
     @app.get("/index.html", include_in_schema=False)

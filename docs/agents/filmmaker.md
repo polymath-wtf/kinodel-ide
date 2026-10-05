@@ -1,7 +1,7 @@
 # Filmmaker
 
 Class: creative agent  
-Status: **Active design**
+Status: **V1/V2 authored; MotionPlanV2 and supplied-input validation implemented; runtime activation pending**
 
 ## Responsibility
 
@@ -56,7 +56,7 @@ Acceptance example: rain and coat motion react to a character stopping while the
 
 ## Application System Prompt
 
-The application prompt lives in [`.agents/filmmaker/system.md`](../../.agents/filmmaker/system.md). Supply the response schema separately; this is plain application Markdown, not an OpenCode agent configuration.
+The single prompt [`.agents/filmmaker/system.md`](../../.agents/filmmaker/system.md) follows MotionPlanV2/FilmmakerInputV2: exact-start img2vid or ordered-reference ref2vid. `backend.production.validate_motion_plan` checks supplied mode, Story, shot order/duration and references; the future stage supplies authorized approved aliases. Ref2vid requires all three ordered roles. Supply the response schema separately and pin prompt/schema/input/graph together at activation. The prompt is not runtime-integrated.
 
 ### Source And Deliberate Adaptation
 

@@ -98,7 +98,7 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
       await context.setOffline(true); await openMenu(); await expect(page.getByRole('button', { name: 'Отменить запуск', exact: true })).toBeDisabled();
       await context.setOffline(false); await page.reload();
       await page.getByRole('button', { name: 'Новая история', exact: true }).click();
-      await page.getByLabel('input_message', { exact: true }).fill('UX4 Start');
+      await page.getByLabel('Идея истории', { exact: true }).fill('UX4 Start');
       await page.locator('.start-form button[type="submit"]').click();
       await expect(page.locator('.execution')).toBeVisible(); await openMenu();
       await expect(menu()).toContainText('Запуск принят. Создаём историю.'); await closeMenu();

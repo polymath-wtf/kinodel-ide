@@ -18,6 +18,7 @@ from backend.story_start import start_test_story
 from backend.story_store import create_test_execution, save_story
 from backend.domain import sha256_digest
 from tests.test_story_runner import produce_story
+from tests.test_production import draft_data, image_input_data
 
 
 class StoryAPITests(unittest.TestCase):
@@ -57,6 +58,266 @@ class StoryAPITests(unittest.TestCase):
                     unavailable = client.get("/api/story-availability").json()
                     self.assertFalse(unavailable["configured"])
                     self.assertIsNotNone(unavailable["reason"])
+
+    def test_comfyui_preflight_is_guarded_explicit_and_typed(self):
+        from unittest.mock import AsyncMock, patch
+        from backend.comfyui import DEFAULT_WORKFLOW, PreflightReport, list_workflows
+
+        report = PreflightReport(connection="server", reachable=True, dependencies_ready=True,
+                                 preparation_enabled=True, graph_ready=True, workflow_id="krea2-txt2img",
+                                 workflow_version="api-v1-local.image-preparation-v1", registry_sha256="a" * 64)
+        with self.client() as client, patch("backend.comfyui.preflight", new_callable=AsyncMock,
+                                            return_value=report) as probe:
+            for route in ("/api/comfyui/workflows", "/api/comfyui/preflight"):
+                self.assertEqual(client.get(route).status_code, 401)
+            probe.assert_not_called()
+            self.session(client)
+            self.assertEqual(client.get("/api/comfyui/workflows").json(), {"items": list_workflows()})
+            probe.assert_not_called()
+            response = client.get("/api/comfyui/preflight", params={"connection": "server", "workflow": DEFAULT_WORKFLOW})
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.json(), report.model_dump(mode="json"))
+            probe.assert_awaited_once_with("server", DEFAULT_WORKFLOW)
+            probe.reset_mock()
+            self.assertEqual(client.get("/api/comfyui/preflight?connection=automatic").status_code, 422)
+            probe.assert_not_called()
+            client.get("/api/comfyui/preflight")
+            probe.assert_awaited_once_with(None, DEFAULT_WORKFLOW)
+
+    def test_comfyui_failure_does_not_block_saved_project_reopen(self):
+        import os
+        from unittest.mock import patch
+
+        with self.client(fixture_story) as client:
+            headers = self.session(client)
+            response = client.post("/api/executions/internal-story", json={
+                "project_id": str(uuid4()), "client_key": "offline-comfy", "input_message": "Saved story",
+                "shot_ids": ["s1"]}, headers=headers)
+            self.assertEqual(response.status_code, 202)
+            execution_id = response.json()["execution_id"]
+            saved = self.state(client, execution_id, "waiting_review")["stories"]
+        with patch.dict(os.environ, {"COMFYUI_CONNECTION": "local", "COMFYUI_LOCAL_ENDPOINT": "bad-url"}), \
+                patch("backend.comfyui.httpx.AsyncClient", side_effect=AssertionError("No provider calls")) as transport:
+            with self.client(fixture_story) as client:
+                self.session(client)
+                self.assertEqual(self.state(client, execution_id, "waiting_review")["stories"], saved)
+                self.assertEqual(client.get("/api/executions").status_code, 200)
+                probe = client.get("/api/comfyui/preflight")
+                self.assertEqual(probe.status_code, 200, probe.text)
+                self.assertFalse(probe.json()["dependencies_ready"])
+                self.assertEqual(probe.json()["issues"][0]["code"], "invalid_endpoint")
+                self.assertNotIn("bad-url", probe.text)
+                transport.assert_not_called()
+
+    def test_production_routes_are_guarded_and_catalog_is_typed(self):
+        from unittest.mock import patch
+        from backend import production
+
+        catalog = production.production_catalog()
+        pin = catalog["image_only"]["profiles"][0]["pin"]
+        posts = (("/api/production/validate", draft_data(pin)),
+                 ("/api/production/image-only/validate", image_input_data(pin)))
+        with self.client() as client, \
+                patch.object(production, "production_catalog", wraps=production.production_catalog) as read, \
+                patch.object(production, "validate_draft", wraps=production.validate_draft) as draft, \
+                patch.object(production, "validate_image_only", wraps=production.validate_image_only) as image:
+            self.assertEqual(client.get("/api/production/profiles").status_code, 401)
+            for route, body in posts:
+                self.assertEqual(client.post(route, json=body).status_code, 401)
+            headers = self.session(client)
+            for route, body in posts:
+                self.assertEqual(client.post(route, json=body).status_code, 403)
+                for boundary in ({"Host": "evil.example"}, {"Origin": "https://evil.example"}):
+                    self.assertEqual(client.post(route, json=body, headers={**headers, **boundary}).status_code, 403)
+            for operation in (read, draft, image):
+                operation.assert_not_called()
+            response = client.get("/api/production/profiles")
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.json(), catalog)
+            self.assertEqual(catalog["cinematic"], {
+                "image_profiles": [], "video_profiles": [], "default_image_profile": None,
+                "default_video_profile": None, "video_readiness": "unavailable", "can_run": False})
+            self.assertIsNone(catalog["image_only"]["default_profile"])
+            self.assertEqual(catalog["image_only"]["profiles"][0]["readiness"], "preparation_only")
+            self.assertFalse(catalog["image_only"]["can_run"])
+            for private in ("mapping", "schemas", "node_id", "file_sha256", "graph_ready", "dependencies_ready"):
+                self.assertNotIn('"' + private + '"', response.text)
+            schema = client.get("/openapi.json").json()
+            for route, method, model, body_model in (
+                ("/api/production/profiles", "get", "ProductionCatalog", None),
+                ("/api/production/validate", "post", "ProductionValidation", "CinematicDraftV2"),
+                ("/api/production/image-only/validate", "post", "ImageOnlyValidation", "ImageOnlyInputV1"),
+            ):
+                operation = schema["paths"][route][method]
+                self.assertEqual(operation["responses"]["200"]["content"]["application/json"]["schema"],
+                                 {"$ref": f"#/components/schemas/{model}"})
+                if body_model:
+                    self.assertEqual(operation["requestBody"]["content"]["application/json"]["schema"],
+                                     {"$ref": f"#/components/schemas/{body_model}"})
+            models = schema["components"]["schemas"]
+            self.assertEqual(models["ProductionCatalog"]["properties"]["image_only"]["$ref"],
+                             "#/components/schemas/ImageOnlyProfiles")
+            self.assertEqual(models["ImageOnlyProfiles"]["properties"]["profiles"]["items"]["$ref"],
+                             "#/components/schemas/ImagePreparationProfile")
+            self.assertEqual(models["ImagePreparationProfile"]["properties"]["roles"]["items"]["$ref"],
+                             "#/components/schemas/ImageProfileRole")
+            self.assertEqual(models["ProductionValidation"]["properties"]["production"]["$ref"],
+                             "#/components/schemas/ProductionSettingsV2")
+
+    def test_production_validation_derives_timing_and_reports_unsupported_choices(self):
+        from backend import production
+
+        with self.client() as client:
+            headers = self.session(client)
+            pin = client.get("/api/production/profiles").json()["image_only"]["profiles"][0]["pin"]
+            for mode in ("img2vid", "ref2vid"):
+                body = draft_data(pin)
+                body["production"]["video_mode"] = mode
+                response = client.post("/api/production/validate", json=body, headers=headers)
+                self.assertEqual(response.status_code, 200, response.text)
+                result = response.json()
+                self.assertEqual(result, production.validate_draft(body))
+                self.assertEqual(result["production"], {**body["production"], "shot_duration_ms": 6000})
+                self.assertEqual(result["shot_keys"], ["shot-001", "shot-002"])
+                self.assertTrue(result["settings_valid"])
+                self.assertFalse(result["can_run"])
+                self.assertEqual(result["readiness_issues"], [
+                    {"code": "image_preparation_only", "field": "image_profile"},
+                    {"code": "video_profile_missing", "field": "video_profile"},
+                    {"code": "video_unverified", "field": "video_profile"}])
+            for selected, code in ((None, "image_profile_missing"),
+                                   ({**pin, "profile_id": "unknown"}, "image_profile_unknown"),
+                                   ({**pin, "version": "old"}, "image_profile_stale"),
+                                   ({**pin, "digest": "sha256:" + "0" * 64}, "image_profile_stale")):
+                with self.subTest(code=code, pin=selected):
+                    body = draft_data(selected, pin)
+                    response = client.post("/api/production/validate", json=body, headers=headers)
+                    self.assertEqual(response.status_code, 200, response.text)
+                    self.assertEqual(response.json(), production.validate_draft(body))
+                    self.assertFalse(response.json()["settings_valid"])
+                    self.assertEqual(response.json()["readiness_issues"], [
+                        {"code": code, "field": "image_profile"},
+                        {"code": "video_profile_unknown", "field": "video_profile"},
+                        {"code": "video_unverified", "field": "video_profile"}])
+            body = draft_data(pin)
+            body["production"].update(image_size={"width": 1024, "height": 768},
+                                      video_size={"width": 640, "height": 480})
+            response = client.post("/api/production/validate", json=body, headers=headers)
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.json(), production.validate_draft(body))
+            self.assertFalse(response.json()["settings_valid"])
+            self.assertIn({"code": "image_size_unsupported", "field": "production.image_size"},
+                          response.json()["readiness_issues"])
+
+    def test_production_posts_reject_invalid_contracts_and_input_bounds(self):
+        from backend.domain import MAX_NARRATIVE_CHARS, MAX_SHOTS, MAX_SUBJECTS, MAX_DURATION_MS
+
+        with self.client() as client:
+            headers = self.session(client)
+            pin = client.get("/api/production/profiles").json()["image_only"]["profiles"][0]["pin"]
+            invalid_settings = [("shot_count", value) for value in (0, MAX_SHOTS + 1, True, "2", 2.0)] + [
+                ("target_duration_ms", value) for value in (0, 12001, MAX_DURATION_MS + 1, True, "12000")
+            ] + [("video_size", {"width": 512, "height": 513}), ("video_mode", "i2v"),
+                 ("provider", "fal"), ("shot_duration_ms", 6000)]
+            for field, value in invalid_settings:
+                with self.subTest(field=field, value=value):
+                    body = draft_data(pin)
+                    body["production"][field] = value
+                    response = client.post("/api/production/validate", json=body, headers=headers)
+                    self.assertEqual(response.status_code, 422, response.text)
+                    self.assertIsInstance(response.json()["detail"], list)
+            for route, valid in (("/api/production/validate", draft_data(pin)),
+                                 ("/api/production/image-only/validate", image_input_data(pin))):
+                for mutation in ({"idea": " \n\t"}, {"idea": "x" * (MAX_NARRATIVE_CHARS + 1)},
+                                 {"selected_characters": [draft_data()["selected_characters"][0]] * (MAX_SUBJECTS + 1)},
+                                 {"selected_characters": [draft_data()["selected_characters"][0]] * 2},
+                                 {"image_profile": {**pin, "digest": "invalid"}}, {"approved": True}):
+                    with self.subTest(route=route, field=next(iter(mutation))):
+                        response = client.post(route, json={**valid, **mutation}, headers=headers)
+                        self.assertEqual(response.status_code, 422, response.text)
+                missing = dict(valid)
+                missing.pop("image_profile")
+                self.assertEqual(client.post(route, json=missing, headers=headers).status_code, 422)
+                self.assertEqual(client.post(route, content=b'{"invalid":',
+                                             headers={**headers, "Content-Type": "application/json"}).status_code, 422)
+            body = image_input_data(pin)
+            for extra in ({"video_mode": "img2vid"}, {"image_profile": None},
+                          {"image_size": {"width": True, "height": 512}}):
+                self.assertEqual(client.post("/api/production/image-only/validate", json={**body, **extra},
+                                             headers=headers).status_code, 422)
+
+    def test_image_only_preparation_and_safe_unsupported_errors(self):
+        from unittest.mock import patch
+        from backend import comfyui_workflows as registry, production
+
+        with self.client() as client:
+            headers = self.session(client)
+            profile = client.get("/api/production/profiles").json()["image_only"]["profiles"][0]
+            pin = profile["pin"]
+            for size in profile["supported_sizes"]:
+                body = {**image_input_data(pin), "image_size": size}
+                response = client.post("/api/production/image-only/validate", json=body, headers=headers)
+                self.assertEqual(response.status_code, 200, response.text)
+                self.assertEqual(response.json(), {"schema_version": "1", "prepared_input": body,
+                                                   "readiness": "preparation_only", "can_run": False})
+            for change, code in (({"image_profile": {**pin, "profile_id": "unknown"}}, "image_profile_unknown"),
+                                 ({"image_profile": {**pin, "version": "old"}}, "image_profile_stale"),
+                                 ({"image_size": {"width": 1024, "height": 768}}, "image_size_unsupported")):
+                response = client.post("/api/production/image-only/validate",
+                                       json={**image_input_data(pin), **change}, headers=headers)
+                self.assertEqual(response.status_code, 422, response.text)
+                self.assertEqual(response.json(), {"detail": code})
+            with patch.object(registry, "WORKFLOWS", ()):
+                catalog = client.get("/api/production/profiles")
+                self.assertEqual(catalog.status_code, 200, catalog.text)
+                self.assertEqual(catalog.json()["image_only"], {"profiles": [], "default_profile": None, "can_run": False})
+                draft = client.post("/api/production/validate", json=draft_data(pin), headers=headers)
+                self.assertEqual(draft.status_code, 200, draft.text)
+                self.assertIn({"code": "image_profile_unavailable", "field": "image_profile"},
+                              draft.json()["readiness_issues"])
+                image = client.post("/api/production/image-only/validate", json=image_input_data(pin), headers=headers)
+                self.assertEqual(image.status_code, 422, image.text)
+                self.assertEqual(image.json(), {"detail": "image_profile_unavailable"})
+            with patch.object(production, "validate_image_only", side_effect=ValueError("private endpoint / token")):
+                response = client.post("/api/production/image-only/validate", json=image_input_data(pin), headers=headers)
+                self.assertEqual(response.status_code, 422, response.text)
+                self.assertEqual(response.json(), {"detail": "image_input_invalid"})
+
+    def test_production_validation_has_no_database_or_provider_effects(self):
+        from contextlib import closing
+        import sqlite3
+        from unittest.mock import AsyncMock, patch
+        from backend.database import DATABASE_NAME
+        from backend.saver import SAVER_NAME
+
+        def database_snapshot():
+            snapshots = []
+            for name in (DATABASE_NAME, SAVER_NAME):
+                with closing(sqlite3.connect((self.root / name).as_uri() + "?mode=ro", uri=True)) as db:
+                    snapshots.append(tuple(db.iterdump()))
+            return snapshots
+
+        with self.client() as client:
+            headers = self.session(client)
+            runtime = client.app.state.runtime
+            before = database_snapshot()
+            with patch("backend.comfyui.httpx.AsyncClient", side_effect=AssertionError("No provider calls")) as transport, \
+                    patch("backend.comfyui.preflight", new_callable=AsyncMock) as preflight, \
+                    patch("backend.comfyui_workflows.prepare_image", side_effect=AssertionError("No graph preparation")) as prepare, \
+                    patch.object(runtime, "start", new_callable=AsyncMock) as start, \
+                    patch.object(runtime, "start_live", new_callable=AsyncMock) as live_start:
+                catalog = client.get("/api/production/profiles")
+                self.assertEqual(catalog.status_code, 200, catalog.text)
+                pin = catalog.json()["image_only"]["profiles"][0]["pin"]
+                for route, body in (("/api/production/validate", draft_data(pin)),
+                                    ("/api/production/image-only/validate", image_input_data(pin))):
+                    response = client.post(route, json=body, headers=headers)
+                    self.assertEqual(response.status_code, 200, response.text)
+                    self.assertFalse(response.json()["can_run"])
+                    self.assertNotIn("execution_id", response.json())
+                for operation in (transport, preflight, prepare, start, live_start):
+                    operation.assert_not_called()
+            self.assertEqual(database_snapshot(), before)
 
     def test_activity_diagnostic_is_opt_in_for_existing_strict_clients(self):
         from unittest.mock import patch
