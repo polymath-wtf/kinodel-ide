@@ -30,7 +30,7 @@ At `anchor-hitl`, the user writes directly to Wardrobe. It returns a complete re
 
 ## Dependent Generation
 
-First example: `hero_face -> hero_sheet -> location` in execution order, without human pauses between images. `hero_sheet` takes the exact generated `hero_face` image plus its own prompt. `location` takes no character image and contains no characters; its position in the queue is not a dependency on the hero. Initially each unit produces one candidate per generation. Render freezes the actual parent candidate ID/digest before submitting the child. This is an internal render input, not human approval. Only the final complete set is reviewed.
+Current example: `hero_face -> location -> hero_sheet` in execution order, without human pauses between images. `hero_sheet` depicts the character in the location and takes both exact generated parent images plus its own prompt; declare two `anchor_unit` reference bindings with portrait/background roles. `location` takes no character image and contains no characters; it and `hero_face` are independent, while sheet depends on both. Initially each unit produces one candidate per generation. Render freezes both parent candidate IDs/digests before child submission. This is an internal render input, not human approval. Only the final complete set is reviewed; changing either parent regenerates the dependent sheet. [Adaptive role mapping](../roadmap-comfyui.md#адаптивные-image-inputs-и-два-video-mode) remains an adapter activation requirement.
 
 ## Content And Quality Contract
 

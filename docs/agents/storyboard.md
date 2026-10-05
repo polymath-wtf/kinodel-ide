@@ -16,7 +16,7 @@ Translate approved Story shots, visual direction, and approved anchor assets int
 - exact promoted approved assets for the complete required anchor set, with selection/approval provenance; generation completion or plan approval alone is insufficient;
 - hydrated appearance/continuity/reference projections and frozen prompt guidance, with the operation's context-selection reference;
 - previous exact FramePlan, reviewed candidate evidence, and `RevisionRequestV1` when repairing this image-plan owner's output;
-- declared frame units/order and supported reference/image constraints; mapping is identity on Story shot IDs for first cinematic `i2v`, not a separate mapping object. The agent does not invent endpoint units.
+- declared frame units/order and supported reference/image constraints; mapping is identity on Story shot IDs for both planned cinematic `img2vid/ref2vid` modes, not a separate mapping object. The agent does not invent endpoint units. The drawable opening frame remains exact-start input in img2vid and composition/scene reference in ref2vid.
 
 The adapter hydrates these bodies from prepared refs; the durable selection trace alone is not agent context. Season/music inputs and endpoint-frame modes are deferred until their pipelines define explicit contracts.
 

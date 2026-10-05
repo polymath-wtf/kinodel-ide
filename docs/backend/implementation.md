@@ -25,7 +25,7 @@ Use scalar columns for identities, constraints and work queries, typed JSON for 
 
 ## Managed Project Storage
 
-Use one managed local root. SQLite stores identities, decisions, bindings and job records; immutable JSON/media lives in managed files, not media BLOBs or user-written state files. Initial raw request and submitted normalized Brief are saved with the start's identity before execution is exposed. A start reservation, if used for pre-commit file publication, protects both bodies.
+Use one managed local root: `<installation>/stuff` by default, or an explicit absolute `KINODEL_DATA_ROOT` for isolated checks. `application.sqlite3`, `checkpoints.sqlite3` and lock/bootstrap files live at its root; project files live in `stuff/projects/<project_id>/`. Generated data is ignored by Git; [storage layout](artifacts.md#managed-project-storage) owns the directory contract. SQLite stores identities, decisions, bindings and job records; immutable JSON/media lives in managed files, not media BLOBs or user-written state files. Initial raw request and submitted normalized Brief are saved with the start's identity before execution is exposed. A start reservation, if used for pre-commit file publication, protects both bodies.
 
 Publication, metadata/binding/operation commits and checkpoint writes are not one cross-store transaction. [Artifact protocol](artifacts.md#commit-protocol) owns recovery. No automatic orphan deletion before its pin/commit races are tested.
 

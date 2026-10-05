@@ -5,13 +5,13 @@ Status: **Active design**
 
 ## Responsibility
 
-Direct within-clip motion, camera behavior and performance from approved frames. MVP is silent `i2v`, one continuous clip per approved Story shot.
+Direct within-clip motion, camera behavior and performance from approved frames. One continuous silent clip per approved Story shot. The next [ComfyUI cinematic contract](../roadmap-comfyui.md#адаптивные-image-inputs-и-два-video-mode) supports Brief-selected `img2vid` and `ref2vid`; the MotionPlanV1 fields below retain their original i2v meaning until the new schema/prompt/stage inputs activate together.
 
 ## Input
 
 - submitted Brief and exact approved Story units in committed order;
 - exact promoted approved start images, with supplied reference aliases and shot keys;
-- Brief's fixed `i2v` workflow, silent audio policy and duration;
+- Brief's frozen video mode/profile, silent audio policy and duration; next ref2vid inputs additionally supply exact approved portrait/sheet aliases in declared order, with no separate background image;
 - hydrated motion/continuity projections and frozen prompt guidance, with the operation's context-selection reference;
 - previous exact MotionPlan, reviewed clip evidence, and `RevisionRequestV1` when repairing clip review;
 - supported duration/motion constraints and exact relevant approved visual direction.
@@ -19,6 +19,8 @@ Direct within-clip motion, camera behavior and performance from approved frames.
 The node adapter supplies typed hydrated bodies and usable image evidence, not merely a context trace. On revision, include the previous complete output, exact review subject, original feedback and relevant discussion.
 
 Clip and frame unit keys are the same approved Story shot IDs in Story order, copied into the prepared operation. Each clip's start frame is `{render_result_ref: story_frames_ref, unit_key: shot_id}`; the model copies its supplied alias and the adapter resolves the exact promoted AssetRef under the [selected-media rule](../backend/artifacts.md#selected-media-references). No separate frame ID or mapping artifact is allocated.
+
+For the new ref2vid variant, that same selected storyboard frame is a composition/scene reference, not an exact frame-0 promise. The new mode-discriminated plan copies ordered supplied `{source,role}` references `[storyboard_frame,portrait,character_sheet]` rather than writing them into `start_frame`; portrait preserves identity and sheet preserves body/clothing/environment. Required roles/profile capacity and approval lineage are validated by the adapter. Img2vid retains the exact-start-frame contract. Mode changes require a new execution; neither creative revision nor retry switches it.
 
 ## Output
 

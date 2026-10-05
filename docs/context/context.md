@@ -93,7 +93,7 @@ stage + modality + frozen generation profile
 
 Prompt guidance may describe model-family syntax, composition/motion grammar, reference-image behavior, and known prompt constraints. API payload schemas, secrets, endpoints, queue fields, workflow paths, and runtime activation syntax remain inside provider adapters.
 
-Wardrobe, Storyboard, Filmmaker and later Muse use frozen guidance for anchor images, shot images, video and music. Wardrobe receives portrait-to-sheet guidance; Storyboard receives multi-image role guidance. Plans remain provider-payload neutral; tool adapters own requests. A downstream review cannot change the profile frozen by submitted Brief; that requires a new execution.
+Wardrobe, Storyboard, Filmmaker and later Muse use frozen guidance for anchor images, shot images, video and music. Wardrobe receives portrait+background-to-sheet guidance; Storyboard receives multi-image role guidance. The next Filmmaker contract receives mode-specific exact-start-frame or ordered reference guidance matching Brief's `img2vid/ref2vid` pin. Plans remain provider-payload neutral; tool adapters own requests. A downstream review cannot change the profile frozen by submitted Brief; that requires a new execution.
 
 ## `ContextSelectionV1`
 

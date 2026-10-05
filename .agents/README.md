@@ -17,6 +17,8 @@ Load only the selected agent's system prompt plus its response schema and prepar
 
 Runtime activation, 3 October: **Storytell only** is integrated into the bounded live text graph `kinodel.live-story` v1. Its exact system text/digest, response schemas and model profile are frozen on start; the prepared operation pins direct inputs and relevant discussion before HTTP. The deterministic `kinodel.internal-story` never loads these instructions. Wardrobe/Storyboard/Filmmaker prompts remain authored but unintegrated; approval in either current Story graph ends that text execution. Evidence and remaining activation acceptance: [Local MVP step 3](../docs/roadmap-mvp.md#remaining-steps).
 
+Preparation, 5 October: Wardrobe's example now binds both portrait and background parents before the sheet. The current Filmmaker draft remains MotionPlanV1/i2v-only; its new Brief-selected `img2vid/ref2vid` prompt/schema/input projections must activate together under the [ComfyUI roadmap](../docs/roadmap-comfyui.md#адаптивные-image-inputs-и-два-video-mode), preserving saved V1 meanings.
+
 Image prompts include compact Krea-derived guidance; Filmmaker includes the applicable H3 motion principles. Source/adaptation notes live in their domain docs. Pin these instruction versions with a compatible generation profile; do not append the full source guides or treat these drafts as proof of provider support. Future profiles may supply their own bounded guidance.
 
 Render, montage and result saving are tools/services, not personas. Schema implementation, runtime registration and representative model/provider checks remain part of [Local MVP](../docs/roadmap-mvp.md).

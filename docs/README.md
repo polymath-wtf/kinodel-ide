@@ -4,7 +4,7 @@ Kinodel is a **runtime-vibe-factory for creators**: a user follows a production 
 
 ## Start Here
 
-1. [Local MVP](roadmap-mvp.md) — repository/dependencies, implementation sequence and first-build acceptance. The only current build checklist.
+1. [Local MVP](roadmap-mvp.md) — repository/dependencies, overall implementation sequence and first-build acceptance. [ComfyUI Local](roadmap-comfyui.md) owns the detailed render/media checklist within steps 3–6.
 2. [Architecture](backend/architecture.md) — stack, ownership and system boundaries.
 3. [Cinematic](pipelines/cinematic.md) — node route, inputs/results and direct revisions; [JSON](pipelines/cinematic.v1.json) is its non-executable inspection reference.
 4. Read the domain page being implemented; do not redesign the entire catalog before writing code.
@@ -19,7 +19,7 @@ Kinodel is a **runtime-vibe-factory for creators**: a user follows a production 
 | Immutable outputs and proposed wire types | [Artifacts](backend/artifacts.md), [physical DTOs](backend/dto.md) |
 | Storage/module layout and startup | [Implementation](backend/implementation.md), [local startup](backend/local-startup.md) |
 | Agents | [Catalog](agents/README.md), individual craft contracts |
-| Generation and other side effects | [Tools](tools/tools.md), [ComfyUI](backend/comfyui.md) |
+| Generation and other side effects | [Tools](tools/tools.md), [ComfyUI](backend/comfyui.md), [ComfyUI integration roadmap](roadmap-comfyui.md) |
 | Node types, nested inspection and later composition | [Nodes](backend/node.md), [Web UI / stack](frontend/webui.md), [Pipeline / Chat wireframe](frontend/uiux-wireframe.md) |
 | First connected Story frontend, approved build | [Story workspace preproduction](frontend/story-workspace-preproduction.md), [bounded subagent assignments](frontend/story-workspace-tasks.md); work checklist remains in Local MVP step 6 |
 | Frontend layout, owners and current interaction contracts | [FSD](frontend/fsd.md), [Web UI](frontend/webui.md), [runnable checks](../web/README.md#checks) |

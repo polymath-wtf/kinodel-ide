@@ -13,6 +13,8 @@ From `web/`: `npm ci`, `npm run typecheck`, `npm run build`. Local rebuilds: `np
 
 Open `http://127.0.0.1:8765/`. For configured live text, explicitly launch from the repository root with `./.venv313/Scripts/python.exe -m backend.launch --env-file .env`. Direct Uvicorn never auto-loads `.env`; [local startup](../docs/backend/local-startup.md#live-storytell-text-slice) owns model/key/configuration rules.
 
+Saved data defaults to repository-local `stuff`: both SQLite DBs at the root, project JSON/media in `stuff/projects/<project_id>/`, excluded from Git. Browser storage is only client state/delivery, not project storage.
+
 **Новая история** opens live Storytell, never a silent fixture. Missing key/model disables Start with setup guidance; configured is not proof of remote availability. Enter an idea, 1–8 shot keys, duration in seconds and optional exact Character revisions. API/cache retain integer ms, without rounding. Idea/Bio/prior Story/feedback go to the remote model; images remain local. Historical fixtures remain API-readable. Saved executions reopen via project list or `/?execution=<canonical UUID>` without browser storage.
 
 ## Behavior and persistence

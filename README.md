@@ -174,6 +174,7 @@ docs/hilp/        human decisions, discussion and future execution forks
 docs/context/     references and per-agent context
 docs/rag/         reusable chunks, wiki and later discovery
 docs/frontend/    the creator's workspace
+stuff/            local runtime DBs and projects/<project_id> JSON/media (ignored)
 skills/           local framework references
 .reference/       upstream source for research
 legacy/           the old prototype, read-only evidence
@@ -194,7 +195,7 @@ py -3.13 -m venv .venv313
 .\.venv313\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-Step 0 is verified on Windows: all 46 runtime pins reproduce in a clean venv. `backend/config.py` selects an absolute data root outside the checkout and venv without creating files: `%LOCALAPPDATA%\Kinodel`, or Linux `${XDG_DATA_HOME:-$HOME/.local/share}/kinodel`, with explicit `KINODEL_DATA_ROOT` override. Linux installation is not yet verified.
+Step 0 is verified on Windows: all 46 runtime pins reproduce in a clean venv. `backend/config.py` selects `<installation>/stuff` without creating files, independent of the shell directory. `application.sqlite3`, `checkpoints.sqlite3` and lock/bootstrap files live at this root; immutable project JSON/media lives in `stuff/projects/<project_id>/`. Generated data is ignored by Git. An explicit absolute `KINODEL_DATA_ROOT` can isolate test data; other installation source paths, venv and network roots remain rejected. Linux installation is not yet verified.
 
 The workspace interpreter default is `.venv313`; select it manually if your IDE already remembers another environment. `scripts/test.ps1` verifies the interpreter and runs the same unittest command above. The retained test covers data-root selection and validation; the earlier HTTP/pause-resume smoke check has no retained script yet. Next: storage and text contracts, then restart-safe Storytell → human revision → resume. See [step 0 evidence](docs/roadmap-mvp.md#шаг-0-подготовка-репозитория-и-окружения).
 

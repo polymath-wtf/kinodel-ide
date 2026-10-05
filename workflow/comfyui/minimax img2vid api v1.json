@@ -77,7 +77,7 @@
         0
       ],
       "latent_image": [
-        "136",
+        "162",
         1
       ]
     },
@@ -93,7 +93,7 @@
         0
       ],
       "conditioning": [
-        "136",
+        "162",
         0
       ]
     },
@@ -104,7 +104,7 @@
   },
   "127": {
     "inputs": {
-      "unet_name": "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+      "unet_name": "DasiwaMinimaxH3_dasiwaHybridTurboV3_int8.safetensors",
       "weight_dtype": "default"
     },
     "class_type": "UNETLoader",
@@ -152,44 +152,6 @@
     "class_type": "PrimitiveFloat",
     "_meta": {
       "title": "Float (Duration in sec)"
-    }
-  },
-  "136": {
-    "inputs": {
-      "prompt": "prompt here",
-      "width": [
-        "152",
-        0
-      ],
-      "height": [
-        "153",
-        0
-      ],
-      "length": [
-        "131",
-        1
-      ],
-      "ref_image_size": "match",
-      "clip": [
-        "128",
-        0
-      ],
-      "vae": [
-        "119",
-        0
-      ],
-      "audio_vae": [
-        "120",
-        0
-      ],
-      "ref_images.ref_image_0": [
-        "149",
-        0
-      ]
-    },
-    "class_type": "MiniMaxH3ReferenceToVideo",
-    "_meta": {
-      "title": "MiniMax H3 Reference to Video"
     }
   },
   "145": {
@@ -283,7 +245,7 @@
     "inputs": {
       "attention": "comfy kitchen attention",
       "model": [
-        "127",
+        "145",
         0
       ]
     },
@@ -298,10 +260,10 @@
       "loop_count": 0,
       "filename_prefix": "kinodel/api/img2vid_api",
       "format": "video/h264-mp4",
-      "pix_fmt#1": "yuv420p",
-      "crf#1": 19,
-      "save_metadata#1": true,
-      "trim_to_audio#1": false,
+      "pix_fmt": "yuv420p",
+      "crf": 19,
+      "save_metadata": true,
+      "trim_to_audio": false,
       "pingpong": false,
       "save_output": true,
       "images": [
@@ -345,7 +307,40 @@
     },
     "class_type": "LoadImage",
     "_meta": {
-      "title": "Load Image api"
+      "title": "Load Image"
+    }
+  },
+  "162": {
+    "inputs": {
+      "prompt": "prompt here",
+      "width": [
+        "152",
+        0
+      ],
+      "height": [
+        "153",
+        0
+      ],
+      "length": [
+        "131",
+        1
+      ],
+      "clip": [
+        "128",
+        0
+      ],
+      "vae": [
+        "119",
+        0
+      ],
+      "first_frame": [
+        "149",
+        0
+      ]
+    },
+    "class_type": "MiniMaxH3ImageToVideo",
+    "_meta": {
+      "title": "MiniMax H3 Image to Video"
     }
   }
 }

@@ -68,6 +68,8 @@ The message is immutable; missing required Brief fields resolve before Run. A no
 
 ### BriefV1
 
+**Граница следующей интеграции, 5 октября:** таблица ниже сохраняет существующий foundation `BriefV1`: одна пара размеров, per-shot duration и fixed `i2v`. Новый public cinematic contract отдельно задаёт image/video sizes, total target duration с равномерным per-shot распределением и `video_mode:"img2vid"|"ref2vid"`, согласованный с exact video profile pin; принимает authored `CharacterV1` refs вместо обязательного future chunk. Downstream subject validation учитывает cast из approved `StoryV2`, не дописывая его в frozen Brief. [Поля и приёмка](../roadmap-comfyui.md#brief-что-вводит-автор) запланированы; schema/graph version фиксируется при подключении, сохранённые V1/text records не переписываются.
+
 | Field | Type / rule |
 |---|---|
 | `user_vibe` | Non-empty submitted idea, not invented model extraction/story |
@@ -148,6 +150,8 @@ These are minimum physical handoff fields, implemented with their stages and com
 | `MontageResultV1` | `{asset_ref:AssetRef,plan_ref:<exact internal MontagePlan record ref>,duration_ms,width,height,audio_stream_count:int}`; measured by executor; silent requires zero audio streams; physical plan-ref shape is fixed with montage storage, not assumed to be an artifact |
 
 Agent refs are input aliases resolved by adapters; media identities/measurements are tool-owned. Body-to-slot mapping: VisualAnchorPlanV1 → `wardrobe_plan`, FramePlanV1 → `storyboard_plan`, MotionPlanV1 → `video_plan`; no extra nodes. For first `i2v`, FramePlan's `representative_moment` depicts the action's opening consistent with Story's `state_before`, leaving development for the video; Krea-derived guidance uses `negative_prompt:null`. MontagePlan is an internal tool record. Revisions preserve corresponding shot keys, but changed Story invalidates descendants. `flf2v`, audio, serial/chunk and reuse extensions activate separately.
+
+**Next cinematic activation:** keep the V1 MotionPlan above as its original i2v contract. A new version uses a strict top-level `video_mode` discriminator equal to Brief; common `story_ref` and ordered unit fields (`unit_key`, `duration_ms`, action/motion/camera, `video_prompt`, `preserve`) remain. Img2vid units require `start_frame:SelectedMedia` for the same shot and `end_frame:null`; ref2vid units require ordered `reference_images:[{source:SelectedMedia,role}]` and no exact-start-frame field. Full character ref2vid roles are `[storyboard_frame,portrait,character_sheet]`, resolved from approved frames/anchors, without background. Declared reduced role sets must pass the pinned profile; missing required roles cannot be dropped. Extend agent input projections/prompts and stage dependencies with this version, not by reinterpreting stored MotionPlanV1. [Mode semantics and workflow mappings](../roadmap-comfyui.md#адаптивные-image-inputs-и-два-video-mode).
 
 Anchor keys are proposed by Wardrobe and validated/frozen at plan commit, not allocated as a hardcoded triple. Roles describe purpose (face identity, anatomy/clothing, environment); each required role needs a supported adapter mapping. Initially one candidate per unit is generated; a child uses the exact persisted parent candidate without intermediate human selection. Anchor-local changed-unit/dependency reuse follows [cinematic](../pipelines/cinematic.md#anchor-regeneration), not future Fork.
 

@@ -14,7 +14,7 @@ Render implements [generation_submit, generation_status, generation_cancel and s
 |---|---|---|
 | Wardrobe / `VisualAnchorPlanV1` | `anchor-gen` | `anchor_frames` |
 | Storyboard / `FramePlanV1` | `frames-gen` | `story_frames` |
-| Filmmaker / `MotionPlanV1` | `video-gen` | `shot_videos` |
+| Filmmaker / i2v `MotionPlanV1`; next mode-discriminated version for `img2vid/ref2vid` | `video-gen` | `shot_videos` |
 
 - Static preflight checks topology, unique slot owners, registered schemas/capabilities, mappings and approval barriers. Once a plan exists, validate concrete values, exact references, access/rights, cardinality and dependency closure **before every effect**, including upload. Reject unknown fields, missing mappings and unsupported types/counts/roles; never truncate references or execute user-supplied code. Future plan values cannot all be checked before the first model call. See [pipeline validation](../backend/pipeline.md#versioning).
 - Freeze provider payload, effective parameters/seeds and exact input digests in durable jobs. Declare output port/item mappings before submission; import validates their schemas without silently reinterpreting meaning. Named outputs retain keys and provenance.
@@ -24,7 +24,7 @@ Render implements [generation_submit, generation_status, generation_cancel and s
 
 Render owns submission, reconciliation, verified import and bounded technical retries. Each group has one immutable wait identity `{wait_id, stage_id, activation_id, request_digest}`; units have exact request digests. Use the existing [submit/wait/join boundary](../backend/runtime.md#rendering-extension), not an interrupt per unit.
 
-The first anchor example generates one candidate per unit: portrait, then sheet using that portrait, then independent character-free location, without intermediate human choice. Before child submission persist the exact parent candidate ID/digest and resolved child input/seed. Queue order does not make location dependent. Candidate-to-candidate use is allowed only within the declared render dependency, never as an approved Storyboard input or a wire bypassing review. Example keys/counts are not schema limits.
+The current anchor example generates one candidate per unit: portrait, then character-free background/location, then sheet using both parents, without intermediate human choice. Portrait and background are independent; sheet depends on both. Before child submission persist both exact parent candidate IDs/digests and resolved child inputs/seed. Candidate-to-candidate use is allowed only within the declared render dependency, never as an approved Storyboard/video input or a wire bypassing review. Example keys/counts are not schema limits.
 
 ## Retry And Regeneration
 
@@ -32,7 +32,7 @@ The first anchor example generates one candidate per unit: portrait, then sheet 
 - **Regenerate:** explicit creator command at anchor review; same prompts, new frozen seed where supported and new generation identity. Regenerate requested units and transitive dependents, then review the complete set.
 - **Creative revise:** feedback goes directly to Wardrobe, Storyboard or Filmmaker for a validated replacement plan. For anchors compare effective inputs, including shared direction; replace changed units and dependents, retaining unrelated candidates only with unchanged inputs and exact source lineage.
 
-New `hero_face` requires new `hero_sheet`; changing sheet or location does not replace portrait. Retained location is evidence, not inherited approval. Bounded anchor reuse is required; generic cross-execution reuse and selective frame/video repair are later. See [anchor regeneration](../pipelines/cinematic.md#anchor-regeneration).
+New `hero_face` or a background used by the sheet requires new `hero_sheet`; changing sheet does not replace either parent. An unchanged parent can be retained with exact lineage, not inherited approval. Bounded anchor reuse is required; generic cross-execution reuse and selective frame/video repair are later. See [anchor regeneration](../pipelines/cinematic.md#anchor-regeneration).
 
 ## Saving The Approved Selection
 
@@ -43,7 +43,7 @@ Completion never selects or approves. Workers cannot change canonical bindings. 
 ## Required Checks
 
 - Reject unsupported ports, missing references, wrong output types and incomplete coverage; block three references on a two-reference or incompletely mapped workflow before upload, even after static preflight passes.
-- Verify exact portrait-to-sheet delivery and role-preserving multi-image shot input on the actual workflow; declarations alone prove neither delivery nor creative quality.
-- Reject `portrait_B + sheet_A` when sheet A used portrait A; explicitly retain unchanged location and review the complete new set.
+- Verify exact portrait+background-to-sheet delivery and role-preserving multi-image frame/video inputs on the actual workflows; declarations alone prove neither delivery nor creative quality.
+- Reject `portrait_B + sheet_A` or `background_B + sheet_A` when sheet A used parents A; explicitly retain unchanged parents and review the complete new set.
 - Recover after portrait completion, child input preparation and selection commit without duplicate generation or selection.
 - Unknown provider acceptance reconciles or blocks; duplicate/cancelled late results cannot become current outputs.

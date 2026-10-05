@@ -55,6 +55,8 @@ type ArtifactRef = {
 
 The proposed [BriefV1 physical fields](dto.md#briefv1) describe cinematic only. Internal text/image-only checks use separate minimal test inputs rather than nullable cinematic production fields; they never establish readiness of omitted provider stages. Future audio and other workflow modes require separately activated contracts.
 
+The [next ComfyUI cinematic contract](../roadmap-comfyui.md#brief-что-вводит-автор) replaces these V1 production settings with separate image/video sizes, total/per-shot duration and an explicit `img2vid|ref2vid` choice. Exact-start-image and reference-conditioning semantics stay distinct in the next MotionPlan schema; old frozen inputs/artifacts are unchanged.
+
 Before Run the input UI/API validates required choices, shows defaults and resolves profiles under the [profile rule](comfyui.md#profile-selection). Unsupported explicit requirements are not replaced silently. Run fixes the effective Brief/pipeline; changes require a new execution. Missing inputs resolve before start acceptance.
 
 Profiles are stable selectors, not credentials, workflow JSON or raw endpoints. Retain exact versions/digests; never follow a changed registry alias. Future Producer assistance must show proposed changes before the user submits the Brief.
@@ -178,17 +180,25 @@ The render group uses an immutable wait token `{wait_id, request_digest}`. Mutab
 
 ## Managed Project Storage
 
-The first local deployment stores immutable bodies and media in a backend-managed project directory:
+The local data root defaults to `<installation>/stuff` (`D:\Ai\kinodel-ide\stuff` in this checkout), resolved independently of the current shell directory. Both SQLite databases and process/bootstrap files live at the root; immutable bodies and media live in `stuff/projects/<project_id>/`. Generated data is ignored by Git. An explicit absolute `KINODEL_DATA_ROOT` may select an isolated test root, preserving the same layout.
 
 ```text
-projects/<project_id>/
-  artifacts/<artifact_id>.<digest>.json
-  assets/<asset_id>.<digest>.<ext>
-  attempts/<job_id>/<candidate_id>.<digest>.<ext>
-  runtime-audit/<job_id>/...
+stuff/
+  application.sqlite3
+  checkpoints.sqlite3
+  .kinodel.lock
+  .kinodel-initializing-v1
+  .kinodel-ready-v1
+  projects/<project_id>/
+    artifacts/<artifact_id>.<digest>.json
+    inputs/...                              # exact execution-owned reference snapshots
+    assets/<asset_id>.<digest>.<ext>
+    attempts/<job_id>/<candidate_id>.<digest>.<ext>
+    runtime-audit/<job_id>/...
+    previews/...                            # derived, rebuildable
 ```
 
-These are managed storage URIs, not a user-editable state protocol. The backend creates every path, verifies hashes, and never lets an agent scan or write arbitrary project files. JSON lives beside local project media for inspection/export; the Project DB (SQLite local / PostgreSQL server) owns identity, current bindings, approvals, jobs and provenance. Hosted bytes stay on server. Kinodel endpoint order/workflow/input/output/audit use private object storage with authorized object-ref/signed-URL delivery; a URL never becomes canonical identity or uploads the local project implicitly.
+DB/WAL/SHM and lock/bootstrap files belong to the same root and are not project media. The text runtime already stores Story JSON in this layout; the media subdirectories are the target extension, not implemented storage yet. These are managed storage locations, not a user-editable state protocol; logical `kinodel://projects/...` URIs remain independent of the physical root. The backend creates every path, verifies hashes, and never lets an agent scan or write arbitrary project files. JSON lives beside local project media for inspection/export; the Project DB (SQLite local / PostgreSQL server) owns identity, current bindings, approvals, jobs and provenance. Hosted bytes stay on server. Kinodel endpoint order/workflow/input/output/audit use private object storage with authorized object-ref/signed-URL delivery; a URL never becomes canonical identity or uploads the local project implicitly.
 
 The prepared operation pins intended objects before file publication and keeps that protection through finalization or explicit abandonment. Stage validated bytes in a temporary file on the destination filesystem, flush and sync the file, then atomically publish the immutable destination without overwriting an existing object. An existing destination must match the expected hash; a mismatch is an integrity failure. Verify platform-specific no-overwrite publication and crash durability, including directory metadata durability where required, in the storage spike rather than claiming portable guarantees from rename alone.
 
@@ -234,7 +244,7 @@ Implement and verify schemas in activation order. The wider catalog is design co
 - `brief.v1`;
 - `story.v1`;
 - `VisualAnchorPlanV1`, `FramePlanV1`, candidate-set records and `RenderResultV1` for the image-only slice;
-- `MotionPlanV1`, `MontagePlanV1` and `MontageResultV1` when video/montage is enabled;
+- mode-discriminated MotionPlan under the next `img2vid/ref2vid` contract, `MontagePlanV1` and `MontageResultV1` when video/montage is enabled; original i2v `MotionPlanV1` retains its meaning;
 - reusable chunk executable schemas when their pipeline is activated; their ownership/content contract is defined now.
 
 Do not build one universal artifact envelope that attempts to model every domain field. Field-level proposed candidate/body/ref/commit contracts are in [dto.md](dto.md); strict agent candidates contain no trusted metadata. Fork-specific fields and entry routes wait for feature implementation.

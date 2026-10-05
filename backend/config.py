@@ -6,19 +6,10 @@ import sys
 
 
 def resolve_data_root() -> Path:
-    """Select an absolute data root outside the installation and interpreter."""
+    """Default to installation/stuff; keep other source paths and the venv protected."""
+    installation = Path(__file__).resolve().parents[1]
     override = os.environ.get("KINODEL_DATA_ROOT")
-    if override is not None:
-        raw = override
-    elif sys.platform == "win32":
-        local = os.environ.get("LOCALAPPDATA")
-        if not local:
-            raise ValueError("LOCALAPPDATA is required; or set KINODEL_DATA_ROOT")
-        raw = str(Path(local) / "Kinodel")
-    elif sys.platform == "linux":
-        raw = str(Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share") / "kinodel")
-    else:
-        raise ValueError("Set KINODEL_DATA_ROOT on this unsupported platform")
+    raw = override if override is not None else str(installation / "stuff")
 
     # Normalize the extended local-drive spelling before containment checks.
     if os.name == "nt" and raw.startswith("\\\\?\\") and len(raw) >= 7 and raw[5:7] == ":\\":
@@ -30,9 +21,10 @@ def resolve_data_root() -> Path:
     root = Path(raw).resolve()
     if str(root).startswith(("\\\\", "//")):
         raise ValueError("Network data roots are unsupported")
-    for forbidden in (Path(__file__).resolve().parents[1], Path(sys.prefix).resolve()):
-        if root.is_relative_to(forbidden):
-            raise ValueError("Data root must be outside the installation and venv")
+    if root.is_relative_to(installation) and not root.is_relative_to(installation / "stuff"):
+        raise ValueError("Data root must be outside installation source paths")
+    if root.is_relative_to(Path(sys.prefix).resolve()):
+        raise ValueError("Data root must be outside the venv")
     if root.exists() and not root.is_dir():
         raise ValueError("Data root must be a directory")
     return root

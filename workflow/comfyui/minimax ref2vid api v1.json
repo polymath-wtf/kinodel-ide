@@ -104,7 +104,7 @@
   },
   "127": {
     "inputs": {
-      "unet_name": "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+      "unet_name": "DasiwaMinimaxH3_dasiwaHybridTurboV3_int8.safetensors",
       "weight_dtype": "default"
     },
     "class_type": "UNETLoader",
