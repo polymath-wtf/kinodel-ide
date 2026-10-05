@@ -41,7 +41,9 @@ Read in this order:
 4. The relevant domain page under `docs/agents/`, `docs/pipelines/`, `docs/tools/`, or `docs/rag/`.
 5. Relevant installed langgraph framework skills for implementation guidance; `skills/LangGraph/` is a local fallback.
 
-First-build tasks, dependencies and acceptance belong in `docs/roadmap-mvp.md`. `.reference/langgraph/docs/llms.txt` and `.reference/langgraph/libs/` are upstream references, not application code.
+First-build tasks, dependencies, acceptance criteria and current completion status belong in `docs/roadmap-mvp.md`. `.reference/langgraph/docs/llms.txt` and `.reference/langgraph/libs/` are upstream references, not application code.
+
+Verification reports belong only in `test-results/README.md`; update existing entries. Roadmaps and domain docs keep requirements and current status, not test journals; link to evidence instead of copying it.
 
 `legacy/` is read-only research evidence. It may explain intent, but it is not current architecture. Never copy a legacy script or schema without reducing it to the smallest current requirement.
 
