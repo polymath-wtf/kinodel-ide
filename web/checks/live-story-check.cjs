@@ -90,7 +90,17 @@ uvicorn.run(api.create_app(),host='127.0.0.1',port=api.PORT,workers=1,proxy_head
     await page.getByLabel('Длительность · секунды', { exact: true }).fill('12');
     const capture = async name => { if (folder) { mkdirSync(join(folder, name)); await page.screenshot({ path: join(folder, name, 'screen-state-desktop.png') }); } };
     await capture('start');
-    await page.getByRole('button', { name: 'Начать историю', exact: true }).click();
+    // Historical paid smoke stays Story-only; ordinary UI Start now includes Wardrobe.
+    // Replay an explicitly historical envelope instead of silently expanding this paid check.
+    await page.evaluate(() => {
+      const project_id = crypto.randomUUID(), client_key = crypto.randomUUID();
+      const command = { id: crypto.randomUUID(), kind: 'start', project_id, execution_id: null, target: null,
+        endpoint: '/api/executions/live-story', payload: JSON.stringify({ project_id, client_key,
+          input_message: document.querySelector('[aria-label="Идея истории"]').value,
+          shot_ids: ['shot-001', 'shot-002'], subjects: [], character_refs: [], shot_duration_ms: 6000 }) };
+      localStorage.setItem('kinodel.command.v1.' + command.id, JSON.stringify(command));
+    });
+    await page.reload();
     await expect.poll(() => new URL(page.url()).searchParams.get('execution'), { timeout: 30000 }).toMatch(/^[0-9a-f-]{36}$/);
     const id = new URL(page.url()).searchParams.get('execution');
     const projection = async () => {

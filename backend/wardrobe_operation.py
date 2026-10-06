@@ -1,7 +1,11 @@
 """One bounded Wardrobe service; no graph/start/API/runner activation."""
 
 from pathlib import Path
+import logging
 import sqlite3
+
+
+logger = logging.getLogger(__name__)
 
 from backend.characters import CharacterRepository
 from backend.domain import ArtifactRef, OwnerResponseV1
@@ -16,6 +20,9 @@ async def produce_wardrobe_operation(db: sqlite3.Connection, execution_id: str, 
         return store.replay_wardrobe_operation(db, record)
     if record is None:
         _, supplied, selected = store.wardrobe_authority(db, execution_id, approval_request_id)
+        diagnostic = adapter.wardrobe_input_size_diagnostic(supplied)
+        if diagnostic is not None:
+            raise adapter.WardrobeInputSizeLimit(diagnostic)
         originals = {}
         repository = CharacterRepository(character_root)
         index = 0
@@ -26,8 +33,13 @@ async def produce_wardrobe_operation(db: sqlite3.Connection, execution_id: str, 
                     raise ValueError("Wardrobe image does not match frozen Character snapshot")
                 originals[supplied.image_evidence[index].alias] = body
                 index += 1
-        frozen = await adapter.prepare_wardrobe_request(supplied, originals)
-        record = store.prepare_wardrobe_operation(db, execution_id, approval_request_id, frozen, adapter.REPAIR_INSTRUCTION)
+        from backend.openrouter import StoryWardrobeOwnerConfigV2, read_owner_config
+        start_config = read_owner_config(db.execute("SELECT owner_config FROM executions WHERE execution_id=?",
+                                                   (execution_id,)).fetchone()[0])
+        settings = start_config.wardrobe_settings if isinstance(start_config, StoryWardrobeOwnerConfigV2) else None
+        frozen = await adapter.prepare_wardrobe_request(supplied, originals, settings=settings)
+        record = store.prepare_wardrobe_operation(db, execution_id, approval_request_id, frozen,
+            settings.repair_instruction if settings is not None else adapter.REPAIR_INSTRUCTION)
     if record["candidate"] is not None:
         return store.commit_wardrobe_operation(db, record["operation_id"])
     while True:
@@ -35,6 +47,13 @@ async def produce_wardrobe_operation(db: sqlite3.Connection, execution_id: str, 
         try:
             result = await adapter.complete_wardrobe(reserved["owner_config"],
                 repair_instruction=reserved["pins"].repair_instruction if reserved["owner_repairs"] else None)
+        except adapter.WardrobeOwnerUnavailable as error:
+            diagnostic = store.record_wardrobe_unavailable(db, reserved, error)
+            failure = {"operation_id": reserved["operation_id"], **diagnostic.model_dump(mode="json", exclude={"previous_validation"}),
+                       "timeout_seconds": reserved["config"].timeout_seconds,
+                       "remaining_attempts": 2 - reserved["owner_attempts"]}
+            logger.warning("wardrobe_provider_failure %s", adapter.encode(failure), extra={"wardrobe_failure": failure})
+            raise
         except adapter.WardrobeInvalidOutput as error:
             if store.record_wardrobe_invalid(db, record["operation_id"], reserved["owner_attempts"], error):
                 continue

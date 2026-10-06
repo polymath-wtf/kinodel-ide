@@ -105,7 +105,7 @@ module.exports = async ({ browser, origin, folder, restart }) => {
     await expect(page.locator('.flow-stage[data-stage="storytell:model"]')).toHaveClass(/node-(active|queued)\b/); // Durable work may still be queued at the first read.
     await capture('working');
     await ready();
-    assert.ok(posts[0][0].endsWith('/live-story'), 'ordinary Start is live, never fixture');
+    assert.ok(posts[0][0].endsWith('/story-wardrobe'), 'ordinary Start is the current implemented pipeline, never fixture or historical Story-only');
     assert.deepEqual(posts[0][1].subjects, []); assert.deepEqual(posts[0][1].character_refs, []);
     await runMenu();
     await expect(page.locator('.topbar .delivery-status > details > summary')).toContainText('Доставка подтверждена');
@@ -163,7 +163,7 @@ module.exports = async ({ browser, origin, folder, restart }) => {
     await page.getByRole('button', { name: 'Читать Story v1', exact: true }).first().click();
     await page.getByRole('button', { name: 'Утвердить Story v1', exact: true }).click();
     await expect(page.locator('.reader-state')).toContainText('Утверждена', { timeout: 15000 });
-    await expect(page.locator('.review')).toContainText('Кадры, видео и сборка пока не подключены');
+    await expect(page.locator('.review')).toContainText('Передана в Wardrobe');
     await page.keyboard.press('Escape');
     await page.locator('.view-switch').getByRole('button', { name: 'Chat', exact: true }).click();
     await capture('chat');
@@ -245,6 +245,11 @@ module.exports = async ({ browser, origin, folder, restart }) => {
     await runMenu();
     await expect(page.getByRole('button', { name: 'Повторить работу', exact: true })).toBeEnabled();
     await expect(page.locator('.flow-stage[data-stage="storytell:model"]')).toHaveAttribute('aria-label', /owner_unavailable/);
+    await closeMenu();
+    await page.locator('.flow-stage[data-stage="storytell:model"]').click();
+    await page.getByText('Вызовы модели · 1', { exact: true }).click();
+    await expect(page.locator('.operation-diagnostic')).toContainText('Последний зафиксированный сбой · попытка 1');
+    await expect(page.locator('.operation-diagnostic')).toContainText('HTTP 503 · Ошибка сервера провайдера');
     assert.deepEqual(errors, []);
     console.log('PASS: empty selection → V2 generated cast; pinned r1 after library edit/reload/Start/restart/approval; legacy draft/cache retained and never submitted; reader/Input/Chat cast, no library auto-save; request graph/discussion/provider-error; no paid calls');
   } finally { await page.close(); }

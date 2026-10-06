@@ -8,10 +8,11 @@
 
 Это детализация генерации через ComfyUI из [Local MVP, шаг 4](roadmap-mvp.md#remaining-steps):
 сохранённые планы агентов → workflow/job → проверенные изображения/видео → выбор автора.
-LLM, текстовые результаты, их версии и backend Wardrobe ведём в [Local MVP](roadmap-mvp.md#wardrobe-backend).
+LLM, текстовые результаты, их версии и backend Wardrobe ведём в [Local MVP](roadmap-mvp.md#wardrobe-backend);
+подключение Wardrobe к существующему UI до рендера принято в [W7](roadmap-mvp.md#wardrobe-ui).
 Здесь ведём workflow/media-задачи, связанный UI (6) и передачу в montage (5); общий статус выпуска
 и итоговая приёмка остаются в Local MVP. Read-only подготовка допустима заранее, первый live render —
-после сохранённого плана. Срезы проверяем по готовности потребителя: первый job не ждёт group/review,
+после W7 и сохранённого плана. Срезы проверяем по готовности потребителя: первый job не ждёт group/review,
 frames-gen — полного workflow viewer; итоговые требования выпуска сохраняются.
 
 [Результаты проверок](../test-results/README.md).
@@ -20,11 +21,11 @@ frames-gen — полного workflow viewer; итоговые требован
 
 | Область | Фактическое состояние |
 |---|---|
-| Текст/runtime | Live Storytell, exact review, durable commands и restart recovery есть. Story approval завершает text execution; Wardrobe не запускается. |
+| Текст/runtime | Live Storytell и Wardrobe W1–W7 приняты. Явный UI Start `kinodel.story-wardrobe` v1 передаёт exact approved Story в Wardrobe; live mode использует настроенный OpenRouter, W7 browser acceptance — mocked HTTP, live-приёмка W6 сохраняется. Исторические text routes сохраняют approve→END. NEXT — [saved-plan handoff](#wardrobe-comfyui). |
 | Подключение | Backend config, явный env-file allowlist launcher и `backend/comfyui.py` подключены. Guarded API/CLI preflight проверяет выбранный workflow; оба настроенных соединения прочитаны без генерации. |
 | Workflow | Единый SHA-pinned registry в `backend/comfyui_workflows.py`: preparation включена для portrait/background txt2img и Qwen 1/2/3 inputs; остальные кандидаты inspection-only. `backend/production.py` даёт preparation-only bundle/diagnostics, не cinematic profiles/defaults. [Mappings](tools/comfyui-tool.md#текущие-файлы-и-порты). |
-| Хранение | SQLite, OS lock, immutable Story и Wardrobe plan, operation recovery/replay работают. Wardrobe пока проверен отдельно от графа; render jobs, candidates, assets, selection и media import ещё нужны. |
-| UI | Cinematic-карта, вложенные scopes, inspector и отдельная страница Canvas есть. Canvas пуст; provider graph unavailable. |
+| Хранение | SQLite, OS lock, immutable Story и Wardrobe plan, operation recovery/replay работают; Wardrobe принят в scoped графе, включая live provider и offline reopen. Render jobs, candidates, assets, selection и media import ещё нужны. |
+| UI | Cinematic-карта, вложенные scopes, inspector и отдельная страница Canvas есть. Pipeline/Chat показывают exact saved Wardrobe plan, frozen inputs/config и полные копируемые prompts. Anchor render/review не подключены; Canvas пуст, provider graph unavailable. |
 | Brief | V1/text inputs сохранены. Новый BriefV2 и отдельный cinematic draft имеют image/video sizes, shot count, total/per-shot ms и video mode. Guarded diagnostics и UI draft подключены; public cinematic Start отсутствует. |
 
 **Текущие ограничения:**
@@ -250,7 +251,7 @@ Report содержит workflow/registry pins, `preparation_enabled` и `graph_
 
 ### 7. Anchor group и один graph wait
 
-- [ ] На новом scoped image-only graph подключить `wardrobe → anchor-gen → anchor-hitl` после exact Story review. Group intent/wait identity сохраняются до submission; terminal group result и unique wake work коммитятся вместе через существующий runner protocol.
+- [ ] На новом scoped image-only graph подключить `saved wardrobe_plan → anchor-gen → anchor-hitl` через versioned handoff шага 4: initial rendering потребляет exact сохранённый план и его утверждённую Story, не вызывает Wardrobe повторно и не переоткрывает terminal text execution. Wardrobe вызывается для нового плана только при принятом creative Revise (шаг 8). Group intent/wait identity сохраняются до submission; terminal group result и unique wake work коммитятся вместе через существующий runner protocol.
 - [ ] Генерировать units последовательно в validated dependency order: portrait → background → sheet с **обоими exact parent candidates**. Child input/seed/digests фиксируются до его submit. Один первоначальный candidate на unit; количество units приходит из плана, не hardcoded 3.
 - [ ] Join создаёт immutable complete-set manifest с supporting plan и parent lineage. Fast completion до checkpoint ждёт своего wait; partial/failed group имеет диагностируемый retry/cancel, не вечный `waiting_job`.
 

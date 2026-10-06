@@ -2,7 +2,7 @@
 
 Status: **Decided foundation**
 
-Deployment decision: SQLite local / PostgreSQL server; Project DB ownership is independent of engine and both integrations remain #todo. Future [Fork](../hilp/fork.md) creates a child execution in the same project using exact immutable upstream results; implementation is deferred beyond MVP.
+Deployment decision: SQLite local / PostgreSQL server; Project DB ownership is independent of engine. Local SQLite persistence for Story/Wardrobe immutable artifacts and bindings is implemented; cinematic media persistence and hosted PostgreSQL integration remain pending. Future [Fork](../hilp/fork.md) creates a child execution in the same project using exact immutable upstream results; implementation is deferred beyond MVP.
 
 Artifacts are validated creative truth. A checkpoint says where an execution is; an artifact says what it produced.
 

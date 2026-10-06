@@ -1,4 +1,4 @@
-"""One bounded HTTP Storytell adapter. Secrets and provider errors never enter records."""
+"""One bounded HTTP Storytell adapter. Only allowlisted provider failure metadata is recorded."""
 
 import json
 import os
@@ -6,10 +6,11 @@ from pathlib import Path
 import sqlite3
 from typing import Annotated, Any, Literal
 
-from pydantic import Field, ValidationError, model_validator
+from pydantic import Field, TypeAdapter, ValidationError, model_validator
 
 from backend import openrouter_client as provider
-from backend.openrouter_client import FinishReason, credential as _credential, encode
+from backend.openrouter_client import FinishReason, TransportException, credential as _credential, encode
+from backend.openrouter_wardrobe import WardrobeStartSettingsV1
 from backend.characters import CharacterRef, CharacterV1
 from backend.domain import (Digest, DomainModel, MAX_JSON_BYTES, Narrative, OwnerResponseV1, StoryTextInputV1, StoryTextSubjectV1, StoryV1, StoryV2,
                             StorytellResultV1, StorytellResultV2, canonical_json, parse_json_model, sha256_digest,
@@ -35,6 +36,27 @@ class StoryValidationDiagnostic(DomainModel):
                   "generated_identity", "undeclared_subject", "constraint_validation", "invalid_canonical"]
     paths: list[DiagnosticPath] = Field(min_length=1, max_length=16)
     finish_reason: FinishReason
+
+
+class StoryProviderDiagnostic(DomainModel):
+    """Latest failed HTTP attempt, not a provider receipt or raw request/response log."""
+    attempt: int = Field(ge=1)
+    stage: Literal["http", "transport"]
+    status_code: int | None = Field(ge=100, le=599)
+    exception_type: TransportException | None
+    previous_validation: StoryValidationDiagnostic | None = None
+
+    @model_validator(mode="after")
+    def consistent_evidence(self):
+        if (self.stage == "http" and (self.status_code is None or self.exception_type is not None)
+                or self.stage == "transport" and self.exception_type is None
+                or self.previous_validation is not None and self.previous_validation.attempt >= self.attempt):
+            raise ValueError("Story provider diagnostic evidence mismatch")
+        return self
+
+
+StoryDiagnostic = StoryValidationDiagnostic | StoryProviderDiagnostic
+STORY_DIAGNOSTIC = TypeAdapter(StoryDiagnostic)
 
 
 _REJECTIONS = {
@@ -124,11 +146,25 @@ class StoryOwnerConfigV2(StoryOwnerConfig):
         return self
 
 
+class StoryWardrobeOwnerConfigV2(StoryOwnerConfigV2):
+    """New starts extend v2 without changing historical canonical config bytes."""
+
+    wardrobe_settings: WardrobeStartSettingsV1
+
+    @model_validator(mode="after")
+    def same_model(self):
+        if self.wardrobe_settings.model != self.model:
+            raise ValueError("Story and Wardrobe Start models must match")
+        return self
+
+
 def read_owner_config(body: str) -> StoryOwnerConfig | StoryOwnerConfigV2:
     if type(body) is not str:
         raise ValueError("Missing frozen Story owner configuration")
     # Canonical encoding always starts with adapter_version; parse still validates the entire body.
     model_type = StoryOwnerConfigV2 if body.startswith('{"adapter_version":"2",') else StoryOwnerConfig
+    if model_type is StoryOwnerConfigV2 and "wardrobe_settings" in json.loads(body):
+        model_type = StoryWardrobeOwnerConfigV2
     config = parse_json_model(body.encode("utf-8"), model_type)
     if canonical_json(config).decode("utf-8") != body or sha256_digest(config.system_prompt.encode("utf-8")) != config.prompt_digest:
         raise ValueError("Frozen Story owner configuration mismatch")
@@ -201,9 +237,10 @@ async def produce_live_story(db: sqlite3.Connection, execution_id: str, activati
     while True:
         _assert_writable(db, execution_id)
         attempts, budget, repairs, diagnostic_body = db.execute("SELECT owner_attempts,owner_budget,owner_repairs,owner_validation_diagnostic FROM story_operations WHERE operation_id=?", (operation[0],)).fetchone()
-        diagnostic = StoryValidationDiagnostic.model_validate_json(diagnostic_body) if diagnostic_body else None
+        diagnostic = STORY_DIAGNOSTIC.validate_json(diagnostic_body) if diagnostic_body else None
+        validation = diagnostic.previous_validation if isinstance(diagnostic, StoryProviderDiagnostic) else diagnostic
         if attempts >= budget:
-            if diagnostic and diagnostic.attempt == attempts:
+            if isinstance(diagnostic, StoryValidationDiagnostic) and diagnostic.attempt == attempts:
                 raise _invalid_output(diagnostic)
             raise StoryOwnerUnavailable("Story owner attempt budget exhausted; explicit retry required")
         # Reserve before any HTTP effect; a process crash consumes the attempt.
@@ -213,8 +250,8 @@ async def produce_live_story(db: sqlite3.Connection, execution_id: str, activati
             repair = ("The previous response was invalid. Return only complete JSON matching the supplied schema, exact ordered shot_ids and declared subjects. Do not add subjects or change the brief. For generate return ready; for clarify return clarified, without a replacement."
                       if config.adapter_version == "1" else
                        'The previous response was invalid. Return only complete JSON matching the supplied schema and exact ordered shot_ids. For ready, story must be a complete StoryV2 with schema_id="story", schema_version="2" and required generated_characters (use [] when empty); explanation=null. For needs_input or out_of_scope, story=null and explanation is a nonempty explanation; do not invent missing required canon to force ready. Preserve selected subjects and canon in the frozen brief. Declare every invented character in generated_characters with unique IDs disjoint from selected subjects; reference only selected or generated IDs in shots, at most 16 combined. On revise retain all previous generated IDs; descriptions may be edited. For clarify return clarified with a nonempty explanation and no story field.')
-            if config.adapter_version == "2" and diagnostic is not None:
-                repair += " Rejection diagnostic: " + encode(diagnostic.model_dump(mode="json"))
+            if config.adapter_version == "2" and validation is not None:
+                repair += " Rejection diagnostic: " + encode(validation.model_dump(mode="json"))
             payload["messages"].append({"role": "user", "content": repair})
         stage, code, paths, finish = "envelope", "invalid_envelope", ["choices"], "missing"
         response = None
@@ -236,9 +273,18 @@ async def produce_live_story(db: sqlite3.Connection, execution_id: str, activati
                     validate_story_for_text_input(result.story, config.brief, task["shot_ids"], prior)
                     stage, code, paths = "canonical", "invalid_canonical", ["story"]
                     canonical_json(result.story)
-        except provider.OpenRouterUnavailable:
-            raise StoryOwnerUnavailable("Story owner unavailable") from None
-        except provider.OpenRouterRejected as error:
+        except (provider.OpenRouterUnavailable, provider.OpenRouterRejected) as error:
+            exception_type = error.exception_type if isinstance(error, provider.OpenRouterUnavailable) else None
+            failure = StoryProviderDiagnostic(attempt=attempts + 1, stage="transport" if exception_type else "http",
+                status_code=error.status_code, exception_type=exception_type, previous_validation=validation)
+            _assert_writable(db, execution_id)
+            updated = db.execute("UPDATE story_operations SET owner_validation_diagnostic=? "
+                                 "WHERE operation_id=? AND owner_attempts=? AND owner_repairs=?",
+                                 (encode(failure.model_dump(mode="json")), operation[0], attempts + 1, repairs))
+            if updated.rowcount != 1:
+                raise ValueError("Story diagnostic attempt conflict") from None
+            if isinstance(error, provider.OpenRouterUnavailable):
+                raise StoryOwnerUnavailable("Story owner unavailable") from None
             raise ValueError(str(error)) from None
         except (ValueError, KeyError, IndexError, TypeError, AttributeError) as error:
             # Other pre-response failures are not malformed model output.

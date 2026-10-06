@@ -25,7 +25,7 @@ export function StoryReview({ projection, reader, draft, setDraft, ready, busy, 
     && !!review && projection.allowed_actions.includes(action) && (action === 'approve' || projection.remaining_actions[action] > 0);
   const readableSubject = selectedSubject && !!review
     && !!reader.body.data && !reader.body.error && sameRef(reader.body.data.ref, review.base_ref);
-  const completion = reader.approved ? `${versionLabel(reader.selected!)} утверждена. Кадры, видео и сборка пока не подключены.` : null;
+  const completion = reader.approved ? `${versionLabel(reader.selected!)} утверждена. ${projection.graph.id === 'kinodel.story-wardrobe' ? 'Передана в Wardrobe; состояние плана показано отдельно.' : 'Кадры, видео и сборка пока не подключены.'}` : null;
   const send = (action: ReviewAction) => {
     if (!currentTarget || !selectedSubject || !allowed(action) || (action === 'approve' ? !readableSubject : staleDraft || !draft.text.trim())) return;
     onRespond(currentTarget, action, action === 'approve' ? null : draft.text);

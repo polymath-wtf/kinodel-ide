@@ -50,7 +50,7 @@ async function bounded(promise, milliseconds, message) {
     // New Start reads Characters; every harness must use its own library, never the user's default.
     const isolatedFixture = fixture.replace('api.create_app(produce_story=fixture)', "api.create_app(produce_story=fixture, character_root=__import__('pathlib').Path(__import__('os').environ['KINODEL_DATA_ROOT']) / 'characters')");
     const mockedLive = process.env.STORY_VISIBILITY_CHECK === '1' || process.env.SHELL_CHECK_BASELINE_ONLY !== '1' && process.env.NAVIGATION_CHECK_ONLY !== '1';
-    const script = mockedLive ? "from tests.story_visibility_server import install\ninstall()\n" + isolatedFixture : isolatedFixture;
+    const script = mockedLive ? `from tests.${process.env.WARDROBE_VISIBILITY_CHECK === '1' ? 'wardrobe_visibility_server' : 'story_visibility_server'} import install\ninstall()\n` + isolatedFixture : isolatedFixture;
     server = spawn(python, ['-B', '-c', script, String(port)], {
       cwd: root, env: { ...process.env, OPENROUTER_API_KEY: '', LLM_MODEL: '', KINODEL_DATA_ROOT: data }, stdio: 'pipe',
     });

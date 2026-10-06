@@ -143,6 +143,10 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
         assert.equal(await page.locator('.flow-stage button').count(), 0);
         for (const inner of await page.locator('.pipeline-content:visible .flow-stage').all()) {
           await inner.click(); await expect(page.locator('.details-sheet')).toBeVisible();
+          if (id === 'wardrobe' && await inner.getAttribute('data-stage') === 'wardrobe') {
+            await inner.dblclick({ delay: 100 }); await scope('wardrobe:request'); await none();
+            await back(page.locator('.topbar')); await scope('wardrobe'); continue;
+          }
           await inner.dblclick({ delay: 100 }); await scope(id); await expect(page.locator('.details-sheet')).toBeVisible();
           await back(page.locator('.details-sheet')); await none(); await scope(id);
         }

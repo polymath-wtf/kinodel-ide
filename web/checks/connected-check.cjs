@@ -292,8 +292,10 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
     await page.keyboard.press('Escape');
     await openNode(page, '.flow-stage[data-group="brief"]');
     await expect(page.getByRole('form', { name: 'Создать Story · OpenRouter' })).toBeVisible();
-    await expect(page.locator('.start-form')).toContainText('OpenRouter недоступен');
+    await expect(page.locator('.start-form .model-availability .warning')).toHaveText('Harness: OpenRouter unavailable');
     await expect(page.locator('.start-form button[type="submit"]')).toBeDisabled();
+    await expect(page.locator('.start-form .start-submit')).toHaveCount(1);
+    await expect(page.getByRole('button', { name: 'Начать Story → Wardrobe', exact: true })).toHaveCount(0);
     await page.locator('.rail').getByRole('button', { name: 'Pipeline', exact: true }).click();
     await expect(page.locator('.start-form')).toHaveCount(0);
     await expect(page.locator('.pipeline-content')).toHaveAttribute('data-scope', 'pipeline');
@@ -323,7 +325,7 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
     }
     const starts = [];
     let lostStart = false;
-    await page.route('**/api/executions/live-story', async route => {
+    await page.route('**/api/executions/story-wardrobe', async route => {
       starts.push(route.request().postData());
       const response = await route.fetch(); assert.equal(response.status(), 202);
       id = (await response.json()).execution_id;
@@ -355,10 +357,10 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
      const migratedVideo = await page.evaluate(() => JSON.parse(sessionStorage.getItem('kinodel.workspace.v1')));
      assert.equal(migratedVideo.video_defaults_version, 1);
      assert.equal(migratedVideo.cinematic.video_width, '480'); assert.equal(migratedVideo.cinematic.video_height, '480');
-    await page.unroute('**/api/executions/live-story');
+    await page.unroute('**/api/executions/story-wardrobe');
     assert.equal((await (await harness.get('/api/executions?limit=100')).json()).items.filter(x => x.input_preview === liveMessage).length, 1, 'lost live Start creates one execution');
     const liveProjection = await projection(id);
-    assert.equal(liveProjection.graph.id, 'kinodel.live-story');
+    assert.equal(liveProjection.graph.id, 'kinodel.story-wardrobe');
     assert.equal(liveProjection.submitted.input_message, liveMessage);
     await closeStory();
     id = await start(message); await waitProjection(id, p => p.review);

@@ -1,14 +1,37 @@
 // View-only declarations from docs/pipelines/cinematic.md and the cited owner contracts.
 // These descriptions do not register capabilities or compile/execute a pipeline.
 // Storytell shows the request boundary directly; storytell:graph is backend orchestration.
-import { statusLabel, type Projection } from '../../entities/execution/contracts';
+import { isStoryApproved, statusLabel, type Projection, type WardrobeActivity } from '../../entities/execution/contracts';
 
 export type NodeState = 'idle' | 'queued' | 'active' | 'review' | 'blocked' | 'done' | 'stopped';
 // Work is durable stage activity, not proof of an in-flight provider call or a node trace.
-export function storyNodeState(id: string, p?: Projection): { state: NodeState; status?: string; reason?: string } {
-  if (!p) return { state: 'idle' };
+export function storyNodeState(id: string, p?: Projection, activity?: WardrobeActivity): { state: NodeState; status?: string; reason?: string } {
+  if (!p) return id === 'wardrobe' ? { state: 'idle', status: 'После approval Story' } : { state: 'idle' };
   if (id === 'brief' || id === 'storytell:start') return { state: 'done' };
+  const handoff = p.graph.id === 'kinodel.story-wardrobe' && p.stories.some(s => s.current && isStoryApproved(p, s.ref));
+  if (id.startsWith('wardrobe:')) {
+    if (p.graph.id !== 'kinodel.story-wardrobe') return { state: 'idle', status: 'Не подключено' };
+    if (id === 'wardrobe:start' && activity?.operation_id) return { state: 'done', status: 'Ввод подготовлен' };
+    if (id === 'wardrobe:end' || id === 'wardrobe:output') return p.wardrobe_plan_ref ? { state: 'done', status: 'План сохранён' }
+      : p.wardrobe_stop ? { state: 'blocked', status: 'План не сохранён', reason: p.wardrobe_stop.explanation }
+      : ['cancelled', 'cancelling', 'failed'].includes(p.status) ? { state: 'stopped', status: 'План не сохранён' }
+      : { state: 'idle', status: 'Ждём сохранённый план' };
+    if (id === 'wardrobe:start') return p.wardrobe_stop ? { state: 'blocked', status: 'Ввод не подготовлен', reason: p.wardrobe_stop.explanation }
+      : { state: 'idle', status: 'Ввод ещё не подготовлен' };
+    return storyNodeState('wardrobe', p);
+  }
+  if (id === 'wardrobe' && p.graph.id === 'kinodel.story-wardrobe') {
+    if (p.wardrobe_plan_ref) return { state: 'done', status: 'План сохранён · без рендера' };
+    if (p.wardrobe_stop) return { state: 'blocked', status: 'Wardrobe приостановлен', reason: p.wardrobe_stop.explanation };
+    if (['cancelled', 'cancelling', 'failed'].includes(p.status)) return { state: 'stopped', status: statusLabel[p.status] };
+    if (!handoff) return { state: 'idle', status: 'После approval Story' };
+    const work = p.work.find(w => w.kind === 'resume' && ['pending', 'claimed', 'blocked'].includes(w.status));
+    if (!work) return { state: 'idle', status: 'Ждём работу Wardrobe' };
+    return { state: work?.status === 'blocked' ? 'blocked' : work?.status === 'pending' ? 'queued' : 'active',
+      status: work?.status === 'blocked' ? 'Wardrobe приостановлен' : work?.status === 'pending' ? 'План в очереди' : 'Подготовка плана' };
+  }
   if (!['storytell', 'story-hitl', 'storytell:model', 'storytell:end', 'storytell:output'].includes(id)) return { state: 'idle' };
+  if (handoff) return { state: 'done', status: id === 'storytell' || id === 'story-hitl' || id === 'storytell:output' ? 'Story утверждена' : 'Ответ сохранён' };
   const current = p.stories.find(s => s.current);
   const latestWork = [...p.work].reverse();
   const work = latestWork.find(w => w.kind !== 'cancel' && ['pending', 'claimed', 'blocked'].includes(w.status));
@@ -27,7 +50,7 @@ export function storyNodeState(id: string, p?: Projection): { state: NodeState; 
     return { state: p.review ? 'review' : 'idle' };
   }
   if (id === 'storytell:model') {
-    if (p.graph.id !== 'kinodel.live-story') return { state: 'idle' };
+    if (!['kinodel.live-story', 'kinodel.story-wardrobe'].includes(p.graph.id)) return { state: 'idle' };
     if (stopped) return { state: 'stopped', status: statusLabel[p.status] };
     if (p.status !== 'completed' && action) {
       if (p.status === 'blocked') return { state: 'blocked', status: 'Работа заблокирована', reason };
@@ -44,7 +67,7 @@ export function storyNodeState(id: string, p?: Projection): { state: NodeState; 
     : current ? { state: 'done' } : { state: 'idle' };
 }
 
-export const scopes = ['pipeline', 'storytell', 'wardrobe', 'storyboard', 'filmmaker', 'montage', 'storytell:graph'] as const;
+export const scopes = ['pipeline', 'storytell', 'wardrobe', 'wardrobe:request', 'storyboard', 'filmmaker', 'montage', 'storytell:graph'] as const;
 export type Scope = typeof scopes[number];
 export type StageContract = {
   id: string; title: string; kind: 'input' | 'agent' | 'tool' | 'review' | 'output' | 'internal';
@@ -54,7 +77,7 @@ const cinematic = 'docs/pipelines/cinematic.md';
 export const stages: Record<string, StageContract> = {
    brief: { id: 'brief', title: 'Brief', kind: 'input', summary: 'Идея, контекст и настройки', inputs: ['Идея автора', 'Явные references и видимые production settings'], outputs: ['brief · неизменяемый submitted ввод'], config: 'Ввод фиксируется при Start. Подключён текстовый Storytell, не полный cinematic Brief.', source: cinematic },
   storytell: { id: 'storytell', title: 'Storytell', kind: 'agent', summary: 'История и действия шотов', inputs: ['Submitted brief', 'Выбранный narrative context', 'При правке: exact previous Story и feedback'], outputs: ['story · StoryV1: hook, story, ordered shots'], config: 'Создаёт историю, не image/video prompts. Tools: обычно нет. Один bounded structured response, без придуманного model/tool-loop.', source: 'docs/agents/storytell.md' },
-   'story-hitl': { id: 'story-hitl', title: 'Проверка истории', kind: 'review', summary: 'Ваше решение о сохранённой истории', inputs: ['Текущая exact Story revision'], outputs: ['Та же Story с exact approval'], config: 'Утверждается только открытая точная версия. Вопрос/правка адресуются Storytell. Текущий срез завершает Story, не запускает Wardrobe.', source: cinematic },
+    'story-hitl': { id: 'story-hitl', title: 'Проверка истории', kind: 'review', summary: 'Ваше решение о сохранённой истории', inputs: ['Текущая exact Story revision'], outputs: ['Та же Story с exact approval'], config: 'Утверждается только открытая точная версия. Вопрос/правка адресуются Storytell. Story-Wardrobe передаёт approved Story в Wardrobe; исторический text route завершает Story.', source: cinematic },
   wardrobe: { id: 'wardrobe', title: 'Wardrobe', kind: 'agent', summary: 'Визуальные опоры и промпты', inputs: ['Brief', 'Approved story', 'Character/style references с явными ролями'], outputs: ['wardrobe_plan · VisualAnchorPlanV1: direction, anchor units, prompts, dependencies'], config: 'План сохраняется перед anchor-gen. Агент не ждёт рендера, не выбирает provider и не утверждает anchors. Отдельного plan gate нет.', source: 'docs/agents/wardrobe.md' },
   'anchor-gen': { id: 'anchor-gen', title: 'Anchor generation', kind: 'tool', summary: 'Варианты визуальных опор', inputs: ['Exact wardrobe_plan', 'Exact reference images и зависимости units', 'Закреплённый image profile'], outputs: ['Anchor image attempts · candidates', 'anchor_frames · выбранный полный набор после review'], config: 'Единственный writer anchor_frames. Новый face требует нового зависимого sheet; независимая location сохраняется. Provider не подключён.', source: 'docs/tools/comfyui-tool.md' },
   'anchor-hitl': { id: 'anchor-hitl', title: 'Anchor review', kind: 'review', summary: 'Выбор полного набора', inputs: ['Полный текущий anchor set', 'Exact wardrobe_plan и lineage'], outputs: ['Approved anchor_frames'], config: 'Exactly one candidate на каждый required unit. Несовместимые face/sheet отвергаются. Правка → Wardrobe; seed-only regeneration → tool. Approval открывает Storyboard только в cinematic.', source: cinematic },
@@ -84,6 +107,12 @@ export const storyRequest: StageContract[] = [
   { id: 'storytell:end', title: 'END', kind: 'output', summary: 'Ответ → validation / save', inputs: ['Structured response'], outputs: ['Validated saved Story или owner response'], config: 'Граница запроса, не human approval и не END производственного графа. Валидация и сохранение выполняются backend за этой границей; вопрос может сохранить только объяснение.', source: 'backend/story_graph.py:story' },
   { id: 'storytell:output', title: 'Story', kind: 'output', summary: 'Сохранённый результат', inputs: ['Exact immutable Story ref'], outputs: ['Story reader · версии и exact review'], config: 'Существование Story не означает approval. Общий reader сохраняет выбранную версию и адресный черновик.', source: 'docs/agents/storytell.md' },
   { id: 'storytell:tools', title: 'ToolNode', kind: 'tool', summary: 'Optional · без связей и вызовов', inputs: [], outputs: [], config: 'Не подключён. В текущем Storytell нет tools, tool calls или tool-loop. Это отключённый элемент объявленной схемы, не выполненная ветка и не runtime capability.', source: 'docs/agents/storytell.md#tools' },
+];
+export const wardrobeRequest: StageContract[] = [
+  { id: 'wardrobe:start', title: 'START', kind: 'input', summary: 'Approved Story + Character evidence', inputs: ['Exact approved Story', 'Frozen narrative, ordered Character text and labelled original images'], outputs: ['Prepared messages'], config: 'Вход закрепляется при Wardrobe preparation после exact approval Story. Нет подмены latest или пропуска изображений.', source: 'backend/wardrobe_operation.py:produce_wardrobe_operation' },
+  { id: 'wardrobe:model', title: 'Model', kind: 'agent', summary: 'System prompt + messages', inputs: ['Frozen system prompt', 'Prepared messages с ordered image labels'], outputs: ['Structured response'], config: 'Закреплённая модель появляется только после preparation. Durable работа не доказывает HTTP в полёте; максимум две зарезервированные попытки, включая одно исправление формата.', source: 'backend/openrouter_wardrobe.py:complete_wardrobe' },
+  { id: 'wardrobe:end', title: 'END', kind: 'output', summary: 'Ответ → validation / save', inputs: ['Structured response'], outputs: ['Validated saved plan или объяснение остановки'], config: 'Граница запроса: backend проверяет и сохраняет результат. Это не human approval, не рендер и не trace внутренних шагов.', source: 'backend/wardrobe_operation.py:produce_wardrobe_operation' },
+  { id: 'wardrobe:output', title: 'Plan', kind: 'output', summary: 'Сохранённый wardrobe_plan', inputs: ['Exact immutable wardrobe_plan ref'], outputs: ['Полные prompts и ordered dependencies'], config: 'Validated supporting plan без отдельного approval. Anchor generation и review ещё не подключены.', source: 'docs/agents/wardrobe.md' },
 ];
 // Authored source structure, not an execution/checkpoint trace. backend/story_graph.py.
 export const internalStory: StageContract[] = [

@@ -1,9 +1,10 @@
 import { useStoryActivity } from '../../entities/execution/queries';
 import { versionLabel, type Projection, type ArtifactRef } from '../../entities/execution/contracts';
+import { Diagnostic } from '../../entities/execution/Diagnostic';
 
 export function StoryActivity({ projection: p, select }: { projection: Projection; select: (ref: ArtifactRef) => void }) {
   const query = useStoryActivity(p);
-  if (p.graph.id !== 'kinodel.live-story') return <p className="muted">Тестовая модель: вызовов OpenRouter и системного промпта нет.</p>;
+  if (!['kinodel.live-story', 'kinodel.story-wardrobe'].includes(p.graph.id)) return <p className="muted">Тестовая модель: вызовов OpenRouter и системного промпта нет.</p>;
   const a = query.data;
   return <section className="agent-activity" aria-label="Работа Storytell">
     <header><h3>Storytell · OpenRouter</h3><p className="muted">{a?.model ?? p.model} · без инструментов</p></header>
@@ -15,6 +16,8 @@ export function StoryActivity({ projection: p, select }: { projection: Projectio
       <details><summary>Вызовы модели · {a.operations.length}</summary><div className="operation-list">{a.operations.map((o, i) => <article key={o.operation_id}>
         <strong>{i + 1}. {o.action === 'generate' ? 'Создать историю' : o.action === 'clarify' ? 'Ответить на вопрос' : 'Изменить историю'}</strong>
         <p>{({ prepared: 'Вход подготовлен', attempted: 'Попытка зарезервирована; результат ещё не сохранён', saved: 'Ответ сохранён', blocked: 'Вызов заблокирован', stopped: 'Работа остановлена' })[o.status]}</p>
+        {o.validation_diagnostic ? <Diagnostic diagnostic={o.validation_diagnostic} />
+          : (o.status === 'blocked' || o.status === 'stopped') && <p className="operation-diagnostic muted">Диагностика сбоя недоступна. Причина не установлена: подробности не сохранены.</p>}
         {o.response && <p>{o.response.explanation}</p>}
         {o.story_ref && <button onClick={() => select(o.story_ref!)}>Читать {p.stories.find(s => s.ref.artifact_id === o.story_ref!.artifact_id) ? versionLabel(p.stories.find(s => s.ref.artifact_id === o.story_ref!.artifact_id)!) : 'сохранённую историю'}</button>}
         <details><summary>Messages · сохранённый базовый запрос</summary><p className="muted">Проекция сохранённого user message; system message — в промпте этого запуска выше. Не полный provider payload и не сообщения исправлений. Зарезервировано попыток: {o.reserved_attempts}; исправлений формата: {o.repairs}. Счётчик не доказывает получение ответа провайдером.</p><pre>{JSON.stringify(o.input, null, 2)}</pre><code>{o.operation_id}</code></details>

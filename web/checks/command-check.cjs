@@ -9,9 +9,10 @@ const load = require('./load-typescript.cjs');
     getItem: k => items.get(k) ?? null, setItem: (k, v) => items.set(k, v), removeItem: k => items.delete(k) };
   const id = '00000000-0000-0000-0000-000000000001';
   const start = createCommand('start', id, null, null, { project_id: id, client_key: id, input_message: 'Лис', shot_ids: ['s1'] });
+  assert.equal(start.endpoint, '/api/executions/internal-story', 'fixture/test starts retain their route');
   const live = createCommand('start', id, null, null, { project_id: id, client_key: id, input_message: 'Лис', shot_ids: ['s1'],
     subjects: [{ subject_id: 'fox', description: 'Любопытный лис' }], shot_duration_ms: 5000 });
-  assert.equal(live.endpoint, '/api/executions/live-story');
+  assert.equal(live.endpoint, '/api/executions/story-wardrobe', 'ordinary live Start uses the current implemented pipeline');
   saveCommand(storage, live);
   assert.equal(pendingCommands(storage)[0].endpoint, live.endpoint);
   await deliverCommand(storage, live.id, async endpoint => { assert.equal(endpoint, live.endpoint); return { execution_id: id, work_id: 'live-work' }; }, async () => {});
@@ -19,12 +20,28 @@ const load = require('./load-typescript.cjs');
   const selectedBody = { project_id: id, client_key: id, input_message: 'Лея', shot_ids: ['s1'],
     subjects: [], character_refs: [ref], shot_duration_ms: 5000 };
   const selected = createCommand('start', id, null, null, selectedBody);
-  assert.equal(selected.endpoint, '/api/executions/live-story');
-  saveCommand(storage, selected);
-  await assert.rejects(deliverCommand(storage, selected.id, async () => { throw new ReadError('network', 'lost'); }, async () => {}));
+  assert.equal(selected.endpoint, '/api/executions/story-wardrobe');
+  const wardrobe = createCommand('start', id, null, null, selectedBody);
+  assert.equal(wardrobe.endpoint, '/api/executions/story-wardrobe');
+  saveCommand(storage, wardrobe);
+  await assert.rejects(deliverCommand(storage, wardrobe.id, async () => { throw new ReadError('network', 'lost'); }, async () => {}));
   assert.equal(pendingCommands(storage)[0].payload, JSON.stringify(selectedBody));
-  await deliverCommand(storage, selected.id, async (endpoint, payload) => {
-    assert.equal(endpoint, '/api/executions/live-story'); assert.equal(payload, JSON.stringify(selectedBody));
+  await deliverCommand(storage, wardrobe.id, async (endpoint, payload) => {
+    assert.equal(endpoint, '/api/executions/story-wardrobe'); assert.equal(payload, JSON.stringify(selectedBody));
+    return { execution_id: id, work_id: 'wardrobe-work' };
+  }, async () => {});
+  assert.throws(() => saveCommand(storage, { ...selected, endpoint: '/api/executions/unknown' }));
+  // Simulate a persisted historical envelope, not a new UI route choice. Preserve even JSON whitespace.
+  const historical = { ...selected, endpoint: '/api/executions/live-story', payload: JSON.stringify(selectedBody, null, 2) };
+  const historicalBytes = JSON.stringify(historical);
+  storage.setItem('kinodel.command.v1.' + historical.id, historicalBytes);
+  assert.deepEqual(pendingCommands(storage)[0], historical);
+  assert.equal(storage.getItem('kinodel.command.v1.' + historical.id), historicalBytes, 'reading never rewrites an old envelope');
+  await assert.rejects(deliverCommand(storage, historical.id, async () => { throw new ReadError('network', 'lost'); }, async () => {}));
+  assert.equal(pendingCommands(storage)[0].payload, historical.payload);
+  assert.equal(storage.getItem('kinodel.command.v1.' + historical.id), historicalBytes);
+  await deliverCommand(storage, historical.id, async (endpoint, payload) => {
+    assert.equal(endpoint, '/api/executions/live-story'); assert.equal(payload, historical.payload);
     return { execution_id: id, work_id: 'selected-work' };
   }, async () => {});
   for (const character_refs of [[ref, ref], [{ ...ref, revision: 0 }], [{ ...ref, digest: 'latest' }]])

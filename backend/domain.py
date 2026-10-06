@@ -349,7 +349,7 @@ def _revalidate(model: ModelT) -> ModelT:
     return type(model).model_validate(model.model_dump(mode="python"), strict=True)
 
 
-def canonical_json(model: DomainModel) -> bytes:
+def canonical_json(model: DomainModel, *, max_bytes: int = MAX_JSON_BYTES) -> bytes:
     """Encode a revalidated body using canonical_json_v1."""
     validated = _revalidate(model)
     value = validated.model_dump(
@@ -358,7 +358,7 @@ def canonical_json(model: DomainModel) -> bytes:
     body = json.dumps(
         value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
     ).encode("utf-8")
-    if len(body) > MAX_JSON_BYTES:
+    if len(body) > max_bytes:
         raise ValueError("Canonical JSON body is too large")
     return body
 
@@ -421,11 +421,11 @@ def _reject_surrogates(value: Any) -> None:
             _reject_surrogates(item)
 
 
-def parse_json_model(body: bytes, model_type: type[ModelT]) -> ModelT:
+def parse_json_model(body: bytes, model_type: type[ModelT], *, max_bytes: int = MAX_JSON_BYTES) -> ModelT:
     """Parse the one accepted foundation wire form: bounded strict UTF-8 bytes."""
     if type(body) is not bytes:
         raise TypeError("JSON body must be bytes")
-    if len(body) > MAX_JSON_BYTES:
+    if len(body) > max_bytes:
         raise ValueError("JSON body is too large")
     if body.startswith(b"\xef\xbb\xbf"):
         raise ValueError("UTF-8 BOM is not allowed")

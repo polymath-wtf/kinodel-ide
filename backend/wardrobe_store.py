@@ -10,13 +10,14 @@ import sqlite3
 from typing import Literal
 from uuid import uuid4
 
-from pydantic import Field
+from pydantic import Field, TypeAdapter, model_validator
 
 from backend.domain import (ArtifactRef, CanonicalUUID, DomainModel, MAX_JSON_BYTES,
                             OwnerResponseV1, Text, canonical_json, make_operation_id,
                             parse_json_model, sha256_digest, validate_story_for_text_input)
 from backend.openrouter import SelectedCharacter, StoryOwnerConfigV2, read_owner_config
-from backend.openrouter_wardrobe import (WardrobeInvalidOutput, prepare_wardrobe_repair,
+from backend.openrouter_client import TransportException, TransportPhase, encode
+from backend.openrouter_wardrobe import (WardrobeInvalidOutput, WardrobeOwnerConfigV1, WardrobeOwnerUnavailable, prepare_wardrobe_repair,
                                         read_wardrobe_config)
 from backend.review_store import _digest
 from backend.story_start import _payload_digest
@@ -59,6 +60,30 @@ class WardrobeValidationDiagnostic(DomainModel):
     attempt: int = Field(ge=1, le=2)
     code: Literal["invalid_envelope", "incomplete_output", "tool_calls", "non_text_content",
                   "invalid_result", "response_limit"]
+
+
+class WardrobeProviderDiagnostic(DomainModel):
+    """Latest actual failed HTTP attempt; no raw messages or claimed provider receipt."""
+
+    attempt: int = Field(ge=1, le=2)
+    stage: Literal["http", "transport"]
+    status_code: int | None = Field(default=None, ge=100, le=599)
+    exception_type: TransportException | None = None
+    previous_validation: WardrobeValidationDiagnostic | None = None
+    elapsed_ms: int | None = Field(default=None, ge=0, strict=True)
+    phase: TransportPhase | None = None
+
+    @model_validator(mode="after")
+    def consistent_evidence(self):
+        if (self.stage == "http" and (self.status_code is None or self.exception_type is not None)
+                or self.stage == "transport" and self.exception_type is None
+                or self.previous_validation is not None and self.previous_validation.attempt >= self.attempt):
+            raise ValueError("Wardrobe provider diagnostic evidence mismatch")
+        return self
+
+
+WardrobeDiagnostic = WardrobeValidationDiagnostic | WardrobeProviderDiagnostic
+WARDROBE_DIAGNOSTIC = TypeAdapter(WardrobeDiagnostic)
 
 
 def wardrobe_authority(db: sqlite3.Connection, execution_id: str, request_id: str
@@ -175,11 +200,16 @@ def read_wardrobe_operation(db: sqlite3.Connection, operation_id: str) -> dict:
         raise ValueError("Wardrobe frozen request pins mismatch")
     diagnostic = None
     if record["validation_diagnostic"] is not None:
-        diagnostic = parse_json_model(record["validation_diagnostic"].encode("utf-8"), WardrobeValidationDiagnostic)
-        if canonical_json(diagnostic).decode("utf-8") != record["validation_diagnostic"] or diagnostic.attempt > record["owner_attempts"]:
+        if len(record["validation_diagnostic"].encode("utf-8")) > MAX_JSON_BYTES:
+            raise ValueError("Wardrobe diagnostic exceeds size limit")
+        diagnostic = WARDROBE_DIAGNOSTIC.validate_json(record["validation_diagnostic"], strict=True)
+        historical_fields = {"elapsed_ms", "phase"} - diagnostic.model_fields_set
+        if (encode(diagnostic.model_dump(mode="json", exclude=historical_fields)) != record["validation_diagnostic"]
+                or diagnostic.attempt > record["owner_attempts"]):
             raise ValueError("Wardrobe diagnostic attempt mismatch")
-    if (record["owner_repairs"] and diagnostic is None
-            or diagnostic is not None and diagnostic.attempt == 1 and record["owner_repairs"] != 1):
+    validation = diagnostic.previous_validation if isinstance(diagnostic, WardrobeProviderDiagnostic) else diagnostic
+    if (record["owner_repairs"] and validation is None
+            or validation is not None and validation.attempt == 1 and record["owner_repairs"] != 1):
         raise ValueError("Wardrobe repair selection does not match rejected attempt")
     candidate = None
     if record["candidate_body"] is not None:
@@ -200,11 +230,26 @@ def find_wardrobe_operation(db: sqlite3.Connection, execution_id: str, request_i
     return read_wardrobe_operation(db, row[0]) if row else None
 
 
+def _check_start_settings(db: sqlite3.Connection, execution_id: str, config: WardrobeOwnerConfigV1,
+                          repair_instruction: str) -> None:
+    from backend.openrouter import StoryWardrobeOwnerConfigV2
+    start = read_owner_config(db.execute("SELECT owner_config FROM executions WHERE execution_id=?",
+                                        (execution_id,)).fetchone()[0])
+    if isinstance(start, StoryWardrobeOwnerConfigV2):
+        settings = start.wardrobe_settings
+        if (any(getattr(config, key) != getattr(settings, key) for key in
+                ("adapter_version", "model", "system_prompt", "prompt_digest", "result_schema",
+                 "timeout_seconds", "max_tokens", "reasoning_effort"))
+                or repair_instruction != settings.repair_instruction):
+            raise ValueError("Wardrobe configuration does not match frozen Start settings")
+
+
 def _check_authority(db: sqlite3.Connection, record: dict) -> None:
     authority, supplied, _ = wardrobe_authority(db, record["execution_id"], record["approval_request_id"])
     pinned = WardrobeAuthorityV1.model_validate({key: getattr(record["pins"], key) for key in WardrobeAuthorityV1.model_fields})
     if authority != pinned or supplied != record["config"].wardrobe_input:
         raise ValueError("Wardrobe prepared authority changed")
+    _check_start_settings(db, record["execution_id"], record["config"], record["pins"].repair_instruction)
 
 
 def prepare_wardrobe_operation(db: sqlite3.Connection, execution_id: str, request_id: str,
@@ -216,6 +261,7 @@ def prepare_wardrobe_operation(db: sqlite3.Connection, execution_id: str, reques
         authority, supplied, _ = wardrobe_authority(db, execution_id, request_id)
         if supplied != config.wardrobe_input:
             raise ValueError("Wardrobe configuration does not match authoritative input")
+        _check_start_settings(db, execution_id, config, repair_instruction)
         operation_id = make_operation_id(execution_id, "wardrobe", authority.activation_id, "generate")
         existing = find_wardrobe_operation(db, execution_id, request_id)
         if existing is not None:
@@ -245,7 +291,7 @@ def reserve_wardrobe_attempt(db: sqlite3.Connection, operation_id: str) -> dict:
         if record["candidate"] is not None or record["next_activation"] is not None:
             raise ValueError("Wardrobe result already pinned; no further completion allowed")
         if record["owner_attempts"] >= 2:
-            if record["diagnostic"] is not None and record["diagnostic"].attempt == 2:
+            if isinstance(record["diagnostic"], WardrobeValidationDiagnostic) and record["diagnostic"].attempt == 2:
                 raise WardrobeInvalidOutput(record["diagnostic"].code, "Wardrobe invalid_output; structured repair budget exhausted")
             raise WardrobeAttemptBudgetExhausted("Wardrobe completion attempt budget exhausted")
         updated = db.execute("UPDATE wardrobe_operations SET owner_attempts=owner_attempts+1 "
@@ -258,6 +304,34 @@ def reserve_wardrobe_attempt(db: sqlite3.Connection, operation_id: str) -> dict:
         db.execute("ROLLBACK")
         raise
     return read_wardrobe_operation(db, operation_id)
+
+
+def record_wardrobe_unavailable(db: sqlite3.Connection, reserved: dict, error: WardrobeOwnerUnavailable) -> WardrobeProviderDiagnostic:
+    db.execute("BEGIN IMMEDIATE")
+    try:
+        record = read_wardrobe_operation(db, reserved["operation_id"])
+        _check_authority(db, record)
+        if (any(record[key] != reserved[key] for key in ("input_digest", "owner_attempts", "owner_repairs", "validation_diagnostic"))
+                or record["candidate"] is not None or record["next_activation"] is not None):
+            raise ValueError("Wardrobe diagnostic attempt conflict")
+        prior = record["diagnostic"]
+        validation = prior.previous_validation if isinstance(prior, WardrobeProviderDiagnostic) else prior
+        diagnostic = WardrobeProviderDiagnostic(attempt=reserved["owner_attempts"],
+            stage="transport" if error.exception_type else "http", status_code=error.status_code,
+            exception_type=error.exception_type, previous_validation=validation,
+            elapsed_ms=error.elapsed_ms, phase=error.phase)
+        updated = db.execute("UPDATE wardrobe_operations SET validation_diagnostic=? WHERE operation_id=? "
+                             "AND input_digest=? AND owner_attempts=? AND owner_repairs=? AND validation_diagnostic IS ? "
+                             "AND candidate_body IS NULL AND next_activation IS NULL",
+                             (canonical_json(diagnostic).decode("utf-8"), reserved["operation_id"], reserved["input_digest"],
+                              reserved["owner_attempts"], reserved["owner_repairs"], reserved["validation_diagnostic"]))
+        if updated.rowcount != 1:
+            raise ValueError("Wardrobe diagnostic attempt conflict")
+        db.execute("COMMIT")
+    except BaseException:
+        db.execute("ROLLBACK")
+        raise
+    return diagnostic
 
 
 def record_wardrobe_invalid(db: sqlite3.Connection, operation_id: str, attempt: int, error: WardrobeInvalidOutput) -> bool:

@@ -5,6 +5,7 @@ real; only the future applied-approval receipt is seeded transactionally. No old
 execution is retagged, no terminal receipt is removed, and HTTP is always mocked.
 """
 
+import asyncio
 from contextlib import closing
 from functools import partial
 import importlib.util
@@ -31,7 +32,7 @@ from backend.review_store import (_digest, accept_story_decision, bind_story_wai
 from backend.story_start import _payload_digest
 from backend.story_store import commit_story_operation, prepare_story_operation, read_story
 from tests.test_characters import image_input
-from tests.test_wardrobe_openrouter import MODEL, capability, envelope, supplied_input
+from tests.test_wardrobe_openrouter import MODEL, capability, envelope, supplied_input, large_png
 
 
 GRAPH_ID = "kinodel.story-wardrobe"
@@ -80,13 +81,13 @@ class WardrobeOperationTests(unittest.IsolatedAsyncioTestCase):
         return patch("backend.openrouter_client.httpx.AsyncClient",
                      partial(httpx.AsyncClient, transport=httpx.MockTransport(respond)))
 
-    def fixture(self, db, *, selected=False, apply=True, graph_id=GRAPH_ID):
+    def fixture(self, db, *, selected=False, apply=True, graph_id=GRAPH_ID, image_inputs=None):
         subjects = [{"subject_id": "hero", "description": "A warm traveler"}]
         cards = []
         if selected:
             repo = CharacterRepository(self.library)
             ref = repo.save(CharacterBio(name="Лея", vibe="Blue coat"),
-                            [image_input(), image_input(color="blue")], mutation_id="create").ref
+                            image_inputs or [image_input(), image_input(color="blue")], mutation_id="create").ref
             cards = [SelectedCharacter(ref=ref, character=repo.read_exact(ref))]
             subjects = [item.narrative_subject().model_dump(mode="json") for item in cards]
         brief = StoryTextInputV1(user_vibe="Return a ribbon", subjects=subjects, shot_duration_ms=5000)
@@ -181,6 +182,64 @@ class WardrobeOperationTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(FileNotFoundError):
                 await operation.produce_wardrobe_operation(db, self.execution, review.request_id, character_root=self.library)
 
+    async def test_normal_large_original_prepare_repair_reopen_and_offline_replay(self):
+        import base64
+        from backend.characters import ImageInput
+        from backend.openrouter import read_owner_config
+        operation, store = self.modules()
+        with database.open_database(self.root) as db:
+            review, _, cards = self.fixture(db, selected=True, image_inputs=[ImageInput(large_png(), "image/png")])
+            image = cards[0].character.images[0]
+            original = CharacterRepository(self.library).read_image(cards[0].ref, image.digest)[1]
+            self.assertGreater(len(original), 1800000)
+            self.assertLess(len(original), 2100000)
+            reserve = store.reserve_wardrobe_attempt
+            def pause_repair(*args):
+                if db.execute("SELECT owner_attempts FROM wardrobe_operations").fetchone() == (1,):
+                    raise RuntimeError("reopen before repair")
+                return reserve(*args)
+            with self.transport({"choices": []}), patch.object(store, "reserve_wardrobe_attempt", side_effect=pause_repair), \
+                    self.assertRaisesRegex(RuntimeError, "before repair"):
+                await operation.produce_wardrobe_operation(db, self.execution, review.request_id, character_root=self.library)
+            frozen = db.execute("SELECT operation_id,input_digest,owner_config,repair_request FROM wardrobe_operations").fetchone()
+            config = adapter.read_wardrobe_config(frozen[2])
+            self.assertGreater(len(frozen[2].encode()), 1024 * 1024)
+            self.assertLess(len(frozen[2].encode()), 20 * 1024 * 1024)
+            self.assertEqual(self.requests[-1].content, config.base_request.encode())
+            for request in (config.base_request, frozen[3]):
+                picture = json.loads(request)["messages"][1]["content"][2]["image_url"]["url"]
+                self.assertEqual(picture, "data:image/png;base64," + base64.b64encode(original).decode())
+                self.assertLess(len(request.encode()), 16 * 1024 * 1024)
+            with self.assertRaisesRegex(ValueError, "large"):
+                canonical_json(config)  # The global default was not raised.
+            with self.assertRaisesRegex(ValueError, "large"):
+                read_owner_config(frozen[2])  # Story's persisted reader retains its 1 MiB ceiling.
+        self.library.rename(self.library.with_name("parked"))
+        with database.open_database(self.root) as db, self.transport(), patch.dict(os.environ, {"LLM_MODEL": "changed/model"}), \
+                patch.object(adapter.provider, "model_metadata", side_effect=AssertionError("Prepared replay GET")), \
+                patch.object(CharacterRepository, "read_image", side_effect=AssertionError("Prepared replay read image")):
+            result, transition = await operation.produce_wardrobe_operation(db, self.execution, review.request_id, character_root=self.library)
+            self.assertEqual(self.requests[-1].content, frozen[3].encode())
+            self.assertEqual(db.execute("SELECT operation_id,input_digest,owner_config,repair_request FROM wardrobe_operations").fetchone(), frozen)
+            self.assertEqual(db.execute("SELECT owner_attempts,owner_repairs FROM wardrobe_operations").fetchone(), (2, 1))
+        with database.open_database(self.root) as db, patch.dict(os.environ, {"OPENROUTER_API_KEY": "", "LLM_MODEL": ""}), \
+                patch.object(adapter.provider.httpx, "AsyncClient", side_effect=AssertionError("Offline replay POST")):
+            self.assertEqual(await operation.produce_wardrobe_operation(db, self.execution, review.request_id, character_root=self.library), (result, transition))
+            self.assertEqual(store.read_wardrobe_plan(db, self.execution)[0], result)
+
+    async def test_total_image_budget_rejects_before_library_reads_or_catalog(self):
+        from backend.characters import ImageInput
+        operation, _ = self.modules()
+        with database.open_database(self.root) as db:
+            original = large_png((2100, 1800))
+            review, _, _ = self.fixture(db, selected=True, image_inputs=[ImageInput(original, "image/png")] * 2)
+            with self.transport(), patch.object(CharacterRepository, "read_image", side_effect=AssertionError("Over-budget image loaded")), \
+                    self.assertRaises(adapter.WardrobeInputSizeLimit) as rejected:
+                await operation.produce_wardrobe_operation(db, self.execution, review.request_id, character_root=self.library)
+            self.assertEqual(rejected.exception.diagnostic.limit_bytes, 16 * 1024 * 1024)
+            self.assertEqual(self.requests, [])
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM wardrobe_operations").fetchone(), (0,))
+
     async def test_nonready_commits_without_repair_or_plan(self):
         operation, _ = self.modules()
         for status in ("needs_input", "out_of_scope"):
@@ -213,6 +272,156 @@ class WardrobeOperationTests(unittest.IsolatedAsyncioTestCase):
         posts = [r.content for r in self.requests if r.method == "POST"]
         self.assertEqual(len(posts), 2)
         self.assertEqual(posts[0], posts[1])
+
+    async def test_duration_phase_persist_and_warning_follows_commit_once(self):
+        from backend.api import WardrobeActivity
+        from backend.story_reads import wardrobe_activity
+        operation, store = self.modules()
+        with database.open_database(self.root) as db:
+            review, _, _ = self.fixture(db)
+            with self.transport(), patch.object(adapter, "complete_wardrobe", side_effect=adapter.WardrobeOwnerUnavailable(
+                    "private-test-secret", status_code=200, exception_type="TimeoutError", elapsed_ms=180125, phase="response_read")), \
+                    self.assertLogs("backend.wardrobe_operation", level="WARNING") as logs, \
+                    self.assertRaises(adapter.WardrobeOwnerUnavailable):
+                await operation.produce_wardrobe_operation(db, self.execution, review.request_id, character_root=self.library)
+            self.assertEqual(len(logs.records), 1)
+            diagnostic = json.loads(db.execute("SELECT validation_diagnostic FROM wardrobe_operations").fetchone()[0])
+            self.assertEqual((diagnostic["elapsed_ms"], diagnostic["phase"]), (180125, "response_read"))
+            activity = wardrobe_activity(db, self.execution, include_validation_diagnostic=True)
+            self.assertEqual(WardrobeActivity.model_validate(activity).attempts.diagnostic.elapsed_ms, 180125)
+            self.assertEqual(logs.records[0].wardrobe_failure, {"operation_id": activity["operation_id"],
+                "attempt": 1, "stage": "transport", "status_code": 200, "exception_type": "TimeoutError",
+                "elapsed_ms": 180125, "phase": "response_read", "timeout_seconds": 180, "remaining_attempts": 1})
+            self.assertNotIn("private", str(logs.records[0].__dict__))
+            # Old persisted JSON still validates canonically, with unknown new evidence left null.
+            old = {k: v for k, v in diagnostic.items() if k not in ("elapsed_ms", "phase")}
+            db.execute("UPDATE wardrobe_operations SET validation_diagnostic=?", (encode(old),))
+            op_id = activity["operation_id"]
+        with database.open_database(self.root) as db:
+            historic = store.read_wardrobe_operation(db, op_id)["diagnostic"]
+            self.assertIsNone(historic.elapsed_ms)
+            self.assertIsNone(historic.phase)
+            for field, value in (("elapsed_ms", -1), ("elapsed_ms", True), ("elapsed_ms", "12"),
+                                 ("elapsed_ms", 1.5), ("phase", "unknown")):
+                db.execute("UPDATE wardrobe_operations SET validation_diagnostic=?", (encode({**old, field: value}),))
+                with self.assertRaises(ValueError):
+                    store.read_wardrobe_operation(db, op_id)
+
+    async def test_actual_provider_diagnostics_reopen_offline_with_same_pins_and_budget(self):
+        from backend.story_reads import wardrobe_activity
+        operation, store = self.modules()
+        timeout = asyncio.timeout
+        for case, status, exception in (("429", 429, None), ("503", 503, None),
+                                        ("read", None, "ReadTimeout"), ("total", None, "TimeoutError")):
+            self.root = self.root.with_name(case)
+            self.execution = str(uuid4())
+            async def failure(request):
+                self.requests.append(request)
+                if request.method == "GET":
+                    return httpx.Response(200, json={"data": [capability()]})
+                if case == "read":
+                    raise httpx.ReadTimeout("private-test-secret", request=request)
+                if case == "total":
+                    await asyncio.sleep(10)
+                return httpx.Response(status, content=b"private-test-secret")
+            with self.subTest(case=case), database.open_database(self.root) as db:
+                review, _, _ = self.fixture(db)
+                with patch("backend.openrouter_client.httpx.AsyncClient", partial(httpx.AsyncClient,
+                        transport=httpx.MockTransport(failure))), \
+                        patch("backend.openrouter_client.asyncio.timeout", side_effect=lambda _: timeout(0.01)), \
+                        self.assertRaises(adapter.WardrobeOwnerUnavailable):
+                    await operation.produce_wardrobe_operation(db, self.execution, review.request_id, character_root=self.library)
+                frozen = db.execute("SELECT operation_id,input_digest,prepared_inputs,owner_config,repair_request FROM wardrobe_operations").fetchone()
+                diagnostic_body = db.execute("SELECT validation_diagnostic FROM wardrobe_operations").fetchone()[0]
+                self.assertIsNotNone(diagnostic_body, "Reserved transport failure lost its actual metadata")
+                measured = json.loads(diagnostic_body)
+                self.assertIs(type(measured["elapsed_ms"]), int)
+                self.assertGreaterEqual(measured["elapsed_ms"], 0)
+                expected = {"attempt": 1, "stage": "transport" if exception else "http", "status_code": status,
+                            "exception_type": exception, "previous_validation": None,
+                            "elapsed_ms": measured["elapsed_ms"], "phase": "connection" if exception else "response_read"}
+                self.assertEqual(measured, expected)
+            with database.open_database(self.root) as db, \
+                    patch.object(adapter.provider, "http", side_effect=AssertionError("Offline read called provider")):
+                record = store.read_wardrobe_operation(db, frozen[0])
+                self.assertEqual(record["diagnostic"].model_dump(mode="json"), expected)
+                activity = wardrobe_activity(db, self.execution, include_validation_diagnostic=True)
+                self.assertEqual(activity["attempts"], {"reserved_attempts": 1, "remaining_attempts": 1,
+                                                     "repairs": 0, "diagnostic": expected})
+                self.assertNotIn("attempts", wardrobe_activity(db, self.execution))
+                self.assertNotIn("private-test-secret", json.dumps(activity))
+                db.execute("UPDATE wardrobe_operations SET validation_diagnostic=NULL")
+                self.assertIsNone(wardrobe_activity(db, self.execution, include_validation_diagnostic=True)["attempts"]["diagnostic"])
+                for corrupt in ({**expected, "attempt": 2}, {**expected, "exception_type": "private-test-secret"},
+                                {**expected, "message": "private"}, {**expected, "stage": "http", "status_code": None},
+                                {**expected, "stage": "transport", "exception_type": None}):
+                    db.execute("UPDATE wardrobe_operations SET validation_diagnostic=?", (encode(corrupt),))
+                    with self.assertRaises(ValueError):
+                        store.read_wardrobe_operation(db, frozen[0])
+                db.execute("UPDATE wardrobe_operations SET validation_diagnostic=?", (diagnostic_body,))
+            with database.open_database(self.root) as db, self.transport(), \
+                    patch.object(adapter, "prepare_wardrobe_request", side_effect=AssertionError("Retry prepared")):
+                await operation.produce_wardrobe_operation(db, self.execution, review.request_id, character_root=self.library)
+                self.assertEqual(db.execute("SELECT operation_id,input_digest,prepared_inputs,owner_config,repair_request FROM wardrobe_operations").fetchone(), frozen)
+                self.assertEqual(db.execute("SELECT owner_attempts,owner_repairs FROM wardrobe_operations").fetchone(), (2, 0))
+
+    async def test_repair_transport_retains_validation_and_frozen_request_without_third_attempt(self):
+        operation, store = self.modules()
+        with database.open_database(self.root) as db:
+            review, _, _ = self.fixture(db)
+            reserve = store.reserve_wardrobe_attempt
+            def pause(*args):
+                if db.execute("SELECT owner_attempts FROM wardrobe_operations").fetchone() == (1,):
+                    raise RuntimeError("pause before repair")
+                return reserve(*args)
+            with self.transport({"choices": []}), patch.object(store, "reserve_wardrobe_attempt", side_effect=pause), self.assertRaises(RuntimeError):
+                await operation.produce_wardrobe_operation(db, self.execution, review.request_id, character_root=self.library)
+            operation_id, repair, body = db.execute("SELECT operation_id,repair_request,validation_diagnostic FROM wardrobe_operations").fetchone()
+            self.assertEqual(body, encode({"attempt": 1, "code": "invalid_envelope"}))  # Old pure-validation wire remains canonical.
+            self.assertEqual(store.read_wardrobe_operation(db, operation_id)["diagnostic"].attempt, 1)
+        with database.open_database(self.root) as db, self.transport(lambda _: httpx.Response(503)), \
+                patch.object(adapter, "REPAIR_INSTRUCTION", "Changed"), \
+                patch.object(adapter, "prepare_wardrobe_request", side_effect=AssertionError("Retry prepared")), \
+                self.assertRaises(adapter.WardrobeOwnerUnavailable):
+            await operation.produce_wardrobe_operation(db, self.execution, review.request_id, character_root=self.library)
+        self.assertEqual(self.requests[-1].content, repair.encode())
+        with database.open_database(self.root) as db, self.transport():
+            record = store.read_wardrobe_operation(db, operation_id)
+            self.assertEqual(record["diagnostic"].previous_validation.model_dump(mode="json"), json.loads(body))
+            self.assertEqual((record["owner_attempts"], record["owner_repairs"]), (2, 1))
+            with self.assertRaises(store.WardrobeAttemptBudgetExhausted):
+                await operation.produce_wardrobe_operation(db, self.execution, review.request_id, character_root=self.library)
+            db.execute("UPDATE wardrobe_operations SET owner_repairs=0")
+            with self.assertRaisesRegex(ValueError, "repair"):
+                store.read_wardrobe_operation(db, operation_id)
+        self.assertEqual(len([r for r in self.requests if r.method == "POST"]), 2)
+
+    async def test_late_diagnostic_authority_occ_and_unrelated_errors_fail_closed(self):
+        operation, store = self.modules()
+        for case in ("cancel", "stale", "cancelled_error", "programmer_error", "reservation"):
+            self.root = self.root.with_name(case)
+            self.execution = str(uuid4())
+            with self.subTest(case=case), database.open_database(self.root) as db:
+                review, _, _ = self.fixture(db)
+                def failure(_):
+                    if case == "cancel":
+                        self.cancel(db)
+                    if case == "stale":
+                        db.execute("UPDATE execution_bindings SET binding_revision=2 WHERE slot='story'")
+                    if case == "cancelled_error":
+                        raise asyncio.CancelledError()
+                    if case == "programmer_error":
+                        raise RuntimeError("programmer failure")
+                    if case == "reservation":
+                        op = db.execute("SELECT operation_id FROM wardrobe_operations").fetchone()[0]
+                        store.reserve_wardrobe_attempt(db, op)
+                    return httpx.Response(503)
+                error = asyncio.CancelledError if case == "cancelled_error" else RuntimeError if case == "programmer_error" else ValueError
+                with self.transport(failure), patch.object(operation.logger, "warning") as warning, self.assertRaises(error):
+                    await operation.produce_wardrobe_operation(db, self.execution, review.request_id, character_root=self.library)
+                warning.assert_not_called()
+                self.assertEqual(db.execute("SELECT validation_diagnostic,candidate_body FROM wardrobe_operations").fetchone(), (None, None))
+                self.assertFalse(db.in_transaction)
 
     async def test_invalid_output_repairs_once_and_never_posts_third(self):
         operation, _ = self.modules()

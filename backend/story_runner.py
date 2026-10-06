@@ -1,7 +1,8 @@
-"""Single local runner for the internal Story fixture and its durable work."""
+"""Single local runner for verified frozen Story routes and their durable work."""
 
 import asyncio
 import sqlite3
+from pathlib import Path
 from typing import Awaitable, Callable
 
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
@@ -10,7 +11,7 @@ from langgraph.types import Command
 from backend.domain import ArtifactRef, StoryV1, sha256_digest
 from backend.review_store import bind_story_wait
 from backend.story_control import cancel_requested
-from backend.story_graph import StoryOwnerUnavailable, build_story_graph
+from backend.story_graph import WardrobeBlocked, StoryOwnerUnavailable, build_story_graph, validate_wardrobe_success
 from backend.story_start import load_test_story_start, validate_story_storage
 from backend.story_store import read_story
 
@@ -84,14 +85,29 @@ def _finish_cancel(db, execution_id):
         raise
 
 
-async def _run_one(db, saver, graph, work, stop):
+async def _run_one(db, saver, graph, work, stop, *, wardrobe=False):
     work_id, execution_id, kind, source_id, payload_digest, resume_ref = work
     receipt, initial = load_test_story_start(db, execution_id)
     outcome = db.execute("SELECT outcome,source_id FROM execution_outcomes WHERE execution_id=?",
                          (execution_id,)).fetchone()
     if outcome:
+        approved_request = None
+        if wardrobe and outcome[0] == "completed":
+            record = db.execute("SELECT approval_request_id FROM wardrobe_operations WHERE execution_id=? AND operation_id=?",
+                                (execution_id, outcome[1])).fetchone()
+            if record is None:
+                raise ValueError("Wardrobe terminal outcome has no operation")
+            try:
+                ref = validate_wardrobe_success(db, execution_id, record[0])
+            except (ValueError, OSError):
+                raise WardrobeBlocked("wardrobe_invalid") from None
+            if db.execute("SELECT subject_artifact_id FROM execution_outcomes WHERE execution_id=?",
+                          (execution_id,)).fetchone() != (ref.artifact_id,):
+                raise ValueError("Wardrobe terminal outcome subject mismatch")
+            approved_request = record[0]
         db.execute("UPDATE execution_work SET status=?,work_version=work_version+1 WHERE work_id=?",
-                   ("completed" if kind == "resume" and outcome == ("completed", source_id) else "obsolete", work_id))
+                   ("completed" if kind == "resume" and (outcome == ("completed", source_id) or source_id == approved_request)
+                    else "obsolete", work_id))
         return
     config = {"configurable": {"thread_id": execution_id}}
     saved = await saver.aget_tuple(config)
@@ -205,6 +221,19 @@ async def _run_one(db, saver, graph, work, stop):
             bind_story_wait(db, execution_id, request["request_id"], checkpoint_id, task.id, interrupt.id)
     elif snapshot.next:
         raise ValueError("Story segment stopped before a stable wait")
+    elif wardrobe:
+        request_id = snapshot.values.get("review_ref", {}).get("request_id")
+        ref = validate_wardrobe_success(db, execution_id, request_id)
+        record = db.execute("SELECT next_activation,activation_id FROM wardrobe_operations WHERE operation_id=?",
+                            (ref.operation_id,)).fetchone()
+        if (kind not in ("resume", "reconcile") or (kind == "resume" and source_id != request_id)
+                or snapshot.values.get("wardrobe_plan") != ref.model_dump(mode="json")
+                or snapshot.values.get("approved_story") != read_story(db, execution_id)[0].model_dump(mode="json")
+                or (snapshot.values.get("wardrobe_transition"), snapshot.values.get("wardrobe_activation")) != record
+                or db.execute("SELECT outcome,source_id,subject_artifact_id FROM execution_outcomes WHERE execution_id=?",
+                              (execution_id,)).fetchone() != ("completed", ref.operation_id, ref.artifact_id)):
+            raise ValueError("No exact Wardrobe terminal receipt/checkpoint")
+        # No Story-only legacy completion fallback on this frozen route.
     else:
         approved = snapshot.values.get("approved_story")
         row = db.execute(
@@ -245,10 +274,19 @@ async def _run_one(db, saver, graph, work, stop):
 
 async def run_story_work(db: sqlite3.Connection, saver: AsyncSqliteSaver,
                          produce_story: Callable[[str, list[str], StoryV1 | None, str | None], StoryV1 | Awaitable[StoryV1]],
-                         *, stop: asyncio.Event | None = None) -> int:
+                         *, stop: asyncio.Event | None = None, character_root: Path | None = None) -> int:
     """Drain pending and abandoned claims under one caller-owned root lock/saver lifetime."""
     await validate_story_storage(db, saver)
-    graph = build_story_graph(db, saver, produce_story)
+    from backend import wardrobe_store
+    graphs = {}
+
+    def select_graph(execution_id):
+        load_test_story_start(db, execution_id)  # Verify the entire frozen identity before selecting topology.
+        wardrobe = db.execute("SELECT graph_id FROM executions WHERE execution_id=?",
+                              (execution_id,)).fetchone()[0] == wardrobe_store.GRAPH_ID
+        if wardrobe not in graphs:
+            graphs[wardrobe] = build_story_graph(db, saver, produce_story, wardrobe=wardrobe, character_root=character_root)
+        return graphs[wardrobe], wardrobe
     # Recover runnable checkpoints whose segment was incorrectly settled before a stable wait.
     for execution_id, digest in db.execute(
         "SELECT e.execution_id,e.start_digest FROM executions e WHERE e.graph_id IS NOT NULL "
@@ -257,6 +295,7 @@ async def run_story_work(db: sqlite3.Connection, saver: AsyncSqliteSaver,
         "AND NOT EXISTS (SELECT 1 FROM execution_work w WHERE w.execution_id=e.execution_id "
         "AND w.status IN ('pending','claimed','blocked'))"
     ).fetchall():
+        graph, wardrobe = select_graph(execution_id)
         config = {"configurable": {"thread_id": execution_id}}
         saved = await saver.aget_tuple(config)
         if saved is None:
@@ -267,7 +306,7 @@ async def run_story_work(db: sqlite3.Connection, saver: AsyncSqliteSaver,
                                  "AND request_id=?", (execution_id, snapshot.interrupts[0].value["request_id"])).fetchone()
             if request is not None and request == (saved.config["configurable"]["checkpoint_id"], None):
                 continue  # Already actionable; never re-invoke an unanswered wait.
-        elif not snapshot.next and not snapshot.values.get("approved_story"):
+        elif not snapshot.next and not wardrobe and not snapshot.values.get("approved_story"):
             raise ValueError("Empty checkpoint without terminal Story receipt")
         checkpoint_id = saved.config["configurable"]["checkpoint_id"]
         work_id = sha256_digest(f"kinodel.reconcile.v1:{execution_id}:{checkpoint_id}".encode())
@@ -295,11 +334,18 @@ async def run_story_work(db: sqlite3.Connection, saver: AsyncSqliteSaver,
         db.execute("UPDATE execution_work SET status='claimed',work_version=work_version+1 "
                    "WHERE work_id=? AND status='pending'", (work[0],))
         try:
-            await _run_one(db, saver, graph, work, stop)
+            graph, wardrobe = select_graph(work[1])
+            await _run_one(db, saver, graph, work, stop, wardrobe=wardrobe)
             if cancel_requested(db, work[1]):
                 _finish_cancel(db, work[1])
         except _WorkerStopped:
             break
+        except WardrobeBlocked as error:
+            if cancel_requested(db, work[1]):
+                _finish_cancel(db, work[1])
+            else:
+                db.execute("UPDATE execution_work SET status='blocked',blocked_reason=?,"
+                           "work_version=work_version+1 WHERE work_id=?", (str(error), work[0]))
         except StoryOwnerUnavailable:
             if cancel_requested(db, work[1]):
                 _finish_cancel(db, work[1])

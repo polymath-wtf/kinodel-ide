@@ -308,6 +308,10 @@ class LiveStoryTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(activity["operations"][0]["status"], "blocked")
                     self.assertEqual(activity["operations"][0]["reserved_attempts"], 1)
                     self.assertIsNone(activity["operations"][0]["story_ref"])
+                    failure = {"attempt": 1, "stage": "transport", "status_code": None,
+                               "exception_type": "ReadTimeout", "previous_validation": None}
+                    self.assertEqual(activity["operations"][0]["validation_diagnostic"], failure)
+                    self.assertNotIn("provider data or secret", json.dumps(activity))
                     retry_story_work(db, receipt.execution_id, receipt.work_id, "retry", version)
                     retry_story_work(db, receipt.execution_id, receipt.work_id, "retry", version)
         from backend.story_store import commit_story_operation
@@ -318,6 +322,7 @@ class LiveStoryTests(unittest.IsolatedAsyncioTestCase):
         with self.transport():
             with open_database(self.root) as db:
                 async with open_saver(self.root, db) as saver:
+                    self.assertEqual(story_activity(db, receipt.execution_id)["operations"][0]["validation_diagnostic"], failure)
                     with patch("backend.story_graph.commit_story_operation", side_effect=stop_after_commit):
                         with self.assertRaisesRegex(RuntimeError, "after live commit"):
                             await run_story_work(db, saver, fixture_story)
@@ -351,8 +356,80 @@ class LiveStoryTests(unittest.IsolatedAsyncioTestCase):
                     await produce_live_story(db, receipt.execution_id, activation, None, None, None)
                 self.assertEqual(str(raised.exception), message)
                 self.assertEqual(len(self.requests), 1)
-                self.assertEqual(db.execute("SELECT owner_attempts,owner_repairs,owner_validation_diagnostic FROM story_operations").fetchone(),
-                                 (1, 0, None))
+                attempts, repairs, diagnostic = db.execute("SELECT owner_attempts,owner_repairs,owner_validation_diagnostic FROM story_operations").fetchone()
+                self.assertEqual((attempts, repairs), (1, 0))
+                self.assertIsNotNone(diagnostic)
+                self.assertEqual(json.loads(diagnostic), {"attempt": 1, "stage": "http", "status_code": status,
+                                                         "exception_type": None, "previous_validation": None})
+
+    async def test_transport_after_repair_keeps_frozen_validation_and_exhaustion_classification(self):
+        from backend.openrouter import produce_live_story
+        from backend.story_graph import StoryOwnerUnavailable
+        from backend.story_reads import story_activity
+
+        def invalid_then_timeout(request, body):
+            if len(self.requests) == 1:
+                return httpx.Response(200, json={"choices": [{"finish_reason": "length", "message": {"content": "private"}}]})
+            raise httpx.ReadTimeout("private-test-secret", request=request)
+
+        with self.transport(invalid_then_timeout), open_database(self.root) as db:
+            async with open_saver(self.root, db) as saver:
+                receipt = await self.start(db, saver)
+                await run_story_work(db, saver, fixture_story)
+                validation = {"attempt": 1, "stage": "finish", "code": "incomplete_output",
+                              "paths": ["choices[0].finish_reason"], "finish_reason": "length"}
+                failure = {"attempt": 2, "stage": "transport", "status_code": None,
+                           "exception_type": "ReadTimeout", "previous_validation": validation}
+                self.assertEqual(story_activity(db, receipt.execution_id)["operations"][0]["validation_diagnostic"], failure)
+                self.assertEqual(db.execute("SELECT owner_attempts,owner_repairs FROM story_operations").fetchone(), (2, 1))
+                version = db.execute("SELECT work_version FROM execution_work").fetchone()[0]
+                activation = db.execute("SELECT activation_id FROM story_operations").fetchone()[0]
+                with self.assertRaises(StoryOwnerUnavailable):
+                    await produce_live_story(db, receipt.execution_id, activation, None, None, None)
+                self.assertEqual(len(self.requests), 2)
+        with self.transport(), open_database(self.root) as db:
+            async with open_saver(self.root, db) as saver:
+                self.assertEqual(story_activity(db, receipt.execution_id)["operations"][0]["validation_diagnostic"], failure)
+                self.assertEqual(await run_story_work(db, saver, fixture_story), 0)
+                retry_story_work(db, receipt.execution_id, receipt.work_id, "retry-repair", version)
+                await run_story_work(db, saver, fixture_story)
+                self.assertEqual(self.requests[1], self.requests[2])
+                self.assertNotIn("ReadTimeout", self.requests[2]["messages"][-1]["content"])
+                self.assertEqual(db.execute("SELECT owner_attempts,owner_repairs FROM story_operations").fetchone(), (3, 1))
+
+    async def test_wire_failures_capture_only_allowlisted_type_and_received_status(self):
+        from backend import openrouter_client as provider
+
+        async def check(handler, exception_type, status=None, seconds=1):
+            with patch("backend.openrouter_client.httpx.AsyncClient", partial(httpx.AsyncClient, transport=httpx.MockTransport(handler))):
+                with self.assertRaises(provider.OpenRouterUnavailable) as raised:
+                    await provider.http("POST", "chat/completions", seconds, 1024, "{}", "test-secret")
+            self.assertEqual(raised.exception.exception_type, exception_type)
+            self.assertEqual(raised.exception.status_code, status)
+            self.assertEqual(str(raised.exception), "OpenRouter unavailable")
+
+        for kind in (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout,
+                     httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError):
+            with self.subTest(kind=kind.__name__):
+                def fail(request):
+                    raise kind("private-test-secret", request=request)
+                await check(fail, kind.__name__)
+
+        class Partial(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                yield b"private-test-secret"
+                raise httpx.ReadTimeout("private-test-secret")
+        await check(lambda _: httpx.Response(200, stream=Partial()), "ReadTimeout", 200)
+
+        async def slow(_):
+            await asyncio.sleep(1)
+        await check(slow, "TimeoutError", seconds=0.01)
+
+        class PrivateExceptionName(httpx.ReadTimeout):
+            pass
+        def private_name(request):
+            raise PrivateExceptionName("private-test-secret", request=request)
+        await check(private_name, "HTTPError")
 
     async def test_oversized_completions_repair_or_exhaust_without_unsafe_commit_and_replay(self):
         from backend.domain import MAX_JSON_BYTES, sha256_digest

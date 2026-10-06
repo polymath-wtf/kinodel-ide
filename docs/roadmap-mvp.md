@@ -2,10 +2,10 @@
 
 Обновлено: **6 октября 2026**.
 
-- Live Storytell подключён. У Wardrobe готовы W1–W3: контракт, adapter и надёжное сохранение; следующий срез — W4, подключение после утверждения Story. Сквозная и live-приёмка W5–W6 впереди.
+- Шаг 3 закрыт: Storytell и Wardrobe W1–W7 приняты, включая live-приёмку W6 и UI-приёмку W7 с mocked HTTP; сохранённый план и полные image prompts доступны до рендера.
 - ComfyUI шаги 1–3 реализованы: preflight, image preparation и production settings/draft diagnostics. Cinematic Run/render/media ещё не подключены.
 
-Здесь ведём общий порядок сборки и backend-задачи агентов: LLM, текстовые входы/результаты, версии, review и восстановление. Подключение ComfyUI к сохранённым планам и render/media-задачи ведутся в [roadmap-comfyui.md](roadmap-comfyui.md). Статусы ниже — фактическая готовность, не обещание работающего приложения.
+Здесь ведём общий порядок сборки и задачи агентов: LLM, текстовые входы/результаты, версии, review, восстановление и подключение готового агента к существующему UI в его milestone. Подключение ComfyUI к сохранённым планам и render/media-задачи ведутся в [roadmap-comfyui.md](roadmap-comfyui.md). Статусы ниже — фактическая готовность, не обещание работающего приложения.
 
 [Результаты проверок](../test-results/README.md).
 
@@ -19,11 +19,11 @@
 
 ## Сейчас и следующий результат
 
-**Шаги 0–2 закрыты на Windows; live Storytell подключён к OpenRouter.** `kinodel.live-story` v2 поддерживает авторские Characters и execution-local cast; fixture и live v1 сохраняют свои frozen contracts. Exact Story approval завершает text execution, не публикует библиотеку и не запускает Wardrobe. ComfyUI подготовлен read-only; cinematic runtime/render/media ещё не подключены.
+**Шаги 0–3 закрыты на Windows; live Storytell и Wardrobe подключены к OpenRouter.** `kinodel.live-story` v2 поддерживает авторские Characters и execution-local cast; fixture и live v1 сохраняют свои frozen contracts. Исторические Story routes завершаются после exact approval. Одна обычная кнопка «Начать историю» в «Новой истории» создаёт маршрут `kinodel.story-wardrobe` v1, передаёт утверждённую Story в Wardrobe и завершает execution с валидным сохранённым планом; библиотеку не публикует. Live mode использует настроенный OpenRouter; W7 проверен с mocked HTTP, не новым paid browser run. Активация обновлённого кода в ранее запущенном пользовательском backend ожидает его перезапуска пользователем. ComfyUI подготовлен read-only; cinematic render/media ещё не подключены.
 
-**Story UI 6A–6E принят; cinematic-каркас 6F визуально утверждён.** Один workspace по [существующему прототипу](../web/prototype/index.html) показывает семь внешних нод и вложенные production stages. Следующий результат — сохранённый Wardrobe plan и первые изображения ComfyUI, затем кадры/видеошоты и монтаж в том же интерфейсе.
+**Story UI 6A–6E и Wardrobe UI W7 приняты; cinematic-каркас 6F визуально утверждён.** Один workspace по [существующему прототипу](../web/prototype/index.html) показывает семь внешних нод и вложенные production stages. Автор запускает Story → Wardrobe из UI, утверждает Story и получает сохранённый план с полными копируемыми image prompts. Следующий результат — [передача saved plan в ComfyUI](roadmap-comfyui.md#wardrobe-comfyui); первые изображения, anchor review, кадры/видеошоты и монтаж ещё не подключены.
 
-**Порядок ближайших работ: 3 → 4 → 5 → завершение 6 → 7 → 8.** Полный шаг 6 открыт до cinematic/media integration и прохода автора. Read-only ComfyUI подготовка допустима параллельно Wardrobe, первый live render — после его сохранённых промптов. Первый deploy — локальный Windows-пилот; «готово» означает проверку именно Kinodel.
+**Порядок ближайших работ: 4 → 5 → завершение 6 → 7 → 8.** Шаг 3 и пользовательский Wardrobe milestone закрыты. Каждый готовый агент подключается к своему UI в собственном milestone; шаг 6 сохраняет оставшуюся cinematic/media integration и полный проход автора. Следующий срез — ComfyUI saved-plan handoff; первый live render — из сохранённого Wardrobe plan. Первый deploy — локальный Windows-пилот; «готово» означает проверку именно Kinodel.
 
 ## Repository And Dependencies
 
@@ -83,16 +83,16 @@ Internal Story foundation сохраняет v1 → вопрос/правка �
 
 <a id="remaining-steps"></a>
 
-- [ ] **3. Генерация текста llm.** Storytell → exact Story review → сохранённый Wardrobe plan через существующие OpenRouter/runtime/storage. Шаг закрывается после валидного immutable плана и restart/retry с прежними inputs/provenance; рендер и полный публичный cinematic Start для этого не требуются.
+- [x] **3. Генерация текста llm и доступ автора к результату.** Storytell → exact Story review → сохранённый Wardrobe plan через существующие OpenRouter/runtime/storage. Backend W1–W6 завершён: immutable план и offline reopen приняты в W6; restart/retry с прежними inputs/provenance — в W5. W7 принят: запуск, exact inputs/config и готовые копируемые промпты в существующем UI, browser acceptance с mocked HTTP. Рендер и полный публичный cinematic Start остаются следующими этапами.
   - [x] **Storytell.** `backend/openrouter.py` использует `httpx`, authored prompt и strict schemas; model/prompt/schema/context/request закреплены до HTTP. Профиль: 60 s / 8192 completion tokens, две durable attempts и одна repair; manual transport Retry сохраняет inputs и авторизует новый allowance. Проверенный GLM требует `reasoning=low`. Malformed output не коммитится, repair ограничен бюджетом. Запуск — `python -m backend.launch --env-file .env`, без автоматического чтения `.env` API ([контракт](backend/local-startup.md#live-storytell-text-slice)). Новый narrative ввод требует нового execution; публичный Brief/profile contract ещё нужен для полного cinematic.
   **Characters:** authored `CharacterV1` хранится в immutable JSON/images [wiki/characters](../wiki/characters/README.md), без cloud/index/`CharacterChunkV1`. Start замораживает exact refs/card snapshots и Bio; изображения не уходят в Storytell. Пустой выбор разрешает execution-local generated cast `StoryV2`; approval не публикует библиотеку. Старые inputs и command journals сохраняются. Live text/restart проверен, текущая character route имеет отдельную backend/wire проверку, не paid visual acceptance.
-  - [ ] **Wardrobe — backend и текстовый план.** <a id="wardrobe-backend"></a>
+   - [x] **Wardrobe — готовый backend и текстовый план в UI.** <a id="wardrobe-backend"></a>
 
     Результат для автора: утверждённая история передаётся Wardrobe; визуальное направление и задания
     на изображения персонажей/локаций сохраняются как план. Здесь настраиваем LLM, передачу контекста,
     хранение результата и исполнение; генератор получает готовый план на следующем этапе.
 
-    **Готовые части — проверены отдельно от исполняемого маршрута:**
+    **Готовые части — W1–W6:**
 
     - [x] **W1 · Контракт результата.** `backend/wardrobe.py`: `WardrobeInputV1`, creative draft →
       `VisualAnchorPlanV1`, согласованный prompt и validator exact Story/body/subjects, unit keys/order/roles.
@@ -100,57 +100,103 @@ Internal Story foundation сохраняет v1 → вопрос/правка �
       Поддержаны `StoryV1/V2` и generated cast; количество units приходит из плана.
     - [x] **W2 · Вызов модели.** `backend/openrouter_wardrobe.py` поверх общего `openrouter_client.py`:
       frozen model/prompt/schema/input/request, bounded completion и проверка image-input capability.
-      Exact original images закрепляются inline в исходном порядке; request/config ограничены 1 MiB
-      без resize/omission. Adapter делает один POST; настоящий ответ модели ещё не проверен.
+      Exact original images закрепляются inline в исходном порядке; Wardrobe base/repair/HTTP requests
+      ограничены 16 MiB, execution-owned config — 20 MiB, без resize/omission/re-encoding.
+      Story/text metadata, response и creative artifact JSON сохраняют default 1 MiB; image limits Character
+      не меняются, combined-media budget проверяется до library loading/base64/catalog. Adapter делает один POST;
+      настоящий ответ модели принят в W6. Расширение media envelope не переочередяет ранее blocked work.
     - [x] **W3 · Надёжное сохранение.** `wardrobe_operation.py`/`wardrobe_store.py` получают authoritative
       frozen start/Story/Character snapshots и exact applied approval с local selection/provenance.
       До POST сохраняются base/repair requests и резервируется попытка: максимум две attempts/одна repair.
       Schema v13 сохраняет прежние данные; validated candidate recovery, immutable `wardrobe_plan`,
       атомарный commit и exact replay готовы. После preparation retry не зависит от библиотеки/model env/prompt file.
 
-    **Подключение и приёмка — ещё предстоят:**
-
-    - [ ] **W4 · Подключение после Story approval — следующий срез.** Новый scoped маршрут:
+    - [x] **W4 · Подключение после Story approval.** Новый scoped маршрут:
       `Storytell → exact Story review → Wardrobe → сохранённый plan`.
-      - [ ] **Новый запуск и frozen route.** Зарегистрировать `kinodel.story-wardrobe` v1, уже проверяемую
-        storage-слоем, и явный способ начать новый запуск с frozen narrative/subjects/Character context.
+      - [x] **Новый запуск и frozen route.** Зарегистрирован `kinodel.story-wardrobe` v1;
+        явный API Start замораживает narrative/subjects/Character context.
         Старые text executions сохраняют прежние identity и approve→END.
-      - [ ] **Утверждение → передача.** Apply атомарно сохраняет exact Story approval и Wardrobe activation;
+      - [x] **Утверждение → передача.** Apply атомарно сохраняет exact Story approval и Wardrobe activation;
         в новом маршруте утверждение истории больше не создаёт terminal `completed`.
         Повтор принятого решения возвращает прежний переход, не запускает новую работу.
-      - [ ] **Исполнение → завершение.** Node вызывает готовую Wardrobe operation; checkpoint хранит refs.
+      - [x] **Исполнение → завершение.** Node вызывает готовую Wardrobe operation; checkpoint хранит refs.
         Runner удерживает resume work до устойчивой остановки/завершения. Успешный terminal commit требует
         валидного сохранённого плана и предшествует `END`; approval, graph и work settlement согласованы.
-      - [ ] **Отказы и управление.** Определить остановку и допустимое действие для typed
-        `needs_input`/`out_of_scope`, transport failure и exhaustion; объяснение без плана не означает успех.
-        Retry сохраняет pins и оставшийся budget; cancel запрещает поздний creative commit.
-      - [ ] **Минимальные commands/reads.** Существующие API/start/control/read paths распознают новую identity;
-        сохранённый план и причина остановки доступны по exact execution/ref. Handlers только сохраняют work,
-        маршрут исполняет runner.
-    - [ ] **W5 · Сквозная техническая приёмка с подменённой моделью.**
-      - [ ] Пройти настоящий start → Story/review → exact approve → Wardrobe → immutable plan;
+      - [x] **Отказы и управление.** Typed `needs_input`/`out_of_scope`, unavailable и exhaustion
+        дают устойчивую blocked-причину с объяснением, не успех без плана. Retry для unavailable сохраняет
+        pins и остаток жёсткого бюджета двух POST; иначе — cancel/new-run. Cancel запрещает поздний creative commit.
+      - [x] **Минимальные commands/reads.** `POST /api/executions/story-wardrobe` принимает тот же `LiveStart`,
+        что live-story; `GET /api/executions/{execution_id}/wardrobe-plans/{artifact_id}` возвращает `{ref,plan}`.
+        Только новая route добавляет в projection `wardrobe_plan_ref` и
+        `wardrobe_stop={work_id,reason,explanation,allowed_actions}`. Handlers сохраняют work, исполняет runner;
+         UI и обычный pipeline Start подключены в W7.
+
+    **Приёмка:**
+
+    - [x] **W5 · Сквозная техническая приёмка с подменённой моделью.**
+      - [x] Пройти настоящий start → Story/review → exact approve → Wardrobe → immutable plan;
         проверить selected Characters/generated cast, malformed repair, non-ready, retry/cancel и budgets.
-      - [ ] Проверить process death/reopen между approval commit и checkpoint, в Wardrobe attempt/publication
+      - [x] Проверить process death/reopen между approval commit и checkpoint, в Wardrobe attempt/publication
         и между plan/terminal commit и последним checkpoint. Сохранённый результат не создаётся повторно;
         уже принятое решение не переносится на другой wait. Вызов до commit может повториться в пределах budget.
-      - [ ] Пройти регрессии прежних internal/live Story routes: approve→END, revise/clarify,
+      - [x] Пройти регрессии прежних internal/live Story routes: approve→END, revise/clarify,
         duplicate/stale commands и reopen работают по прежним frozen contracts.
-    - [ ] **W6 · Настоящая модель и reopen.**
-      - [ ] На вымышленном проекте получить через OpenRouter валидный план с корректными subjects,
+      Покрыты реальные process death/reopen вокруг approval/resume/checkpoint, attempt/repair/publication
+      и plan/terminal/task writes; cancel при suspended HTTP/checkpoint, включая поздний ответ;
+      исторический pre-W4 live-v1 frozen checkpoint. Pins и budget сохраняются, committed recovery не делает POST.
+      [Evidence](../test-results/README.md#backend-evidence).
+    - [x] **W6 · Настоящая модель и reopen.**
+      - [x] На вымышленном проекте получить через OpenRouter валидный план с корректными subjects,
         prompts и portrait/background → sheet bindings; проверить generated cast и выбранные Character images.
         Advertised capability модели подтверждается фактическим ответом, без автоматической подмены модели.
-      - [ ] После закрытия/открытия прочитать тот же plan/ref без provider; committed replay не делает новый POST.
-        Зафиксировать evidence и закрыть шаг 3 MVP только после сквозного сохранённого результата.
+      - [x] После закрытия/открытия прочитать тот же plan/ref без provider; committed replay не делает новый POST.
+        Evidence сквозного сохранённого результата закрывает backend W1–W6; пользовательская приёмка — в W7.
+
+    <a id="wardrobe-ui"></a>
+     - [x] **W7 · Принят — Wardrobe в существующем UI до рендера.** Использовать текущую «Новую историю»,
+      Pipeline/Chat и Config/Inputs/Outputs inspector, без редизайна shell.
+       - [x] **Один обычный Start пайплайна.** «Начать историю» в «Новой истории» создаёт
+         `kinodel.story-wardrobe` v1 через существующий `/api/executions/story-wardrobe`, без отдельной кнопки Wardrobe.
+         В том же execution exact Story approval запускает Wardrobe. Исторические executions сохраняют
+         frozen route и approve→END; сохранённые command envelopes — прежние endpoint, payload bytes и key.
+       - [x] **Реальное состояние.** Показывать backend-derived ход Wardrobe, завершение с plan ref
+        и blocked/non-ready причину с объяснением. Retry/cancel доступны только по backend actions;
+        не добавлять отдельный plan HITL, editing или creative regeneration.
+       - [x] **Inputs и Config.** В inspector доступны exact approved Story, фактический frozen состав
+        selected Character context и generated cast с provenance; frozen provider/model config Wardrobe
+         без секретов доступны после preparation через guarded `GET /api/executions/{execution_id}/wardrobe-activity`.
+         Текущие env/library не подменяют frozen inputs.
+       - [x] **Outputs и копирование.** Читать exact saved plan по его ref: для каждого unit показывать
+        role, subject_ids, полный копируемый prompt и ordered references → unit_key (зависимости плана,
+        не image refs). Количество units определяется планом, без hardcoded 5.
+        Pipeline/Chat используют один authoritative результат, не два набора данных.
+       - [x] **Browser acceptance.** Новый run → exact Story approve → реальные Wardrobe statuses →
+        сохранённый план; скопированный prompt совпадает с полным текстом unit. Reload/reopen и повторная
+        доставка могут повторять POST с прежним envelope/key, но не создают повторных принятых работ/эффектов;
+        исторический run по-прежнему approve→END. При работающем backend и недоступном provider reopen
+        читает тот же plan/ref без новой генерации.
+       - [x] **Визуальная проверка.** Capture и inspect один desktop screenshot каждой изменённой страницы:
+        `test-results/screenshots/<prototype>/vNN-<change>/screen-state-desktop.png`, для нескольких страниц —
+        отдельные папки. Evidence обновить только в `test-results/README.md`; Playwright output оставить отдельно.
+        W7 принят по [evidence](../test-results/README.md#wardrobe-w7-ui-integration--6-october-2026): mocked HTTP,
+        без нового paid browser run; существующая live-приёмка W6 сохраняется.
+        ComfyUI render и anchor review не входят в W7; готовые prompts доступны автору до их подключения.
+
+     - [ ] **Активация в пользовательской установке.** Пользователь перезапускает ранее запущенный backend
+       с текущим кодом; browser reload не обновляет Python-процесс. Перезапуск пока не выполнен;
+       code/browser acceptance W7 не означает, что старый работающий экземпляр уже обновлён.
 
     **Границы backend-среза:** план — supporting output без отдельного обязательного approval.
     Полный cinematic Brief/video Start и завершённый media UI не блокируют W4–W6.
     Image evidence не является render binding; общий ACL/rights-withdrawal не активирован.
 
-    **Критерий закрытия:** новый запуск передаёт утверждённую Story в Wardrobe и сохраняет валидный план;
+    **Backend-критерий выполнен (W1–W6):** новый запуск передаёт утверждённую Story в Wardrobe и сохраняет валидный план;
     restart/retry сохраняет inputs/resources/provenance, committed replay не вызывает модель заново.
-    Прежние text executions продолжают завершаться после Story approval. Шаг 3 открыт до W6.
+    Прежние text executions продолжают завершаться после Story approval.
+    **Закрытие шага 3 и Wardrobe milestone:** W7 принят — автор проходит новый маршрут в существующем UI,
+    видит exact inputs/config и сохранённый план, копирует полные prompts и открывает тот же результат после restart.
     [Контракт](agents/wardrobe.md#durable-operation), [evidence](../test-results/README.md#backend-evidence).
-    Далее — [подключение сохранённого плана к ComfyUI](roadmap-comfyui.md#wardrobe-comfyui).
+     NEXT — [подключение сохранённого плана к ComfyUI](roadmap-comfyui.md#wardrobe-comfyui).
 
 - [ ] **4. Рендер.** Выполнить [ComfyUI Local roadmap](roadmap-comfyui.md): local HTTP/явный native HTTPS → pinned workflows/Brief settings → сохранённый Wardrobe plan → durable submit/reconcile/verified import → anchors (portrait + background → sheet) и exact selection → Canvas/attempt workflow inspection → adaptive 1/2/3-reference frames → оба проверенных Brief-selected modes `img2vid/ref2vid`. Img2vid использует настоящий first-frame port; ref2vid — storyboard frame + portrait + sheet, без отдельного background. Первый live render — после Wardrobe; неизвестный submit не повторять вслепую. Закрыть шаг только после всего image/video пути, затем передать выбранные clips в montage. Детальные чекбоксы и критерии срезов находятся в отдельном документе.
 
@@ -158,6 +204,8 @@ Internal Story foundation сохраняет v1 → вопрос/правка �
 - [ ] **5. Монтаж выбранных дублей.** Exact review/selection anchors → frames → videos выполняются внутри шага 4, перед каждым зависимым этапом. Здесь взять полный утверждённый набор видеошотов и собрать ffmpeg/ffprobe финал в порядке Story без аудио, проверить размеры/длительность/формат и сохранить final result.
 - [ ] **6. Минимальный экран.** Локальный [React Flow UI workspace](frontend/webui.md#first-ui-slice), [новый wireframe](frontend/uiux-wireframe.md): один execution, виды Pipeline/Chat, фиксированные матрёшки с breadcrumbs и общий Config/Inputs/Outputs inspector. Версии, вопросы/правки, exact approval и статус после reconnect; static Vite assets с local origin. Начать общий Story review на internal API после шага 2; затем подключать настоящий cinematic projection, media и provider inspection по готовности backend, не выдавая demo за live run. Проверить `npm ci`, typecheck/build, keyboard и narrow-screen flow, одинаковые decisions в двух видах, возврат viewport/scope и отсутствие дубля команды при lost response/reload. Полный проход автора без консоли остаётся обязательным.
   <a id="frontend-story-slice"></a>
+  Подключение готового агента к UI выполняется в его milestone: Wardrobe — [W7 шага 3](#wardrobe-ui),
+  до первого live render. Здесь остаются сквозная cinematic/media integration и полный проход автора.
   **Story UI 6A–6E принят, 6F визуально утверждён.** [Препродакшн](frontend/story-workspace-preproduction.md), [bounded задания](frontend/story-workspace-tasks.md), текущие владельцы — [FSD](frontend/fsd.md), checks — [web/README](../web/README.md#checks). Полная карта заменяет раннее Story-only ограничение; состояния берутся только из backend. Reader/approval принадлежат execution, inspector — pipeline, UI cache/delivery имеют своих владельцев; storage keys/drafts/exact pending envelopes сохраняются.
   - [x] **6A · Read seam.** `backend/story_reads.py` и typed endpoints `/api/executions/{id}/projection`, `/api/executions?limit=20`: SQL-only frozen ввод, exact review history/actions/budgets и refs; ограниченный список сохранённых internal executions. Bodies читаются отдельно, status/control не исчезают из-за ошибки файла; damaged graph identity readable для blocked inspection, повреждённая review history одного run не скрывает список остальных. Existing commands/storage protocol сохранены, policy cap общий с acceptance. Wire contract — [local startup](backend/local-startup.md).
   - [x] **6B · Frontend baseline.** React/TypeScript/Vite shell с Pipeline/Chat, responsive navigation и fixture badge. FastAPI раздаёт `web/dist` с local origin и прежними HTTP guards; missing build — 503, SPA fallback не перехватывает API. Standalone mock/checker — `web/prototype/`, его фотографии не входят в production bundle.

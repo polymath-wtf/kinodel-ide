@@ -9,16 +9,24 @@ import httpx
 
 def install():
     from backend.api import fixture_story
-    import backend.openrouter as owner
+    import backend.openrouter_client as owner
+    from tests.test_wardrobe import draft_data
 
     os.environ.update(OPENROUTER_API_KEY="browser-test-secret", LLM_MODEL="mock/story-model")
 
     async def respond(request):
         if request.url.path.endswith("/models"):
-            return httpx.Response(200, json={"data": [{"id": "mock/story-model", "supported_parameters": ["response_format", "structured_outputs"]}]})
+            return httpx.Response(200, json={"data": [{"id": "mock/story-model", "supported_parameters": ["response_format", "structured_outputs"],
+                "architecture": {"input_modalities": ["text", "image"]}}]})
         assert request.url.path.endswith("/chat/completions"), "No remote browser-harness requests"
         await asyncio.sleep(1.5)
-        task = json.loads(json.loads(request.content)["messages"][1]["content"])
+        payload = json.loads(request.content)
+        if payload["response_format"]["json_schema"]["name"] == "wardrobe_result":
+            plan = draft_data()
+            for unit in plan["units"]:
+                unit["subject_ids"] = ["fox"] if unit["role"] != "background" else []
+            return httpx.Response(200, json={"choices": [{"finish_reason": "stop", "message": {"content": json.dumps({"status": "ready", "plan": plan, "explanation": None})}}]})
+        task = json.loads(payload["messages"][1]["content"])
         if task["brief"]["user_vibe"] == "harness:live-error":
             return httpx.Response(503)
         if task["action"] == "clarify":

@@ -196,14 +196,24 @@ def apply_story_decision(db: sqlite3.Connection, execution_id: str, request_id: 
                              "WHERE b.execution_id=? AND b.slot='story'", (execution_id,)).fetchone()
         if current != (row[2], row[4], row[3]):
             raise ValueError("Stale review subject at apply")
+        from backend import wardrobe_store
+        identity = db.execute("SELECT graph_id,graph_version,graph_digest FROM executions WHERE execution_id=?",
+                              (execution_id,)).fetchone()
+        wardrobe = identity == (wardrobe_store.GRAPH_ID, wardrobe_store.GRAPH_VERSION, wardrobe_store.GRAPH_DIGEST)
+        if identity[0] == wardrobe_store.GRAPH_ID and not wardrobe:
+            raise ValueError("Unsupported frozen Wardrobe route")
         next_activation = _digest("kinodel.story-review-apply.v1", request_id, decision_id, row[1])
         db.execute("UPDATE review_requests SET applied_activation=? WHERE request_id=?",
                    (next_activation, request_id))
         if row[1] == "approve":
-            # Approval and completion are one business commit, before graph END.
             read_story(db, execution_id, artifact_id=row[2])
-            db.execute("INSERT INTO execution_outcomes VALUES (?,?,?,?)",
-                       (execution_id, "completed", request_id, row[2]))
+            if wardrobe:
+                # Validate the exact handoff in this transaction; approval is not completion.
+                wardrobe_store.wardrobe_authority(db, execution_id, request_id)
+            else:
+                # Historical Story-only routes still complete atomically at approval.
+                db.execute("INSERT INTO execution_outcomes VALUES (?,?,?,?)",
+                           (execution_id, "completed", request_id, row[2]))
         db.execute("COMMIT")
     except BaseException:
         db.execute("ROLLBACK")

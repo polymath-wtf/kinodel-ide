@@ -44,6 +44,7 @@ npm run check:commands
 node checks/character-check.cjs
 node checks/load-typescript-check.cjs
 node checks/active-glow-check.cjs --browser
+node checks/story-diagnostic-check.cjs
 node checks/shell-check-regression.cjs
 npm run check:browser
 ```

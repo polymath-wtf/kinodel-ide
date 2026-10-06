@@ -1,5 +1,5 @@
 import { useId, useMemo, useState, type FormEvent } from 'react';
-import { ArrowRight, Box, FileText, Play, RotateCw, Settings2, Sparkles } from 'lucide-react';
+import { Box, FileText, Play, RotateCw, Settings2, Sparkles } from 'lucide-react';
 import { textBriefSchema } from '../../../entities/execution/contracts';
 import type { useStoryAvailability } from '../../../entities/execution/queries';
 import type { CharacterRef } from '../../../entities/character/contracts';
@@ -33,7 +33,7 @@ export function StartStoryForm({ active, draft, change, cinematic, changeCinemat
   };
   if (!active) return null;
   return <form className="start-form card" data-live={true} aria-label="Создать Story · OpenRouter" noValidate onSubmit={start}>
-    <div className="start-hero"><span className="start-hero-icon"><Sparkles aria-hidden="true" /></span><div><h1>Что расскажем?</h1><p className="muted">Начните с идеи — Storytell создаст текстовую Story.</p></div></div>
+    <div className="start-hero"><span className="start-hero-icon"><Sparkles aria-hidden="true" /></span><div><h1>Что расскажем?</h1><p className="muted">Storytell создаст историю. После её утверждения Wardrobe подготовит image prompts, без рендера.</p></div></div>
     <label className="draft-label start-idea"><span className="start-section-heading"><FileText aria-hidden="true" /><strong>Идея истории</strong><span className="muted">Сюжет, сцена или атмосфера</span></span><textarea aria-label="Идея истории" required maxLength={16384} value={draft.message}
       onChange={e => change({ message: e.target.value })} placeholder="С чего начинается история?" /></label>
     <ProductionForm draft={production} change={changeCinematic} />
@@ -43,7 +43,7 @@ export function StartStoryForm({ active, draft, change, cinematic, changeCinemat
         <div className="start-model"><strong>OpenRouter</strong>{availability.data?.configured && <><span className="model-name">{availability.data.model}</span><span className="model-configured-badge">Настроена</span></>}</div>
         {availability.error ? <p className="warning">{availability.error.message}</p> : availability.data?.configured ? <p className="muted">Статус: удалённый доступ не проверен.</p>
           : <p className="warning">{availability.data?.reason ?? 'Проверяем настройки сервера…'}</p>}
-        <p className="muted">Идея и Bio выбранных персонажей отправятся в OpenRouter, не изображения.</p>
+        <p className="muted">Storytell: идея и Bio отправятся в OpenRouter, не изображения. После утверждения Story в Wardrobe отправятся также закреплённые изображения Characters.</p>
       </div><button className="model-settings-toggle" type="button" aria-expanded={modelSettingsOpen} aria-controls={modelSettingsId} onClick={() => setModelSettingsOpen(!modelSettingsOpen)}><Settings2 aria-hidden="true" />Изменить модель</button></div>
       {!availability.data?.configured && <details><summary>Как подключить</summary><p>Настройте OPENROUTER_API_KEY и LLM_MODEL в окружении сервера. Для явной загрузки .env: python -m backend.launch --env-file .env. Ключ не передаётся браузеру.</p></details>}
       {modelSettingsOpen && <section className="model-settings" id={modelSettingsId} aria-label="Настройки модели">
@@ -54,7 +54,7 @@ export function StartStoryForm({ active, draft, change, cinematic, changeCinemat
     </div>
     {startError?.draft === production && <p className="error" role="alert">{startError.message}</p>}
     {!fresh && <p className="warning">Создание пока недоступно. Проверьте связь и обновите список запусков.</p>}
-    <button className="primary start-submit" type="submit" disabled={!fresh || !ready || busy || !availability.data?.configured}><Play aria-hidden="true" /><span>Начать историю</span><ArrowRight aria-hidden="true" /></button>
+    <button className="primary start-submit" type="submit" disabled={!fresh || !ready || busy || !availability.data?.configured}><Play aria-hidden="true" /><span>Начать историю</span></button>
     {draft.subjects && <details className="legacy-subjects"><summary>Старый черновик субъектов · не отправляется</summary><p className="muted">Текст сохранён для переноса вручную в идею или Characters. Этот Start его не отправляет.</p><textarea aria-label="Старый черновик субъектов" readOnly value={draft.subjects} /><button type="button" onClick={() => change({ subjects: '' })}>Удалить старый черновик субъектов</button></details>}
   </form>;
 }

@@ -328,16 +328,23 @@ class StoryAPITests(unittest.TestCase):
                      "reserved_attempts": 2, "repairs": 1, "input": None, "story_ref": None, "response": None}
         activity = {"model": "test/model", "system_prompt": "Frozen prompt", "prompt_digest": sha256_digest(b"Frozen prompt"),
                     "operations": [{**operation, "validation_diagnostic": diagnostic}]}
-        with self.client() as client, patch("backend.api.story_activity", return_value=activity):
-            self.session(client)
-            route = f"/api/executions/{uuid4()}/story-activity"
-            default = client.get(route)
-            self.assertEqual(default.status_code, 200, default.text)
-            self.assertEqual(default.json(), {**activity, "operations": [operation]})
-            included = client.get(route + "?include_validation_diagnostic=true")
-            self.assertEqual(included.status_code, 200, included.text)
-            self.assertEqual(included.json(), activity)
-            self.assertEqual(client.get(route + "?include_validation_diagnostic=false").json(), default.json())
+        for diagnostic in (diagnostic, {"attempt": 2, "stage": "http", "status_code": 429,
+                                       "exception_type": None, "previous_validation": {**diagnostic, "attempt": 1}}):
+            activity["operations"][0]["validation_diagnostic"] = diagnostic
+            with self.subTest(stage=diagnostic["stage"]), self.client() as client, patch("backend.api.story_activity", return_value=activity):
+                self.session(client)
+                route = f"/api/executions/{uuid4()}/story-activity"
+                default = client.get(route)
+                self.assertEqual(default.status_code, 200, default.text)
+                self.assertEqual(default.json(), {**activity, "operations": [operation]})
+                included = client.get(route + "?include_validation_diagnostic=true")
+                self.assertEqual(included.status_code, 200, included.text)
+                self.assertEqual(included.json(), activity)
+                self.assertEqual(client.get(route + "?include_validation_diagnostic=false").json(), default.json())
+                activity["operations"][0]["validation_diagnostic"] = {**diagnostic, "exception_type": "private-test-secret"}
+                rejected = client.get(route + "?include_validation_diagnostic=true")
+                self.assertEqual(rejected.status_code, 409, rejected.text)
+                self.assertEqual(rejected.json(), {"detail": "Recorded Story activity is invalid"})
 
     def state(self, client, execution_id, status):
         until = time.monotonic() + 5

@@ -3,9 +3,10 @@
 import json
 import sqlite3
 
-from backend.domain import OwnerResponseV1, make_operation_id, sha256_digest
+from backend.domain import OwnerResponseV1, canonical_json, make_operation_id, sha256_digest
 from backend.review_store import REVIEW_ACTION_LIMIT
 from backend.story_start import LIVE_GRAPH_ID, STORY_GRAPH_IDS
+from backend import wardrobe_store
 
 
 def _rows(db: sqlite3.Connection, sql: str, params: tuple = ()) -> list[dict]:
@@ -53,21 +54,68 @@ def _overview(db: sqlite3.Connection, execution_id: str) -> dict:
     return {"outcome": outcome, "work": work, "binding": binding, "review": review, "status": status}
 
 
+def _wardrobe_projection(db: sqlite3.Connection, execution_id: str, project_id: str, overview: dict) -> dict:
+    """Public plan metadata and safe resolution, never frozen provider/image envelopes."""
+    plans = _rows(db, "SELECT a.artifact_id,a.operation_id,a.digest,a.uri,a.schema_id,a.schema_version,a.produced_by_stage "
+                  "FROM execution_bindings b LEFT JOIN artifacts a ON a.artifact_id=b.artifact_id "
+                  "AND a.execution_id=b.execution_id WHERE b.execution_id=? AND b.slot='wardrobe_plan'", (execution_id,))
+    ref = None
+    if plans:
+        plan = plans[0]
+        if (plan["schema_id"], plan["schema_version"], plan["produced_by_stage"]) != ("visual_anchor_plan", "1", "wardrobe"):
+            raise ValueError("Recorded Wardrobe plan schema/owner mismatch")
+        ref = _ref(plan, project_id, execution_id)
+    outcome = overview["outcome"]
+    if outcome and outcome["outcome"] == "completed" and (ref is None or
+            (outcome["source_id"], outcome["subject_artifact_id"]) != (ref["operation_id"], ref["artifact_id"])):
+        raise ValueError("Recorded Wardrobe completion does not match its plan")
+    stop = None
+    explanations = {
+        "wardrobe_unavailable": "Wardrobe is temporarily unavailable. Retry uses the same inputs and remaining allowance.",
+        "wardrobe_exhausted": "Wardrobe's two completion attempts are exhausted. Cancel or start a new run.",
+        "wardrobe_invalid_output": "Wardrobe could not produce a valid plan within its repair allowance. Cancel or start a new run.",
+        "wardrobe_invalid": "Wardrobe inputs, configuration or saved result could not be validated. Cancel or start a new run.",
+    }
+    for work in overview["work"] if overview["status"] == "blocked" else []:
+        reason = work["blocked_reason"]
+        if work["status"] != "blocked" or reason not in (*explanations, "wardrobe_needs_input", "wardrobe_out_of_scope"):
+            continue
+        records = _rows(db, "SELECT owner_attempts,candidate_kind,candidate_body,next_activation FROM wardrobe_operations "
+                        "WHERE execution_id=? ORDER BY rowid DESC LIMIT 1", (execution_id,))
+        record = records[0] if records else None
+        explanation = explanations.get(reason)
+        if reason in ("wardrobe_needs_input", "wardrobe_out_of_scope"):
+            if record is None or record["candidate_kind"] != "response" or record["next_activation"] is None:
+                raise ValueError("Recorded Wardrobe stop has no committed explanation")
+            response = OwnerResponseV1.model_validate_json(record["candidate_body"])
+            if reason != f"wardrobe_{response.status}":
+                raise ValueError("Recorded Wardrobe stop status mismatch")
+            explanation = response.explanation
+        retryable = reason == "wardrobe_unavailable" and (record is None or (
+            record["owner_attempts"] < 2 and record["candidate_body"] is None and record["next_activation"] is None))
+        stop = {"work_id": work["work_id"], "reason": reason, "explanation": explanation,
+                "allowed_actions": (["retry"] if retryable else []) + ["cancel", "new_run"]}
+        break
+    return {"wardrobe_plan_ref": ref, "wardrobe_stop": stop}
+
+
 def story_projection(db: sqlite3.Connection, execution_id: str) -> dict | None:
     """Read only canonical business metadata; no checkpoint, graph or artifact-body access."""
     executions = _rows(db, "SELECT project_id,input_message,shot_ids,client_key,start_digest,"
                        "graph_id,graph_version,graph_digest,owner_config FROM executions "
-                       "WHERE execution_id=? AND graph_id IN (?,?)", (execution_id, *STORY_GRAPH_IDS))
+                        "WHERE execution_id=? AND graph_id IN (?,?,?)", (execution_id, *STORY_GRAPH_IDS))
     if not executions:
         return None
     row = executions[0]
+    wardrobe = row["graph_id"] == wardrobe_store.GRAPH_ID
     project_id = row["project_id"]
     overview = _overview(db, execution_id)
     outcome, binding = overview["outcome"], overview["binding"]
     artifacts = _rows(db, "SELECT a.artifact_id,a.operation_id,a.digest,a.uri,a.schema_id,a.schema_version,"
                       "a.produced_by_stage,o.expected_revision,o.artifact_id AS committed_artifact_id "
                       "FROM artifacts a LEFT JOIN story_operations o ON o.operation_id=a.operation_id "
-                      "AND o.execution_id=a.execution_id WHERE a.execution_id=? ORDER BY a.rowid", (execution_id,))
+                       "AND o.execution_id=a.execution_id WHERE a.execution_id=? AND a.schema_id='story' "
+                       "AND a.schema_version IN ('1','2') AND a.produced_by_stage='storytell' ORDER BY a.rowid", (execution_id,))
     stories = [{"ref": _ref(a, project_id, execution_id),
                 "version": ((a["expected_revision"] or 0) + 1 if a["committed_artifact_id"] == a["artifact_id"]
                             else binding["binding_revision"] if binding and binding["artifact_id"] == a["artifact_id"]
@@ -99,7 +147,11 @@ def story_projection(db: sqlite3.Connection, execution_id: str) -> dict | None:
             if request["applied_activation"] != activation:
                 raise ValueError("Recorded review activation does not match its decision")
             if request["action"] == "approve":
-                if (not outcome or outcome["outcome"] != "completed"
+                if wardrobe:
+                    if (binding != {"artifact_id": base["artifact_id"], "binding_revision": request["binding_revision"]}
+                            or request["result_operation_id"] is not None):
+                        raise ValueError("Recorded approval does not match its Story handoff")
+                elif (not outcome or outcome["outcome"] != "completed"
                         or outcome["source_id"] != request["request_id"]
                         or outcome["subject_artifact_id"] != base["artifact_id"]
                         or request["result_operation_id"] is not None):
@@ -170,11 +222,12 @@ def story_projection(db: sqlite3.Connection, execution_id: str) -> dict | None:
              "graph": {"id": row["graph_id"], "version": row["graph_version"], "digest": row["graph_digest"]},
              **({"model": json.loads(row["owner_config"])["model"]} if row["owner_config"] else {}),
             "work": overview["work"], "stories": stories, "reviews": reviews, "review": overview["review"],
-            "remaining_actions": remaining, "allowed_actions": allowed}
+             "remaining_actions": remaining, "allowed_actions": allowed,
+             **(_wardrobe_projection(db, execution_id, project_id, overview) if wardrobe else {})}
 
 
 def recent_story_executions(db: sqlite3.Connection, limit: int) -> list[dict]:
-    ids = db.execute("SELECT execution_id,project_id,input_message FROM executions WHERE graph_id IN (?,?) "
+    ids = db.execute("SELECT execution_id,project_id,input_message FROM executions WHERE graph_id IN (?,?,?) "
                      "ORDER BY rowid DESC LIMIT ?", (*STORY_GRAPH_IDS, limit)).fetchall()
     items = []
     for execution_id, project_id, message in ids:
@@ -192,14 +245,14 @@ def recent_story_executions(db: sqlite3.Connection, limit: int) -> list[dict]:
 
 def story_activity(db: sqlite3.Connection, execution_id: str) -> dict | None:
     """Safe recorded model inputs/results, never provider envelopes or private reasoning."""
-    from backend.openrouter import StoryValidationDiagnostic, read_owner_config
+    from backend.openrouter import STORY_DIAGNOSTIC, read_owner_config
 
     projection = story_projection(db, execution_id)
     if projection is None:
         raise LookupError("Unknown Story execution")
     body = db.execute("SELECT owner_config FROM executions WHERE execution_id=?", (execution_id,)).fetchone()[0]
     if body is None:
-        if projection["graph"]["id"] == LIVE_GRAPH_ID:
+        if projection["graph"]["id"] in (LIVE_GRAPH_ID, wardrobe_store.GRAPH_ID):
             raise ValueError("Missing frozen Story owner configuration")
         return None  # Historical fixture has no system prompt or provider call.
     config = read_owner_config(body)
@@ -225,7 +278,49 @@ def story_activity(db: sqlite3.Connection, execution_id: str) -> dict | None:
         operations.append({"operation_id": row["operation_id"], "action": action,
                            "status": status, "reserved_attempts": row["owner_attempts"], "repairs": row["owner_repairs"],
                            "input": task, "story_ref": ref, "response": response,
-                           "validation_diagnostic": (StoryValidationDiagnostic.model_validate_json(row["owner_validation_diagnostic"]).model_dump(mode="json")
+                           "validation_diagnostic": (STORY_DIAGNOSTIC.validate_json(row["owner_validation_diagnostic"]).model_dump(mode="json")
                                                      if row["owner_validation_diagnostic"] else None)})
     return {"model": config.model, "system_prompt": config.system_prompt, "prompt_digest": config.prompt_digest,
             "operations": operations}
+
+
+def wardrobe_activity(db: sqlite3.Connection, execution_id: str, *, include_validation_diagnostic: bool = False) -> dict | None:
+    """Allowlisted frozen inspection only; no provider, current environment or library reads."""
+    projection = story_projection(db, execution_id)
+    if projection is None or projection["graph"] != {"id": wardrobe_store.GRAPH_ID,
+            "version": wardrobe_store.GRAPH_VERSION, "digest": wardrobe_store.GRAPH_DIGEST}:
+        raise LookupError("Unknown Story-Wardrobe execution")
+    rows = db.execute("SELECT operation_id FROM wardrobe_operations WHERE execution_id=?", (execution_id,)).fetchall()
+    if not rows:
+        stop = projection["wardrobe_stop"]
+        if include_validation_diagnostic and stop is not None and stop["reason"] == "wardrobe_invalid":
+            from backend.openrouter_wardrobe import wardrobe_input_size_diagnostic
+
+            request = projection["reviews"][-1]["request_id"]
+            _, supplied, _ = wardrobe_store.wardrobe_authority(db, execution_id, request)
+            diagnostic = wardrobe_input_size_diagnostic(supplied)
+            if diagnostic is not None:
+                return {"operation_id": None, "approval_request_id": request,
+                        "input_digest": sha256_digest(canonical_json(supplied)),
+                        "validation_diagnostic": diagnostic.model_dump(mode="json")}
+        return None  # Preparation has not been committed; never substitute Story's model or env.
+    if len(rows) != 1:
+        raise ValueError("Multiple Wardrobe operations")
+    record = wardrobe_store.read_wardrobe_operation(db, rows[0][0])
+    pins, config = record["pins"], record["config"]
+    ref = config.wardrobe_input.narrative_ref.model_dump(mode="json")
+    if not any(r["request_id"] == pins.approval_request_id and r["applied"]
+               and r["result"] == {"kind": "approved_subject", "ref": ref, "response": None}
+               for r in projection["reviews"]):
+        raise ValueError("Wardrobe inspection approval mismatch")
+    activity = {"operation_id": record["operation_id"], "approval_request_id": pins.approval_request_id,
+            "input_digest": config.input_digest, "input": config.wardrobe_input.model_dump(mode="json"),
+            "config": {"provider": "OpenRouter", **{key: getattr(config, key) for key in (
+                "adapter_version", "model", "system_prompt", "prompt_digest", "model_metadata_digest",
+                "timeout_seconds", "max_tokens", "reasoning_effort")},
+                "model_metadata": config.model_metadata.model_dump(mode="json")}}
+    if include_validation_diagnostic:
+        activity["attempts"] = {"reserved_attempts": record["owner_attempts"], "remaining_attempts": 2 - record["owner_attempts"],
+                               "repairs": record["owner_repairs"],
+                               "diagnostic": record["diagnostic"].model_dump(mode="json") if record["diagnostic"] is not None else None}
+    return activity

@@ -12,9 +12,9 @@ export type UI = { scope: Scope; viewports: Record<Scope, Viewport>; selectedNod
 export const initialUI = (): UI => ({ scope: 'pipeline', viewports: initialViewports(), selectedNodes: initialNodes(), selectedStory: null, draft: emptyDraft });
 const viewportSchema = z.strictObject({ x: z.number().finite(), y: z.number().finite(), zoom: z.number().positive().finite() });
 const uiSchema = z.strictObject({ scope: z.enum([...scopes, 'storytell:agent']), viewports: z.strictObject({ pipeline: viewportSchema, storytell: viewportSchema,
-  wardrobe: viewportSchema.default(() => initialViewports().wardrobe), storyboard: viewportSchema.default(() => initialViewports().storyboard),
+  wardrobe: viewportSchema.default(() => initialViewports().wardrobe), 'wardrobe:request': viewportSchema.default(() => initialViewports()['wardrobe:request']), storyboard: viewportSchema.default(() => initialViewports().storyboard),
   filmmaker: viewportSchema.default(() => initialViewports().filmmaker), montage: viewportSchema.default(() => initialViewports().montage), 'storytell:graph': viewportSchema.default(() => initialViewports()['storytell:graph']), 'storytell:agent': viewportSchema.optional() }),
-  selectedNodes: z.strictObject({ pipeline: z.string(), storytell: z.string(), wardrobe: z.string().default('wardrobe-0'), storyboard: z.string().default('storyboard-0'),
+  selectedNodes: z.strictObject({ pipeline: z.string(), storytell: z.string(), wardrobe: z.string().default('wardrobe-0'), 'wardrobe:request': z.string().default('wardrobe:request-0'), storyboard: z.string().default('storyboard-0'),
     filmmaker: z.string().default('filmmaker-0'), montage: z.string().default('montage-0'), 'storytell:graph': z.string().default('storytell:graph-0'), 'storytell:agent': z.string().optional() }), selectedStory: uuidSchema.nullable(),
   draft: z.strictObject({ text: z.string().max(16384), mode: z.enum(['clarify', 'revise']), target: z.strictObject({ execution_id: uuidSchema, request_id: z.string(),
     request_digest: z.string().regex(/^sha256:[0-9a-f]{64}$/), expected_revision: z.number().int().positive(), base_ref: artifactRefSchema }).nullable() }) })

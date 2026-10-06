@@ -208,7 +208,7 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
     await expect(page.locator('.topbar .run-controls')).toContainText('Доставка подтверждена');
     await geometry(page);
     assert.equal(mutations.length, 1, 'only the explicit Start can POST');
-    assert.ok(mutations[0].endsWith('/api/executions/live-story'));
+    assert.ok(mutations[0].endsWith('/api/executions/story-wardrobe'));
     assert.deepEqual(errors, []); assert.deepEqual(foreign, []);
     console.log('PASS UX1: compact desktop/tablet/mobile shell, restored rail + one Chat toggle, exact reader + Shift+Enter/real double-click drill-in, historical isolation, current-in-scope, saved/URL/Back/restart, offline/storage guards, pan persistence; mocked live + fixture, zero navigation POSTs, one explicit Start.');
   } finally { await context.close(); await api.dispose(); }

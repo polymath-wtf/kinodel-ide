@@ -26,7 +26,9 @@ const envelopeSchema = z.strictObject({ id: uuidSchema, kind: z.enum(['start', '
           const ids = [...b.subjects.map(s => s.subject_id), ...(b.character_refs ?? []).map(r => r.subject_id)];
           return ids.length <= 16 && new Set(ids).size === ids.length;
         }) : z.strictObject(fields)).parse(body);
-      endpoint = live ? '/api/executions/live-story' : '/api/executions/internal-story';
+      // Route is part of the saved envelope, not inferred from an otherwise identical LiveStart.
+      endpoint = live && e.endpoint === '/api/executions/story-wardrobe' ? e.endpoint
+        : live ? '/api/executions/live-story' : '/api/executions/internal-story';
       if (e.execution_id !== null || e.target !== null || body.project_id !== e.project_id) throw Error();
     } else {
       if (!e.execution_id) throw Error();
@@ -56,7 +58,7 @@ function validateReceipt(kind: Command['kind'], value: unknown) {
 }
 export function createCommand(kind: Command['kind'], project_id: string, execution_id: string | null,
   target: { request_id: string; base_ref: ArtifactRef } | null, body: unknown): Command {
-  const endpoint = kind === 'start' ? (isLiveStart(body) ? '/api/executions/live-story' : '/api/executions/internal-story') : kind === 'respond'
+  const endpoint = kind === 'start' ? (isLiveStart(body) ? '/api/executions/story-wardrobe' : '/api/executions/internal-story') : kind === 'respond'
     ? `/api/executions/${execution_id}/reviews/${encodeURIComponent(target!.request_id)}/respond` : `/api/executions/${execution_id}/${kind}`;
   return envelopeSchema.parse({ id: crypto.randomUUID(), kind, project_id, execution_id, target, endpoint, payload: JSON.stringify(body) });
 }

@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useProjection, useRecentExecutions, useStoryAvailability } from '../../entities/execution/queries';
 import { statusLabel, uuidSchema, type ArtifactRef } from '../../entities/execution/contracts';
 import { StoryReader, useStoryReader } from '../../entities/execution/StoryReader';
+import { WardrobePlan, WardrobeStatus } from '../../entities/execution/WardrobePlan';
 import { StoryReview, type ReviewAction, type ReviewTarget } from '../../features/story-review/StoryReview';
 import { Pipeline } from '../../widgets/pipeline/Pipeline';
 import { groups, stages, type StageContract } from '../../widgets/pipeline/contracts';
@@ -75,6 +76,7 @@ function LoadedExecution({ projection: query, view, ui, update, panel, inspect, 
   const content = <div className="story-focus" ref={readerElement} tabIndex={-1} aria-label="Общий предмет Story">
     <div className="story-scroll" ref={storyScroll}>
       <StoryReader projection={p} reader={reader} select={select} />
+      {view === 'chat' && p.graph.id === 'kinodel.story-wardrobe' && <WardrobePlan projection={p} />}
       {storageError && <p className="error" role="alert">{storageError}</p>}{readErrors}
       <details className="story-background"><summary>Идея и история решений</summary><Chat projection={p} select={fromHistory} /></details>
     </div>
@@ -92,6 +94,7 @@ function LoadedExecution({ projection: query, view, ui, update, panel, inspect, 
       <button onClick={event => { const menu = event.currentTarget.closest('details'); menu?.removeAttribute('open'); const opener = menu?.querySelector('summary'); opener?.focus(); inspect(undefined, opener ?? undefined); }}>Данные запуска</button>{runExtras}
     </RunControls></>, runSlot)}
     {!storyVisible && readErrors}
+    {view === 'pipeline' && !(panel?.kind === 'details' && (panel.stage?.id === 'wardrobe' || panel.stage?.id.startsWith('wardrobe:'))) && p.graph.id === 'kinodel.story-wardrobe' && (p.wardrobe_stop || p.stories.some(s => p.reviews.some(r => r.applied && r.result?.kind === 'approved_subject' && r.base_ref.artifact_id === s.ref.artifact_id))) && <WardrobeStatus projection={p} />}
     <div className="context-layout">
     {view === 'pipeline' ? <Pipeline projection={p} scope={ui.scope} setScope={scope => update({ scope })} inspect={inspect} inspecting={!!panel}
       viewports={ui.viewports} setViewport={viewport => update({ viewports: { ...ui.viewports, [ui.scope]: viewport } })}
@@ -179,7 +182,7 @@ export function Workspace() {
   };
   const delivery = useCommands(async c => {
     if (c.kind === 'start' && c.receipt?.execution_id) {
-      if (c.endpoint === '/api/executions/live-story' && !cacheRef.current.states[c.receipt.execution_id]) persist({ states: { ...cacheRef.current.states, [c.receipt.execution_id]: { ...initialUI(), scope: 'storytell' } } });
+      if (['/api/executions/live-story', '/api/executions/story-wardrobe'].includes(c.endpoint) && !cacheRef.current.states[c.receipt.execution_id]) persist({ states: { ...cacheRef.current.states, [c.receipt.execution_id]: { ...initialUI(), scope: 'storytell' } } });
       open(c.receipt.execution_id);
     }
     await client.invalidateQueries({ queryKey: ['executions'] });
@@ -207,7 +210,7 @@ export function Workspace() {
       menus.forEach(menu => { menu.open = false; menu.querySelector('summary')?.focus(); });
     } else if (panel) closePanel();
     else if (libraryOpen && characterBack.current) characterBack.current();
-    else if (page === 'production' && ui.scope !== 'pipeline') updateUI({ scope: ui.scope === 'storytell:graph' ? 'storytell' : 'pipeline' });
+    else if (page === 'production' && ui.scope !== 'pipeline') updateUI({ scope: ui.scope === 'storytell:graph' ? 'storytell' : ui.scope === 'wardrobe:request' ? 'wardrobe' : 'pipeline' });
     else if (page !== 'production') {
       const previous = pageHistory.current.pop() ?? { page: 'production' as const, view };
       setPage(previous.page); if (previous.view !== view) persist({ view: previous.view });
@@ -225,7 +228,7 @@ export function Workspace() {
   const root = () => { navigate('production'); updateUI({ scope: 'pipeline' }); };
   const runExtras = <>
     <span className="model-badge">{modelBadge}</span>
-    <p className="muted">{ui.scope === 'storytell:graph' ? 'Структура LangGraph, не live trace. Approve завершает Story; вопрос и правка возвращаются к Storytell.' : 'Работает идея → Storytell → проверка Story. Кадры, видео и сборка пока не подключены.'}</p>
+    <p className="muted">{ui.scope === 'storytell:graph' ? 'Структура LangGraph, не live trace. Маршрут закреплён на запуске; вопрос и правка возвращаются к Storytell.' : 'Маршрут закреплён на запуске. Story → Wardrobe сохраняет план после утверждения Story; историческая Story завершается на approval. Кадры, видео и сборка не подключены.'}</p>
     {ui.scope === 'storytell' && <details className="graph-disclosure"><summary>Техническая структура</summary><button onClick={event => { event.currentTarget.closest('.run-controls')?.removeAttribute('open'); updateUI({ scope: 'storytell:graph' }); }}>Открыть internal LangGraph</button></details>}
   </>;
   return <div className="shell" onKeyDown={event => { if (event.key === 'Escape' && panel && !listOpen && !document.querySelector('.topbar .run-controls[open]')) { event.preventDefault(); event.stopPropagation(); closePanel(); } }}>
@@ -241,6 +244,8 @@ export function Workspace() {
         <button className="scope-root" onClick={root} title="К карте Pipeline">Pipeline</button><ChevronRight aria-hidden="true" />
         {page !== 'production' ? <span aria-current="page">{libraryOpen ? 'Characters' : canvasOpen ? 'Canvas' : 'Новая Story'}</span> : ui.scope === 'storytell:graph' ? <>
           <button onClick={() => updateUI({ scope: 'storytell' })}>Storytell</button><ChevronRight aria-hidden="true" /><span aria-current="page">LangGraph</span>
+        </> : ui.scope === 'wardrobe:request' ? <>
+          <button onClick={() => updateUI({ scope: 'wardrobe' })}>Wardrobe</button><ChevronRight aria-hidden="true" /><span aria-current="page">Request</span>
         </> : <span aria-current="page">{groups.find(g => g.id === ui.scope)?.title}</span>}
       </>}</nav>
       <div className="run-slot" ref={setRunSlot}>{(!valid || startOpen) && <details className="run-controls"><summary><span className="status">Запуск</span><ChevronDown aria-hidden="true" /></summary><div><DeliveryStatus commands={commands} execution={null} placement="menu" />{runExtras}</div></details>}</div>

@@ -56,5 +56,20 @@ const activity = { model: 'test/model', system_prompt: 'Frozen prompt', prompt_d
 activitySchema.parse(activity);
 assert.throws(() => activitySchema.parse({ ...activity, reasoning: 'private' }));
 assert.throws(() => activitySchema.parse({ ...activity, operations: [{ ...activity.operations[0], reserved_attempts: -1 }] }));
+const validation = { attempt: 1, stage: 'finish', code: 'incomplete_output', paths: ['choices[0].finish_reason'], finish_reason: 'length' };
+const failure = { attempt: 2, stage: 'transport', status_code: 200, exception_type: 'ReadTimeout', previous_validation: validation };
+const withDiagnostic = diagnostic => ({ ...activity, operations: [{ ...activity.operations[0], reserved_attempts: 2, validation_diagnostic: diagnostic }] });
+for (const diagnostic of [null, validation, failure, { ...failure, stage: 'http', status_code: 429, exception_type: null }]) {
+  assert.deepEqual(activitySchema.parse(withDiagnostic(diagnostic)).operations[0].validation_diagnostic, diagnostic);
+}
+for (const diagnostic of [
+  { ...failure, exception_type: 'private provider error' }, { ...failure, attempt: 0 },
+  { ...failure, attempt: 3 }, { ...failure, status_code: 600 }, { ...failure, status_code: 200.5 },
+  { ...failure, exception_type: null }, { ...failure, stage: 'http', status_code: null, exception_type: null },
+  { ...failure, stage: 'http' }, { ...failure, previous_validation: { ...validation, attempt: 2 } },
+  { ...failure, raw_body: 'private' }, { ...validation, paths: ['private.secret'] },
+  { ...validation, paths: [] }, { ...validation, finish_reason: 'private' },
+  { ...validation, code: 'private' }, { ...validation, paths: ['$'], reasoning: 'private' },
+]) assert.throws(() => activitySchema.parse(withDiagnostic(diagnostic)), 'invalid or unsafe diagnostic rejected');
 console.log('PASS: strict V1/V2 DTOs, generated cast, historical selected defaults, pinned character snapshots, schema/ref version match, full exact ref/ownership');
 require('./production-check.cjs');

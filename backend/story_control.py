@@ -9,7 +9,8 @@ from uuid import uuid4
 from backend.database import open_database
 from backend.review_store import accept_story_decision
 from backend.saver import open_saver
-from backend.story_start import start_live_story, start_test_story
+from backend.story_start import (DEFAULT_CHARACTER_ROOT, load_test_story_start, start_live_story,
+                                 start_story_wardrobe, start_test_story)
 from backend.story_store import _uuid
 
 
@@ -80,20 +81,39 @@ def retry_story_work(db: sqlite3.Connection, execution_id: str, work_id: str,
                 raise ValueError("Execution is cancelling or terminal")
             row = db.execute("SELECT status,blocked_reason,work_version,kind FROM execution_work "
                              "WHERE execution_id=? AND work_id=?", (execution_id, work_id)).fetchone()
-            if row is None or row[0] != "blocked" or row[1] != "owner_unavailable" or row[3] not in (
+            if row is None or row[0] != "blocked" or row[1] not in ("owner_unavailable", "wardrobe_unavailable") or row[3] not in (
                 "start", "resume", "reconcile"
             ):
                 raise ValueError("Work is not explicitly retryable")
             if row[2] != expected_version:
                 raise ValueError("Stale work version")
+            if row[1] == "wardrobe_unavailable":
+                from backend import wardrobe_store
+                try:
+                    load_test_story_start(db, execution_id)
+                    request = db.execute("SELECT request_id FROM review_requests WHERE execution_id=? "
+                                         "ORDER BY request_revision DESC LIMIT 1", (execution_id,)).fetchone()
+                    if request is None or row[3] not in ("resume", "reconcile"):
+                        raise ValueError("Work is not explicitly retryable")
+                    # Authority and prepared pins must still match; no library/catalog rehydration.
+                    record = wardrobe_store.find_wardrobe_operation(db, execution_id, request[0])
+                    if record is None:
+                        wardrobe_store.wardrobe_authority(db, execution_id, request[0])
+                    else:
+                        wardrobe_store._check_authority(db, record)
+                        if record["owner_attempts"] >= 2 or record["candidate"] is not None or record["next_activation"] is not None:
+                            raise ValueError("Wardrobe work has no remaining completion allowance")
+                except (ValueError, OSError):
+                    raise ValueError("Wardrobe retry requires unchanged valid inputs and remaining allowance") from None
             db.execute("UPDATE execution_work SET status='pending',blocked_reason=NULL,"
                        "work_version=work_version+1 WHERE work_id=? AND work_version=? AND status='blocked'",
                        (work_id, expected_version))
             db.execute("INSERT INTO execution_controls VALUES (?,?, 'retry', ?, ?)",
                        (execution_id, command_key, work_id, expected_version))
-            db.execute("UPDATE story_operations SET owner_budget=owner_attempts+2 WHERE execution_id=? "
-                       "AND owner_request IS NOT NULL AND artifact_id IS NULL AND owner_response IS NULL",
-                       (execution_id,))
+            if row[1] == "owner_unavailable":
+                db.execute("UPDATE story_operations SET owner_budget=owner_attempts+2 WHERE execution_id=? "
+                           "AND owner_request IS NOT NULL AND artifact_id IS NULL AND owner_response IS NULL",
+                           (execution_id,))
         db.execute("COMMIT")
         return work_id
     except BaseException:
@@ -102,8 +122,9 @@ def retry_story_work(db: sqlite3.Connection, execution_id: str, work_id: str,
 
 
 class StoryRuntime:
-    def __init__(self, db, saver, produce_story):
+    def __init__(self, db, saver, produce_story, *, character_root: Path = DEFAULT_CHARACTER_ROOT):
         self.db, self.saver, self.produce_story = db, saver, produce_story
+        self.character_root = character_root
         self._stopping = asyncio.Event()
         self._running = None
         self._commands = set()
@@ -116,7 +137,12 @@ class StoryRuntime:
         return await self._start(start_test_story, *args)
 
     async def start_live(self, *args, **kwargs):
+        kwargs.setdefault("character_root", self.character_root)
         return await self._start(start_live_story, *args, **kwargs)
+
+    async def start_wardrobe(self, *args, **kwargs):
+        kwargs.setdefault("character_root", self.character_root)
+        return await self._start(start_story_wardrobe, *args, **kwargs)
 
     async def _start(self, start, *args, **kwargs):
         self._open()
@@ -147,7 +173,8 @@ class StoryRuntime:
             raise ValueError("Story runner already active")
         self._running = asyncio.current_task()
         try:
-            return await run_story_work(self.db, self.saver, self.produce_story, stop=self._stopping)
+            return await run_story_work(self.db, self.saver, self.produce_story, stop=self._stopping,
+                                        character_root=self.character_root)
         finally:
             self._running = None
 
@@ -169,11 +196,11 @@ class StoryRuntime:
 
 
 @asynccontextmanager
-async def open_story_runtime(root: Path, produce_story):
+async def open_story_runtime(root: Path, produce_story, *, character_root: Path = DEFAULT_CHARACTER_ROOT):
     """Stop active graph/saver writers before closing stores and releasing the root lock."""
     with open_database(root) as db:
         async with open_saver(root, db) as saver:
-            runtime = StoryRuntime(db, saver, produce_story)
+            runtime = StoryRuntime(db, saver, produce_story, character_root=character_root)
             try:
                 yield runtime
             finally:

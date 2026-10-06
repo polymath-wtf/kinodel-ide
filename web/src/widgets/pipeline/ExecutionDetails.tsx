@@ -3,15 +3,19 @@ import type { ArtifactRef, Projection } from '../../entities/execution/contracts
 import type { StageContract } from './contracts';
 import { StoryActivity } from './StoryActivity';
 import { ContextPanel } from '../../shared/ui/ContextPanel';
+import { WardrobeInspection } from './WardrobeInspection';
+import { WardrobeStatus } from '../../entities/execution/WardrobePlan';
 
 export function ExecutionDetails({ projection, stage, close, opener, read, graph }: { projection?: Projection; stage?: StageContract; close: () => void; opener: HTMLElement | null; read?: (ref?: ArtifactRef) => void; graph?: () => void }) {
-  const [tab, setTab] = useState<'Inputs' | 'Outputs' | 'Config'>(stage?.id === 'brief' ? 'Inputs' : 'Outputs');
-  useEffect(() => { setTab(stage?.id === 'brief' ? 'Inputs' : 'Outputs'); }, [stage?.id]);
+  const defaultTab = stage?.id === 'brief' || stage?.id === 'wardrobe:start' ? 'Inputs' : stage?.id === 'wardrobe:model' ? 'Config' : 'Outputs';
+  const [tab, setTab] = useState<'Inputs' | 'Outputs' | 'Config'>(defaultTab);
+  useEffect(() => { setTab(defaultTab); }, [defaultTab, stage?.id]);
   const content = tab === 'Inputs' ? projection?.submitted : tab === 'Outputs' ? { stories: projection?.stories, outcome: projection?.outcome } : { execution_id: projection?.execution_id, project_id: projection?.project_id, graph: projection?.graph, model: projection?.model, work: projection?.work };
   const agent = stage?.kind === 'agent';
   const generation = !!stage && ['anchor-gen', 'frames-gen', 'video-gen'].includes(stage.id);
   const savedStory = !!stage && stage.kind !== 'internal' && ['storytell', 'story-hitl'].includes(stage.id) && !!projection;
   const request = !!stage && stage.id.startsWith('storytell:') && stage.kind !== 'internal';
+  const wardrobeRequest = !!stage && stage.id.startsWith('wardrobe:');
   const requestContent = request && <div className="request-inspection">
     <p className="muted">Объявленная схема запроса · не execution trace</p>
     {stage.id === 'storytell:model' ? projection ? <StoryActivity projection={projection} select={ref => read?.(ref)} /> : <p>Нет сохранённого запуска. Model, системный промпт и messages появятся после Start.</p>
@@ -20,13 +24,15 @@ export function ExecutionDetails({ projection, stage, close, opener, read, graph
   </div>;
   return <ContextPanel className="details-sheet" title={stage ? stage.title : 'Закреплённые данные'} opener={opener} close={close}>
     <div className="details-body">
-    {!request && <nav className="details-tabs" aria-label="Раздел деталей">{(['Inputs', 'Outputs', 'Config'] as const).map(t => <button key={t} aria-pressed={tab === t} onClick={() => setTab(t)}>{{ Inputs: 'Ввод', Outputs: 'Результат', Config: 'Настройки' }[t]}</button>)}</nav>}
-    {request ? requestContent : stage ? <div className="inspection-content">
+    {!request && !wardrobeRequest && <nav className="details-tabs" aria-label="Раздел деталей">{(['Inputs', 'Outputs', 'Config'] as const).map(t => <button key={t} aria-pressed={tab === t} onClick={() => setTab(t)}>{{ Inputs: 'Ввод', Outputs: 'Результат', Config: 'Настройки' }[t]}</button>)}</nav>}
+    {(stage?.id === 'wardrobe' || wardrobeRequest) && projection && <WardrobeStatus projection={projection} compactDiagnostic={false} />}
+    {(stage?.id === 'wardrobe' || wardrobeRequest) && (projection?.graph.id === 'kinodel.story-wardrobe' || wardrobeRequest) ? <><WardrobeInspection projection={projection} tab={tab} boundary={stage?.id === 'wardrobe:end' ? 'end' : undefined} read={read} />
+      {wardrobeRequest && <details><summary>Контракт границы запроса</summary><p>{stage.config}</p><p className="technical">{stage.id} · {stage.source} · не execution trace</p></details>}</> : request ? requestContent : stage ? <div className="inspection-content">
       <p className="muted">Объявленный контракт · только чтение</p>
       {tab === 'Config' ? <>
         <p>{stage.config}</p>
         {agent && <p className="muted">Инструкции: .agents/{stage.id === 'storytell:llm' ? 'storytell' : stage.id}/system.md · {stage.id === 'storytell' && projection?.model ? `закреплены на запуске · OpenRouter / ${projection.model}` : 'authored; в fixture и неподключённых этапах не загружаются.'}</p>}
-        {stage.id === 'storytell' && stage.kind === 'agent' && <><p className="muted">{projection?.model ? `${projection.graph.id} · живой текстовый срез; approval → END.` : 'Доступная реализация: kinodel.internal-story с детерминированной тестовой моделью; отдельная frozen identity.'}</p><button onClick={graph}>Открыть internal LangGraph</button></>}
+        {stage.id === 'storytell' && stage.kind === 'agent' && <><p className="muted">{projection?.model ? `${projection.graph.id} · approval → ${projection.graph.id === 'kinodel.story-wardrobe' ? 'Wardrobe → saved plan → END' : 'END'}.` : 'Доступная реализация: kinodel.internal-story с детерминированной тестовой моделью; отдельная frozen identity.'}</p><button onClick={graph}>Открыть internal LangGraph</button></>}
       </> : <><h3>{tab === 'Inputs' ? 'Объявленные входы' : 'Объявленные результаты'}</h3><ul>{(tab === 'Inputs' ? stage.inputs : stage.outputs).map(s => <li key={s}>{s}</li>)}</ul>
         {savedStory && tab === 'Outputs' && <><p>Реальные сохранённые Story и reviews доступны в общем reader.</p><button onClick={() => read?.()}>Читать сохранённую Story</button></>}
          {stage.id === 'brief' && projection && tab === 'Inputs' && <><h3>Сохранённый {projection.model ? 'Story input' : 'test input'} · не полный Brief</h3><p>{projection.submitted.input_message}</p><p className="muted">Shots: {projection.submitted.shot_ids.join(', ')}</p></>}

@@ -36,7 +36,7 @@ def snapshot(runtime, saved=None):
         return {}
     eid, project = execution
     artifacts = [read_story(db, eid, artifact_id=row[0]) for row in
-                 db.execute("SELECT artifact_id FROM artifacts WHERE execution_id=? ORDER BY rowid", (eid,))]
+                 db.execute("SELECT artifact_id FROM artifacts WHERE execution_id=? AND schema_id='story' ORDER BY rowid", (eid,))]
     binding = db.execute("SELECT artifact_id,binding_revision FROM execution_bindings "
                          "WHERE execution_id=? AND slot='story'", (eid,)).fetchone()
     return dict(

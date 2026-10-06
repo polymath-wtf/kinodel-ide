@@ -61,6 +61,16 @@ def visual_input(formats=("PNG", "JPEG", "WEBP")):
     return supplied, bodies
 
 
+def large_png(size=(768, 960)):
+    import random
+    pixels = bytearray(size[0] * size[1] * 3)
+    noise = random.Random(1).randbytes(size[0] * size[1] * 2)
+    pixels[0::3], pixels[1::3] = noise[0::2], noise[1::2]
+    output = BytesIO()
+    Image.frombytes("RGB", size, bytes(pixels)).save(output, format="PNG")
+    return output.getvalue()
+
+
 class WardrobeOpenRouterTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.environment = patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-secret", "LLM_MODEL": MODEL})
@@ -87,9 +97,68 @@ class WardrobeOpenRouterTests(unittest.IsolatedAsyncioTestCase):
         def client(**options):
             self.assertFalse(options["follow_redirects"])
             self.assertFalse(options["trust_env"])
-            self.assertIn(options["timeout"], (15, 60))
+            self.assertIn(options["timeout"], (15, 60, 180))
             return factory(**options)
         return patch("backend.openrouter_client.httpx.AsyncClient", client)
+
+    async def test_new_timeout_and_historical_config_are_distinct(self):
+        from backend import openrouter_wardrobe as adapter
+        from backend.openrouter import StoryOwnerConfig
+        with self.transport():
+            frozen = await adapter.prepare_wardrobe_request(supplied_input(), {})
+        self.assertEqual(adapter.read_wardrobe_config(frozen).timeout_seconds, 180)
+        historical = json.loads(frozen)
+        historical["timeout_seconds"] = 60
+        body = encoded(historical)
+        self.assertEqual(adapter.read_wardrobe_config(body).timeout_seconds, 60)
+        self.assertEqual(canonical_json(adapter.read_wardrobe_config(body)).decode(), body)
+        self.assertEqual(StoryOwnerConfig.model_fields["timeout_seconds"].annotation, __import__("typing").Literal[60])
+
+    async def test_failed_http_measures_actual_phase_without_private_text(self):
+        from backend import openrouter_client as provider
+        class BrokenRead(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                raise httpx.ReadTimeout("private-test-secret")
+                yield b""
+        for phase in ("connection", "response_read", "client_cleanup"):
+            class CleanupClient(httpx.AsyncClient):
+                async def __aexit__(self, *args):
+                    await super().__aexit__(*args)
+                    if phase == "client_cleanup":
+                        raise httpx.CloseError("private-test-secret")
+            def respond(request):
+                if phase == "connection":
+                    raise httpx.ConnectTimeout("private-test-secret")
+                return httpx.Response(200, stream=BrokenRead()) if phase == "response_read" else httpx.Response(200, content=b"ok")
+            with self.subTest(phase=phase), patch.object(provider.httpx, "AsyncClient", partial(
+                    CleanupClient, transport=httpx.MockTransport(respond))), \
+                    patch.object(provider, "monotonic", side_effect=[10.0, 10.125]), \
+                    self.assertRaises(provider.OpenRouterUnavailable) as raised:
+                await provider.http("POST", "chat/completions", 60, MAX_JSON_BYTES, "{}", "test-secret")
+            self.assertEqual(raised.exception.phase, phase)
+            self.assertEqual(raised.exception.elapsed_ms, 125)
+            self.assertEqual(raised.exception.status_code, None if phase == "connection" else 200)
+            self.assertNotIn("private", str(raised.exception))
+
+    async def test_total_deadline_after_200_headers_reports_response_read(self):
+        from backend import openrouter_client as provider
+        timeout = asyncio.timeout
+        closed = []
+        class SlowRead(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                await asyncio.sleep(10)
+                yield b"private-test-secret"
+            async def aclose(self):
+                closed.append(True)
+        with patch.object(provider.httpx, "AsyncClient", partial(httpx.AsyncClient,
+                transport=httpx.MockTransport(lambda _: httpx.Response(200, stream=SlowRead())))), \
+                patch.object(provider.asyncio, "timeout", side_effect=lambda _: timeout(0.01)), \
+                self.assertRaises(provider.OpenRouterUnavailable) as raised:
+            await provider.http("POST", "chat/completions", 180, MAX_JSON_BYTES, "{}", "test-secret")
+        self.assertEqual((raised.exception.status_code, raised.exception.exception_type, raised.exception.phase),
+                         (200, "TimeoutError", "response_read"))
+        self.assertGreaterEqual(raised.exception.elapsed_ms, 0)
+        self.assertTrue(closed)
 
     async def test_zero_image_freezes_exact_request_and_returns_typed_plan_in_one_call(self):
         self.assertIsNotNone(importlib.util.find_spec("backend.openrouter_wardrobe"),
@@ -402,6 +471,8 @@ class WardrobeOpenRouterTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn("private", str(raised.exception))
             self.assertNotIn("test-secret", str(raised.exception))
             self.assertEqual([r.method for r in self.requests], ["POST"])
+            if error is adapter.WardrobeOwnerUnavailable:
+                self.assertEqual((raised.exception.status_code, raised.exception.exception_type), (status, None))
         for error in (httpx.ReadTimeout, httpx.ConnectError):
             self.requests.clear()
             def unavailable(request):
@@ -410,6 +481,7 @@ class WardrobeOpenRouterTests(unittest.IsolatedAsyncioTestCase):
                 await adapter.complete_wardrobe(config)
             self.assertNotIn("private", str(raised.exception))
             self.assertEqual([r.method for r in self.requests], ["POST"])
+            self.assertEqual((raised.exception.status_code, raised.exception.exception_type), (None, error.__name__))
         with self.transport(lambda _: httpx.Response(200, content=b"private-test-secret")), \
                 self.assertRaisesRegex(ValueError, "invalid_output") as raised:
             await adapter.complete_wardrobe(config)
@@ -444,13 +516,14 @@ class WardrobeOpenRouterTests(unittest.IsolatedAsyncioTestCase):
                 cancelled.append(True)
         original_timeout = asyncio.timeout
         def short_timeout(seconds):
-            self.assertEqual(seconds, 60)
+            self.assertEqual(seconds, 180)
             return original_timeout(0.01)
         with patch("backend.openrouter_client.httpx.AsyncClient",
                    partial(httpx.AsyncClient, transport=httpx.MockTransport(slow))), \
                 patch("backend.openrouter_client.asyncio.timeout", side_effect=short_timeout), \
-                self.assertRaises(adapter.WardrobeOwnerUnavailable):
+                self.assertRaises(adapter.WardrobeOwnerUnavailable) as raised:
             await adapter.complete_wardrobe(config)
+        self.assertEqual((raised.exception.status_code, raised.exception.exception_type), (None, "TimeoutError"))
         self.assertEqual([r.method for r in self.requests], ["POST"])
         self.assertEqual(cancelled, [True])
 
@@ -513,15 +586,96 @@ class WardrobeOpenRouterTests(unittest.IsolatedAsyncioTestCase):
         supplied, bodies = visual_input(("PNG",))
         alias = next(iter(bodies))
         output = BytesIO()
-        # Deterministic noisy pixels exceed the 1 MiB base64-request ceiling, not image limits.
+        # A normal original exceeds the old text-only ceiling, not Character image limits.
         import random
         Image.frombytes("RGB", (600, 600), random.Random(1).randbytes(600 * 600 * 3)).save(output, format="PNG")
         raw = output.getvalue()
         supplied["image_evidence"][0]["ref"].update(
             width=600, height=600, byte_length=len(raw), digest=sha256_digest(raw))
-        with self.transport(), self.assertRaisesRegex(ValueError, "limit|large"):
-            await adapter.prepare_wardrobe_request(supplied, {alias: raw})
-        self.assertEqual(self.requests, [])  # Oversized evidence must stop during bounded local preparation.
+        with self.transport():
+            frozen = await adapter.prepare_wardrobe_request(supplied, {alias: raw})
+            config = adapter.read_wardrobe_config(frozen)
+            await adapter.complete_wardrobe(config)
+        self.assertGreater(len(frozen.encode()), MAX_JSON_BYTES)
+        self.assertEqual([r.method for r in self.requests], ["GET", "POST"])
+        self.assertEqual(self.requests[-1].content, config.base_request.encode())
+
+    async def test_input_size_diagnostic_counts_combined_evidence_and_utf8_exactly(self):
+        from backend import openrouter_wardrobe as adapter
+        from backend.wardrobe import WardrobeInputV1
+
+        supplied, bodies = visual_input(("PNG", "PNG"))
+        self.assertIsNone(adapter.wardrobe_input_size_diagnostic(WardrobeInputV1.model_validate(supplied)))
+        raw = large_png((2100, 1800))
+        self.assertLess(len(raw), 10 * MAX_JSON_BYTES)
+        self.assertLess(4 * ((len(raw) + 2) // 3), 16 * MAX_JSON_BYTES)
+        for image in supplied["image_evidence"]:
+            image["ref"].update(width=2100, height=1800, byte_length=len(raw), digest=sha256_digest(raw))
+            bodies[image["alias"]] = raw
+        expected: list[dict] = [{"type": "text", "text": encoded(supplied)}]
+        for image in supplied["image_evidence"]:
+            expected.extend([{"type": "text", "text": encoded(image)},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64," + base64.b64encode(raw).decode()}}])
+        with self.transport(), patch.object(adapter, "_image_bytes", side_effect=AssertionError("Over-budget images decoded")), \
+                patch.object(adapter.base64, "b64encode", side_effect=AssertionError("Over-budget base64 allocated")), \
+                self.assertRaises(adapter.WardrobeInputSizeLimit) as rejected:
+            await adapter.prepare_wardrobe_request(supplied, bodies)
+        self.assertEqual(rejected.exception.diagnostic.serialized_evidence_bytes, len(encoded(expected).encode()))
+        self.assertEqual(rejected.exception.diagnostic.limit_bytes, 16 * MAX_JSON_BYTES)
+        self.assertEqual(self.requests, [])
+
+    async def test_story_and_artifact_default_limits_remain_one_mib(self):
+        from backend import openrouter_client as provider
+        from backend.domain import BriefV1, artifact_digest, parse_json_model
+        from tests.test_domain import brief_data
+        supplied = brief_data()
+        supplied["must_keep"] = ["x" * 5000] * 256
+        body = BriefV1.model_validate(supplied)
+        with self.assertRaisesRegex(ValueError, "large"):
+            canonical_json(body)
+        with self.assertRaisesRegex(ValueError, "large"):
+            artifact_digest(body)
+        with self.assertRaisesRegex(ValueError, "large"):
+            parse_json_model(encoded(supplied).encode(), BriefV1)
+        with self.assertRaisesRegex(ValueError, "limit"):
+            provider.structured_request(MODEL, "prompt", "x" * (MAX_JSON_BYTES + 1), {}, "story_result", 8192, "low")
+        with self.transport(), self.assertRaisesRegex(ValueError, "limit"):
+            await provider.http("POST", "chat/completions", 60, MAX_JSON_BYTES, "x" * (MAX_JSON_BYTES + 1), "test-secret")
+        self.assertEqual(self.requests, [])
+
+    async def test_single_character_max_original_fits_scoped_media_envelopes(self):
+        from backend import openrouter_wardrobe as adapter
+        from backend.characters import MAX_IMAGE_BYTES
+        supplied, bodies = visual_input(("PNG",))
+        alias = next(iter(bodies))
+        # PNG permits trailing bytes: preserve a valid original at the exact byte ceiling.
+        original = bodies[alias] + b"\0" * (MAX_IMAGE_BYTES - len(bodies[alias]))
+        bodies[alias] = original
+        supplied["image_evidence"][0]["ref"].update(byte_length=len(original), digest=sha256_digest(original))
+        with self.transport():
+            frozen = await adapter.prepare_wardrobe_request(supplied, bodies)
+        config = adapter.read_wardrobe_config(frozen)
+        self.assertGreater(len(config.base_request.encode()), 13 * MAX_JSON_BYTES)
+        self.assertLess(len(config.base_request.encode()), adapter.MAX_WARDROBE_REQUEST_BYTES)
+        self.assertLess(len(frozen.encode()), adapter.MAX_WARDROBE_CONFIG_BYTES)
+        picture = json.loads(config.base_request)["messages"][1]["content"][2]["image_url"]["url"]
+        self.assertEqual(base64.b64decode(picture.split(",", 1)[1]), original)
+        self.assertEqual([r.method for r in self.requests], ["GET"])
+
+    async def test_scoped_http_config_and_repair_limits_fail_closed(self):
+        from types import SimpleNamespace
+        from backend import openrouter_wardrobe as adapter
+        with self.transport(), self.assertRaisesRegex(ValueError, "limit"):
+            await adapter._http("POST", "chat/completions", 60, MAX_JSON_BYTES,
+                                "x" * (adapter.MAX_WARDROBE_REQUEST_BYTES + 1), "test-secret")
+        with patch("backend.domain._check_depth", side_effect=AssertionError("Oversized config parsed")), \
+                self.assertRaisesRegex(ValueError, "frozen"):
+            adapter.read_wardrobe_config(" " * (adapter.MAX_WARDROBE_CONFIG_BYTES + 1))
+        base = encoded({"messages": [{"role": "user", "content": "x" * (adapter.MAX_WARDROBE_REQUEST_BYTES - 1024)}]})
+        with patch.object(adapter, "read_wardrobe_config", return_value=SimpleNamespace(base_request=base)), \
+                self.assertRaisesRegex(ValueError, "repair.*limit"):
+            adapter.prepare_wardrobe_repair("unused", "x" * 4096)
+        self.assertEqual(self.requests, [])
 
 
 if __name__ == "__main__":

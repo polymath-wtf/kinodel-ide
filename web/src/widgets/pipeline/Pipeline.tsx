@@ -2,12 +2,12 @@ import { ControlButton, Controls, Handle, MarkerType, Position, ReactFlow, type 
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { Clapperboard, FileText, Film, GitBranch, Layers, LocateFixed, MessageSquare, Sparkles, Wrench } from 'lucide-react';
 import { isStoryApproved, sameRef, statusLabel, versionLabel, type ArtifactRef, type Projection } from '../../entities/execution/contracts';
-import { useStoryActivity, useStoryBody } from '../../entities/execution/queries';
-import { groups, internalStory, scopes, stages, storyNodeState, storyRequest, type NodeState, type Scope, type StageContract } from './contracts';
+import { useStoryActivity, useStoryBody, useWardrobeActivity } from '../../entities/execution/queries';
+import { groups, internalStory, scopes, stages, storyNodeState, storyRequest, wardrobeRequest, type NodeState, type Scope, type StageContract } from './contracts';
 export type { Scope } from './contracts';
 
 export const initialViewports = (): Record<Scope, Viewport> => Object.fromEntries(scopes.map(scope => [scope, {
-  x: scope === 'pipeline' ? 28 : Math.max(24, (window.innerWidth - (scope === 'storytell:graph' ? 1240 : scope === 'storytell' ? 1124 : scope === 'montage' ? 624 : 924)) / 2), y: 12, zoom: 1,
+  x: scope === 'pipeline' ? 28 : Math.max(24, (window.innerWidth - (scope === 'storytell:graph' ? 1240 : scope === 'storytell' || scope === 'wardrobe:request' ? 1124 : scope === 'montage' ? 624 : 924)) / 2), y: 12, zoom: 1,
 }])) as Record<Scope, Viewport>;
 export const initialNodes = (): Record<Scope, string> => Object.fromEntries(scopes.map(scope => [scope, `${scope}-${scope === 'pipeline' ? 1 : 0}`])) as Record<Scope, string>;
 type StageData = { contract: StageContract; group?: string; summary: string; status: string; open: (opener?: HTMLElement) => void; inside: (opener?: HTMLElement) => void; input: boolean; output: boolean; compact: boolean;
@@ -21,7 +21,7 @@ function Stage({ data, selected }: NodeProps<StageNode>) {
   const Icon = data.group === 'montage' ? Clapperboard : data.group && data.group !== 'brief' && data.group !== 'final' ? Layers : icons[contract.kind];
   return <article className={`flow-stage ${contract.kind} node-${data.state} ${data.compact ? 'compact' : ''} ${data.request ? 'request-node' : ''}`} style={data.request ? { width: data.width } : undefined} data-selected={selected} data-stage={contract.id} data-group={data.group} aria-label={`${contract.title} · ${data.status}${data.reason ? ` · ${data.reason}` : ''}`}>
     {data.input && <Handle id={data.ports?.input} type="target" position={Position.Left} isConnectable={false} aria-label={data.ports?.input ? `Input: ${data.ports.input}` : 'Input'} style={data.ports ? { top: 112 } : undefined} />}
-    <div className="node-role"><Icon aria-hidden="true" /><span>{data.group && !['brief', 'final', 'montage'].includes(data.group) ? 'Этап' : contract.id === 'storytell:model' ? 'Модель' : contract.id === 'storytell:end' ? 'Выход запроса' : roles[contract.kind]}</span></div>
+    <div className="node-role"><Icon aria-hidden="true" /><span>{data.group && !['brief', 'final', 'montage'].includes(data.group) ? 'Этап' : contract.id.endsWith(':model') ? 'Модель' : contract.id.endsWith(':end') ? 'Выход запроса' : roles[contract.kind]}</span></div>
     <h2>{contract.title}</h2><span className="node-status" title={data.reason ?? data.status}>{stateMark[data.state] && <span aria-hidden="true">{stateMark[data.state]}</span>}{data.status}</span>
     {data.ports && <div className="request-ports"><span>{data.ports.input}</span><span>{data.ports.output}</span></div>}
     {data.fields ? <dl className="request-config">{data.fields.map(([label, value]) => <div key={label}><dt>{label}</dt><dd title={value}>{value}</dd></div>)}</dl> : <p title={data.summary}>{data.summary}</p>}
@@ -74,15 +74,18 @@ export function Pipeline({ projection, scope, setScope, viewports, setViewport, 
       }
     }
   }, [inspecting, scope, viewports]);
-  const requestScope = scope === 'storytell';
-  const activity = useStoryActivity(requestScope ? projection : undefined);
+  const wardrobeRequestScope = scope === 'wardrobe:request';
+  const requestScope = scope === 'storytell' || wardrobeRequestScope;
+  const activity = useStoryActivity(scope === 'storytell' ? projection : undefined);
+  const wardrobeActivity = useWardrobeActivity(wardrobeRequestScope ? projection : undefined);
+  const preparedWardrobe = wardrobeActivity.data?.operation_id ? wardrobeActivity.data : undefined;
   useEffect(() => {
     const previous = previousScope.current;
     if (previous !== scope) {
-      if (scope === 'pipeline' || scope === 'storytell' && previous === 'storytell:graph') {
+      if (scope === 'pipeline' || scope === 'storytell' && previous === 'storytell:graph' || scope === 'wardrobe' && previous === 'wardrobe:request') {
         const frame = requestAnimationFrame(() => {
-           const parentNode = element.current?.querySelector<HTMLElement>(`.flow-stage[data-group="${previous.startsWith('storytell:') ? 'storytell' : previous}"]`);
-           const action = scope === 'pipeline' ? parentNode?.closest<HTMLElement>('.react-flow__node') : document.querySelector<HTMLElement>('.topbar .run-controls > summary');
+           const parentNode = element.current?.querySelector<HTMLElement>(scope === 'wardrobe' ? '.flow-stage[data-stage="wardrobe"]' : `.flow-stage[data-group="${previous.split(':')[0]}"]`);
+           const action = scope === 'pipeline' || scope === 'wardrobe' ? parentNode?.closest<HTMLElement>('.react-flow__node') : document.querySelector<HTMLElement>('.topbar .run-controls > summary');
           // Focus the real Flow node first: its built-in keyboard auto-pan reveals offscreen parents.
           action?.closest<HTMLElement>('.react-flow__node')?.focus({ preventScroll: true });
           action?.focus({ preventScroll: true });
@@ -100,19 +103,23 @@ export function Pipeline({ projection, scope, setScope, viewports, setViewport, 
   const approved = !!projection && !!current && isStoryApproved(projection, current.ref);
   const actionable = !!current && projection?.status === 'waiting_review' && !!projection.review && projection.reviews.some(r => r.request_id === projection.review!.request_id && sameRef(r.base_ref, current.ref));
   const storyPreview = body.data && !body.error ? body.data.story.hook || body.data.story.story : body.error ? 'Текст недоступен · откройте Story для повторного чтения' : current ? 'Читаем сохранённую историю…' : stages.storytell.summary;
-  const live = projection?.graph.id === 'kinodel.live-story';
+  const wardrobe = projection?.graph.id === 'kinodel.story-wardrobe';
+  const live = projection?.graph.id === 'kinodel.live-story' || wardrobe;
   const status = (id: string) => id === 'brief' ? projection ? live ? 'Ввод сохранён' : 'Ввод fixture сохранён' : 'Ваш ввод'
     : projection && id === 'storytell' ? approved ? live ? 'Story завершена' : 'Fixture завершён' : statusLabel[projection.status]
     : projection && id === 'story-hitl' ? approved ? live ? 'Утверждена' : 'Утверждена · fixture' : projection.review ? 'Ваше решение' : 'Нет активного review'
     : !projection && id === 'storytell' ? 'Можно начать' : !projection && id === 'story-hitl' ? 'После Storytell' : 'Не подключено';
   const selectedGroup = groups.find(g => g.id === scope);
-  const contracts = scope === 'pipeline' ? groups.map(g => ({ ...stages[g.stages[0]], title: g.title })) : scope === 'storytell:graph' ? internalStory : requestScope ? storyRequest
+  const scopedInternal = wardrobe ? [...internalStory.slice(0, 4), { ...internalStory[4], outputs: ['Approve → wardrobe', 'Clarify / revise → storytell'], config: 'Exact applied approval → wardrobe в kinodel.story-wardrobe; исторические routes → END.' },
+    { ...stages.wardrobe, kind: 'internal' as const, summary: 'Frozen input → validated saved plan', config: 'produce_wardrobe_operation сохраняет exact plan до terminal completion. Non-ready/failure остаются blocked; без render.', source: 'backend/story_graph.py:wardrobe_node' },
+    { ...internalStory[5], summary: 'Story-Wardrobe text route', inputs: ['Exact saved wardrobe_plan'], outputs: ['Завершение текстового маршрута'], config: 'END после validated saved plan. Рендер не подключён.' }] : internalStory;
+  const contracts = scope === 'pipeline' ? groups.map(g => ({ ...stages[g.stages[0]], title: g.title })) : scope === 'storytell:graph' ? scopedInternal : wardrobeRequestScope ? wardrobeRequest : requestScope ? storyRequest
     : (selectedGroup?.stages ?? []).map(id => stages[id]);
-  const requestPorts = [{ output: 'messages' }, { input: 'messages', output: 'response' }, { input: 'response', output: 'story' }, { input: 'story' }, {}];
+  const requestPorts = [{ output: 'messages' }, { input: 'messages', output: 'response' }, { input: 'response', output: wardrobeRequestScope ? 'plan' : 'story' }, { input: wardrobeRequestScope ? 'plan' : 'story' }, {}];
   const operation = activity.data?.operations.at(-1);
   const specs: StageData[] = contracts.map((contract, i) => {
     const group = scope === 'pipeline' ? groups[i].id : undefined;
-    const nodeState = scope === 'storytell:graph' ? { state: 'idle' as const } : storyNodeState(contract.id, projection);
+    const nodeState = scope === 'storytell:graph' ? { state: 'idle' as const } : storyNodeState(contract.id, projection, wardrobeActivity.data);
     const open = (opener?: HTMLElement) => {
       setSelectedNode(`${scope}-${i}`);
       if (group === 'storytell' && current && read) read(current.ref, opener);
@@ -122,18 +129,20 @@ export function Pipeline({ projection, scope, setScope, viewports, setViewport, 
     const inside = (opener?: HTMLElement) => {
       setSelectedNode(`${scope}-${i}`);
       if (group && scopes.includes(group as Scope)) setScope(group as Scope);
+      else if (scope === 'wardrobe' && contract.id === 'wardrobe') setScope('wardrobe:request');
       else if (group === 'brief' && !projection) brief(opener);
       else open(opener); // A leaf has details, not an invented graph.
     };
     const requestStatus = contract.id === 'storytell:tools' ? 'Не подключён' : contract.id === 'storytell:start' ? projection ? 'Ввод сохранён' : 'Нет запуска'
       : contract.id === 'storytell:output' ? result : contract.id === 'storytell:end' ? 'Не approval'
       : !projection ? 'Нет запуска' : !live ? 'Fixture · без LLM' : activity.error ? 'Данные недоступны' : operation ? ({ prepared: 'Вход подготовлен', attempted: 'Попытка зарезервирована', saved: 'Ответ сохранён', blocked: 'Вызов заблокирован', stopped: 'Работа остановлена' })[operation.status] : activity.isPending ? 'Читаем сохранённый запрос…' : 'Запрос ещё не подготовлен';
-    return { contract, group, ...nodeState, status: contract.id === 'storytell:output' ? `${result}${nodeState.state === 'review' ? ' · Ваше решение' : approved ? ' · утверждена' : ''}` : nodeState.status ?? (requestScope ? requestStatus : scope === 'storytell:graph' ? 'Структура · не trace' : status(contract.id)),
-      summary: requestScope && contract.id === 'storytell:start' && projection ? projection.submitted.input_message : projection && contract.id === 'brief' ? projection.submitted.input_message : group === 'storytell' || contract.id === 'storytell:output' ? storyPreview : contract.summary,
+    return { contract, group, ...nodeState, status: contract.id === 'storytell:output' ? `${result}${nodeState.state === 'review' ? ' · Ваше решение' : approved ? ' · утверждена' : ''}` : nodeState.status ?? (wardrobeRequestScope ? projection ? 'После approval Story' : 'Нет запуска' : requestScope ? requestStatus : scope === 'storytell:graph' ? 'Структура · не trace' : status(contract.id)),
+      summary: wardrobeRequestScope && contract.id === 'wardrobe:start' && preparedWardrobe ? preparedWardrobe.input.narrative_input.user_vibe : requestScope && contract.id === 'storytell:start' && projection ? projection.submitted.input_message : projection && contract.id === 'brief' ? projection.submitted.input_message : group === 'storytell' || contract.id === 'storytell:output' ? storyPreview : contract.summary,
       open, inside,
       input: requestScope ? !!requestPorts[i].input : i > 0, output: requestScope ? !!requestPorts[i].output : i < contracts.length - 1, compact: scope === 'pipeline' || scope === 'storytell:graph',
       request: requestScope, width: requestScope ? [200, 260, 180, 220, 220][i] : 240, ports: requestScope && i < 4 ? requestPorts[i] : undefined,
-      fields: requestScope && contract.id === 'storytell:model' ? [['Модель', live ? activity.data?.model ?? projection.model ?? 'Не записана' : projection ? 'Тестовая модель · fixture' : 'Нет сохранённого запуска'], ['System prompt', live ? activity.data ? 'Закреплён на Start' : activity.isPending ? 'Читаем…' : 'Данные недоступны' : 'Не используется']] : undefined };
+      fields: wardrobeRequestScope && contract.id === 'wardrobe:model' ? [['Модель', preparedWardrobe?.config.model ?? (wardrobeActivity.error ? 'Данные недоступны' : 'Не подготовлена')], ['System prompt', preparedWardrobe ? 'Сохранённый промпт' : 'Доступен после подготовки']]
+        : requestScope && contract.id === 'storytell:model' ? [['Модель', live ? activity.data?.model ?? projection.model ?? 'Не записана' : projection ? 'Тестовая модель · fixture' : 'Нет сохранённого запуска'], ['System prompt', live ? activity.data ? 'Закреплён на Start' : activity.isPending ? 'Читаем…' : 'Данные недоступны' : 'Не используется']] : undefined };
   });
   // Preserve real Flow dimension changes: dropping `measured` discards handle bounds and unpaints edges.
    const nodes: StageNode[] = specs.map((data, i) => ({ id: `${scope}-${i}`, type: 'stage', data, width: data.compact ? 170 : data.width, height: requestScope ? i === 4 ? 180 : 272 : 224,
@@ -145,7 +154,7 @@ export function Pipeline({ projection, scope, setScope, viewports, setViewport, 
     label: scope === 'montage' ? 'verify' : undefined,
     markerEnd: { type: MarkerType.ArrowClosed }, style: { strokeWidth: 1.5 } }));
   const graphEdges = scope === 'storytell:graph' ? [...edges, { id: 'story-revision-route', source: nodes[4].id, target: nodes[1].id, sourceHandle: 'feedback', targetHandle: 'revision', type: 'smoothstep', selectable: false, label: 'clarify / revise', markerEnd: { type: MarkerType.ArrowClosed }, style: { strokeWidth: 1.5 } }] : edges;
-  const currentNode = scope === 'pipeline' ? nodes[projection ? 1 : 0] : requestScope && projection ? nodes[actionable || approved ? 3 : 1] : undefined;
+   const currentNode = scope === 'pipeline' ? nodes[wardrobe && approved ? 2 : projection ? 1 : 0] : scope === 'wardrobe' && wardrobe ? nodes[0] : wardrobeRequestScope && wardrobe ? nodes[projection.wardrobe_plan_ref ? 3 : 1] : requestScope && projection ? nodes[actionable || approved ? 3 : 1] : undefined;
   return <section ref={element} className="pipeline-content" aria-label="Pipeline scope" data-scope={scope} tabIndex={-1}
     onKeyDownCapture={event => {
       const node = nodes.find(n => n.id === (event.target as Element).closest('.react-flow__node')?.getAttribute('data-id'));

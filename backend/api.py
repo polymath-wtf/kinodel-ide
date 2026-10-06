@@ -24,10 +24,14 @@ from backend.domain import (
     StoryTextInputV1, StoryTextSubjectV1, StoryV1, Text, UnitKey,
 )
 from backend.story_control import open_story_runtime
-from backend.openrouter import SelectedCharacter, StoryValidationDiagnostic
+from backend.openrouter import SelectedCharacter, StoryDiagnostic
 from backend.story_start import DEFAULT_CHARACTER_ROOT, InvalidCharacterSelection, STORY_GRAPH_IDS
-from backend.story_reads import recent_story_executions, story_projection, story_activity
+from backend.story_reads import recent_story_executions, story_projection, story_activity, wardrobe_activity
 from backend.story_store import read_story
+from backend.wardrobe import VisualAnchorPlanV1, WardrobeInputV1
+from backend.openrouter_client import OpenRouterModelMetadataV1
+from backend.openrouter_wardrobe import WardrobeInputSizeDiagnostic
+from backend.wardrobe_store import WardrobeDiagnostic, read_wardrobe_plan
 
 
 COOKIE = "kinodel_session"
@@ -180,6 +184,55 @@ class RemainingActions(DomainModel):
     clarify: int
 
 
+class WardrobeStopState(DomainModel):
+    work_id: str
+    reason: Literal["wardrobe_unavailable", "wardrobe_needs_input", "wardrobe_out_of_scope",
+                    "wardrobe_exhausted", "wardrobe_invalid_output", "wardrobe_invalid"]
+    explanation: Text
+    allowed_actions: list[Literal["retry", "cancel", "new_run"]]
+
+
+class WardrobePlanState(DomainModel):
+    ref: ArtifactRef
+    plan: VisualAnchorPlanV1
+
+
+class WardrobeConfigState(DomainModel):
+    provider: Literal["OpenRouter"]
+    adapter_version: Literal["1"]
+    model: str
+    system_prompt: Narrative
+    prompt_digest: Digest
+    model_metadata: OpenRouterModelMetadataV1
+    model_metadata_digest: Digest
+    timeout_seconds: Literal[60, 180]
+    max_tokens: Literal[8192]
+    reasoning_effort: Literal["low"]
+
+
+class WardrobeAttemptsState(DomainModel):
+    reserved_attempts: int = Field(ge=0, le=2)
+    remaining_attempts: int = Field(ge=0, le=2)
+    repairs: int = Field(ge=0, le=1)
+    diagnostic: WardrobeDiagnostic | None
+
+
+class WardrobeActivity(DomainModel):
+    operation_id: Digest
+    approval_request_id: Digest
+    input_digest: Digest
+    input: WardrobeInputV1
+    config: WardrobeConfigState
+    attempts: WardrobeAttemptsState | None = None
+
+
+class WardrobePreparationFailure(DomainModel):
+    operation_id: None
+    approval_request_id: Digest
+    input_digest: Digest
+    validation_diagnostic: WardrobeInputSizeDiagnostic
+
+
 class StoryProjection(DomainModel):
     execution_id: CanonicalUUID
     project_id: CanonicalUUID
@@ -194,6 +247,8 @@ class StoryProjection(DomainModel):
     review: ReviewState | None
     remaining_actions: RemainingActions
     allowed_actions: list[Literal["approve", "revise", "clarify"]]
+    wardrobe_plan_ref: ArtifactRef | None = None
+    wardrobe_stop: WardrobeStopState | None = None
 
 
 class RecentStory(DomainModel):
@@ -301,7 +356,7 @@ class StoryOperationState(DomainModel):
     input: dict | None
     story_ref: ArtifactRef | None
     response: OwnerResponseV1 | None
-    validation_diagnostic: StoryValidationDiagnostic | None = None
+    validation_diagnostic: StoryDiagnostic | None = None
 
 
 class StoryActivity(DomainModel):
@@ -359,7 +414,8 @@ def create_app(root: Path | None = None, produce_story=fixture_story, *,
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         closing = asyncio.Event()
-        async with open_story_runtime(root if root is not None else resolve_data_root(), produce_story) as runtime:
+        async with open_story_runtime(root if root is not None else resolve_data_root(), produce_story,
+                                      character_root=character_root) as runtime:
             app.state.runtime = runtime
             try:
                 await runtime.run()  # Reconcile existing records before advertising readiness.
@@ -493,10 +549,16 @@ def create_app(root: Path | None = None, produce_story=fixture_story, *,
 
     @app.post("/api/executions/live-story", status_code=202)
     async def live_start(body: LiveStart, request: Request):
+        return await accept_live_start(body, request, request.app.state.runtime.start_live)
+
+    @app.post("/api/executions/story-wardrobe", status_code=202)
+    async def wardrobe_start(body: LiveStart, request: Request):
+        return await accept_live_start(body, request, request.app.state.runtime.start_wardrobe)
+
+    async def accept_live_start(body, request, start):
         try:
             brief = StoryTextInputV1(user_vibe=body.input_message, subjects=body.subjects, shot_duration_ms=body.shot_duration_ms)
-            receipt = await request.app.state.runtime.start_live(body.project_id, body.client_key, body.shot_ids, brief,
-                                                                 character_refs=body.character_refs, character_root=character_root)
+            receipt = await start(body.project_id, body.client_key, body.shot_ids, brief, character_refs=body.character_refs)
         except FileNotFoundError as error:
             raise HTTPException(404, "Selected character revision not found") from error
         except InvalidCharacterSelection as error:
@@ -507,13 +569,18 @@ def create_app(root: Path | None = None, produce_story=fixture_story, *,
             raise HTTPException(409, "Live Story start conflicts or server configuration is unavailable") from error
         return {"execution_id": receipt.execution_id, "work_id": receipt.work_id}
 
-    @app.get("/api/executions/{execution_id}/projection", response_model=StoryProjection)
+    @app.get("/api/executions/{execution_id}/projection", response_model=StoryProjection, response_model_exclude_unset=True)
     async def read_projection(execution_id: CanonicalUUID, request: Request):
         try:
             projection = story_projection(request.app.state.runtime.db, execution_id)
             if projection is None:
                 raise HTTPException(404, "Unknown internal Story execution")
-            return StoryProjection.model_validate(projection)
+            result = StoryProjection.model_validate(projection).model_dump(mode="json")
+            if "wardrobe_plan_ref" not in projection:
+                # Existing Story clients use strict JSON schemas; keep their wire unchanged.
+                result.pop("wardrobe_plan_ref")
+                result.pop("wardrobe_stop")
+            return result
         except (ValueError, TypeError) as error:
             raise HTTPException(409, str(error)) from error
 
@@ -541,13 +608,36 @@ def create_app(root: Path | None = None, produce_story=fixture_story, *,
     @app.get("/api/executions/{execution_id}/stories/{artifact_id}")
     async def story(execution_id: CanonicalUUID, artifact_id: CanonicalUUID, request: Request):
         db = request.app.state.runtime.db
-        if db.execute("SELECT 1 FROM executions WHERE execution_id=? AND graph_id IN (?,?)", (execution_id, *STORY_GRAPH_IDS)).fetchone() is None:
+        if db.execute("SELECT 1 FROM executions WHERE execution_id=? AND graph_id IN (?,?,?)", (execution_id, *STORY_GRAPH_IDS)).fetchone() is None:
             raise HTTPException(404, "Unknown internal Story execution")
         try:
             ref, body = read_story(db, execution_id, artifact_id=artifact_id)
         except (ValueError, FileNotFoundError) as error:
             raise HTTPException(404, str(error)) from error
         return {"ref": ref.model_dump(mode="json"), "story": body.model_dump(mode="json")}
+
+    @app.get("/api/executions/{execution_id}/wardrobe-plans/{artifact_id}", response_model=WardrobePlanState)
+    async def wardrobe_plan(execution_id: CanonicalUUID, artifact_id: CanonicalUUID, request: Request):
+        try:
+            ref, plan = read_wardrobe_plan(request.app.state.runtime.db, execution_id, artifact_id=artifact_id)
+        except (ValueError, FileNotFoundError) as error:
+            raise HTTPException(404, "Exact Wardrobe plan not found or invalid") from error
+        return {"ref": ref, "plan": plan}
+
+    @app.get("/api/executions/{execution_id}/wardrobe-activity", response_model=WardrobeActivity | WardrobePreparationFailure | None,
+             response_model_exclude_unset=True)
+    async def read_wardrobe_activity(execution_id: CanonicalUUID, request: Request, include_validation_diagnostic: bool = False):
+        try:
+            activity = wardrobe_activity(request.app.state.runtime.db, execution_id,
+                                         include_validation_diagnostic=include_validation_diagnostic)
+            if activity is None:
+                return None
+            model = WardrobePreparationFailure if activity["operation_id"] is None else WardrobeActivity
+            return model.model_validate(activity)
+        except (ValueError, TypeError, KeyError, IndexError, AttributeError, OSError) as error:
+            raise HTTPException(409, "Recorded Wardrobe inspection is invalid") from error
+        except LookupError as error:
+            raise HTTPException(404, str(error)) from error
 
     @app.post("/api/executions/{execution_id}/reviews/{request_id}/respond", status_code=202)
     async def respond(execution_id: CanonicalUUID, request_id: str, body: ResponseCommand, request: Request):

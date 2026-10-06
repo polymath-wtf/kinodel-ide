@@ -12,7 +12,7 @@ function ReviewEvent({ review, projection, select }: { review: ReviewHistory; pr
     {review.accepted && !review.applied && <p className="warning">Решение принято, ожидает применения.</p>}
     {review.result?.kind === 'owner_response' && <div className="owner-response"><strong>Storytell · {({ clarified: 'ответ', needs_input: 'нужны уточнения', out_of_scope: 'вне задачи' })[review.result.response.status]}</strong><p>{review.result.response.explanation}</p></div>}
     {review.result?.kind === 'revised_story' && <p>Сохранена {revised ? versionLabel(revised) : 'новая Story'} · отдельное объяснение не записано. <button onClick={() => select(review.result!.ref!)}>Открыть результат</button></p>}
-    {review.result?.kind === 'approved_subject' && <p className="approved">Эта версия утверждена. Story завершена; следующие этапы пока недоступны.</p>}
+    {review.result?.kind === 'approved_subject' && <p className="approved">Эта версия утверждена. {projection.graph.id === 'kinodel.story-wardrobe' ? 'Exact Story передана в Wardrobe.' : 'Story завершена; следующие этапы пока недоступны.'}</p>}
   </article>;
 }
 export function Chat({ projection, select }: { projection: Projection; select: (r: ArtifactRef) => void }) {
@@ -23,6 +23,6 @@ export function Chat({ projection, select }: { projection: Projection; select: (
     <details className="history-details"><summary>История решений · {projection.reviews.length}</summary>
       <div className="history-events">{projection.reviews.map(r => <ReviewEvent key={r.request_id} review={r} projection={projection} select={select} />)}</div>
     </details>
-    {!projection.review && !projection.outcome && <p className="activity" role="status">{projection.work.filter(w => w.status === 'pending' || w.status === 'claimed').length ? 'Storytell работает…' : 'Нет активного review'}</p>}
+    {!projection.review && !projection.outcome && !projection.reviews.some(r => r.applied && r.result?.kind === 'approved_subject') && <p className="activity" role="status">{projection.work.filter(w => w.status === 'pending' || w.status === 'claimed').length ? 'Storytell работает…' : 'Нет активного review'}</p>}
   </section>;
 }
