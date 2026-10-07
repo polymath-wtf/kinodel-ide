@@ -105,7 +105,7 @@ module.exports = async ({ browser, origin, folder, restart }) => {
     await expect(page.locator('.flow-stage[data-stage="storytell:model"]')).toHaveClass(/node-(active|queued)\b/); // Durable work may still be queued at the first read.
     await capture('working');
     await ready();
-    assert.ok(posts[0][0].endsWith('/story-wardrobe'), 'ordinary Start is the current implemented pipeline, never fixture or historical Story-only');
+    assert.ok(posts[0][0].endsWith('/story-wardrobe/v2'), 'ordinary Start is the active versioned pipeline, never fixture or historical Story-only');
     assert.deepEqual(posts[0][1].subjects, []); assert.deepEqual(posts[0][1].character_refs, []);
     await runMenu();
     await expect(page.locator('.topbar .delivery-status > details > summary')).toContainText('Доставка подтверждена');

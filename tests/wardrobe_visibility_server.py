@@ -1,6 +1,5 @@
-"""W7 browser transport only: real durable graph/reads, no remote or paid calls."""
+"""V2 browser transport only: real durable graph/reads, no remote or paid calls."""
 import asyncio
-from copy import deepcopy
 from functools import partial
 import hashlib
 import json
@@ -13,7 +12,7 @@ import httpx
 def install():
     from backend.api import fixture_story
     import backend.openrouter_client as owner
-    from tests.test_wardrobe import draft_data
+    from tests.test_wardrobe import full_batch_draft
     from tests.test_wardrobe_openrouter import capability, envelope
 
     os.environ.update(OPENROUTER_API_KEY="browser-test-secret", LLM_MODEL="mock/wardrobe-model")
@@ -41,21 +40,17 @@ def install():
             if vibe == "harness:wardrobe-needs-input":
                 return httpx.Response(200, json=envelope({"status": "needs_input", "plan": None,
                     "explanation": "Нужна новая идея: этот сохранённый план не готов. Отмените запуск или начните новый."}))
-            plan = draft_data()
-            for unit in plan["units"]:
-                unit["subject_ids"] = ["fox"] if unit["role"] != "background" else []
+            plan = full_batch_draft()
+            for unit in plan["batch_prompt"]:
                 unit["image_prompt"] = "  A grounded rainy-city visual reference, soft overcast light reflected in wet stone, restrained blue and warm copper palette, clear silhouette and tactile fabric, one coherent composition with no text or frame borders.\nExact end 🦊.  "
-            for i in range(4):
-                unit = deepcopy(next(u for u in plan["units"] if u["role"] == "background"))
-                unit["unit_key"] = f"independent-location-{i}"
-                plan["units"].append(unit)
-            plan["units"][-1]["image_prompt"] = "  A grounded rainy-city image. " + "Full untruncated prompt detail; " * 40 + "\nExact end 🦊.  "
+            plan["batch_prompt"][-1]["image_prompt"] = "  A grounded rainy-city image. " + "Full untruncated prompt detail; " * 40 + "\nExact end 🦊.  "
             return httpx.Response(200, json=envelope({"status": "ready", "plan": plan, "explanation": None}))
         task = json.loads(payload["messages"][1]["content"])
         story = fixture_story(task["brief"]["user_vibe"], task["shot_ids"], None, task["feedback"]).model_dump(mode="json")
-        story.update(schema_version="2", generated_characters=[{"subject_id": "fox", "description": "Любопытный лис · generated cast"}])
+        story.update(schema_version="2", generated_characters=[{"subject_id": "ada", "description": "Ада · generated cast"},
+                                                              {"subject_id": "leo", "description": "Лео · generated cast"}])
         for shot in story["shots"]:
-            shot["subject_ids"] = [s["subject_id"] for s in task["brief"]["subjects"]] + ["fox"]
+            shot["subject_ids"] = [s["subject_id"] for s in task["brief"]["subjects"]] + ["ada", "leo"]
         return httpx.Response(200, json=envelope({"status": "ready", "story": story, "explanation": None}))
 
     owner.httpx.AsyncClient = partial(httpx.AsyncClient, transport=httpx.MockTransport(respond))

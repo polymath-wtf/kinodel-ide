@@ -24,7 +24,7 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
   const http = () => readFileSync(join(data, 'wardrobe-http.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
   const capture = async (name, target = page) => {
     if (process.env.WARDROBE_INSPECTOR_CAPTURE_ONLY) { if (folder && name === 'pipeline') await target.screenshot({ path: join(folder, 'screen-state-desktop.png') }); return; }
-    if (folder && (!process.env.WARDROBE_TERMINAL_CAPTURE_ONLY || name === 'terminal-model') && (!process.env.WARDROBE_REQUEST_CAPTURE_ONLY || ['request', 'model'].includes(name))) { mkdirSync(join(folder, name)); await target.screenshot({ path: join(folder, name, 'screen-state-desktop.png') }); } };
+     if (folder && (!process.env.WARDROBE_BATCH_CAPTURE_ONLY || ['pipeline', 'chat'].includes(name)) && (!process.env.WARDROBE_TERMINAL_CAPTURE_ONLY || name === 'terminal-model') && (!process.env.WARDROBE_REQUEST_CAPTURE_ONLY || ['request', 'model'].includes(name))) { mkdirSync(join(folder, name)); await target.screenshot({ path: join(folder, name, 'screen-state-desktop.png') }); } };
   const start = async idea => {
     await page.getByRole('button', { name: 'Новая история', exact: true }).click();
     await page.getByLabel('Идея истории', { exact: true }).fill(idea);
@@ -91,17 +91,18 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
     await capture('start');
     // Lost Start response: committed backend work exists, but receipt is withheld from the UI.
     let lost = false;
-    await page.route('**/api/executions/story-wardrobe', async route => { const r = await route.fetch(); assert.equal(r.status(), 202); if (!lost) { lost = true; await route.abort('failed'); } else await route.fulfill({ response: r }); });
+     await page.route('**/api/executions/story-wardrobe/v2', async route => { const r = await route.fetch(); assert.equal(r.status(), 202); if (!lost) { lost = true; await route.abort('failed'); } else await route.fulfill({ response: r }); });
     await page.getByRole('button', { name: 'Начать историю', exact: true }).click();
     await expect(page.getByText('Подтверждение не получено. Отправка сохранена.', { exact: true })).toBeVisible();
     const savedCommand = await page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('kinodel.command.v1.')).map(k => JSON.parse(localStorage.getItem(k)))[0]);
-    assert.equal(savedCommand.endpoint, '/api/executions/story-wardrobe');
+     assert.equal(savedCommand.endpoint, '/api/executions/story-wardrobe/v2');
     await page.reload();
     await expect.poll(eid).toMatch(/^[0-9a-f-]{36}$/);
     assert.deepEqual(posts[0], posts[1], 'lost Start reload replays exact route/payload/key');
-    await page.unroute('**/api/executions/story-wardrobe');
+     await page.unroute('**/api/executions/story-wardrobe/v2');
     const execution = eid();
-    await expect(status()).toHaveText('Ожидает решения', { timeout: 20000 });
+     await expect(status()).toHaveText('Ожидает решения', { timeout: 20000 });
+     await scope('storytell'); // New versioned receipt retains the ordinary direct Story entry.
     await requestView();
     await expect(page.locator('.flow-stage[data-stage="wardrobe:model"]')).not.toContainText('mock/wardrobe-model');
     await page.locator('.flow-stage[data-stage="wardrobe:model"]').click();
@@ -158,25 +159,36 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
     await expect(status()).toHaveText('Завершён', { timeout: 20000 });
     await page.unroute('**/reviews/*/respond');
     const decisions = posts.filter(p => p.path.includes('/respond')); assert.equal(decisions.length, 2); assert.deepEqual(decisions[0], decisions[1]);
-    const final = await projection(); assert.equal(final.graph.id, 'kinodel.story-wardrobe'); assert.equal(final.stories.length, 1); assert.equal(final.reviews.length, 1);
+     const final = await projection(); assert.equal(final.graph.id, 'kinodel.story-wardrobe'); assert.equal(final.graph.version, '2'); assert.equal(final.stories.length, 1); assert.equal(final.reviews.length, 1);
     assert.deepEqual(final.stories, before.stories); assert.equal(final.outcome.subject_artifact_id, final.wardrobe_plan_ref.artifact_id);
     const path = `/api/executions/${execution}/wardrobe-plans/${final.wardrobe_plan_ref.artifact_id}`, saved = await get(path);
-    assert.deepEqual(saved.plan.narrative_ref, before.stories[0].ref); assert.equal(saved.plan.units.length, 7);
+     assert.deepEqual(saved.plan.narrative_ref, before.stories[0].ref); assert.equal(saved.plan.schema_version, '2'); assert.equal(saved.plan.batch_prompt.length, 5);
+     assert.deepEqual(saved.plan.batch_prompt.map(u => u.unit_key), ['ada_face', 'leo_face', 'location', 'ada_sheet', 'leo_sheet']);
+     const story = await get(`/api/executions/${execution}/stories/${before.stories[0].ref.artifact_id}`);
+     assert.deepEqual(story.story.generated_characters.map(c => c.subject_id), ['ada', 'leo']);
     await wardrobeInspector();
-    const panel = page.getByRole('dialog'); await expect(panel.locator('.anchor-unit')).toHaveCount(7);
+     const panel = page.getByRole('dialog'); await expect(panel.locator('.anchor-unit')).toHaveCount(5);
+     const batch = page.locator('.flow-stage[data-stage="anchor-batch"]');
+     await expect(batch).toContainText('Batch generation'); await expect(batch).toContainText('Anchors'); await expect(batch).toContainText('Не подключено');
+     await expect(batch).toHaveClass(/node-idle\b/); await expect(page.locator('.flow-stage[data-stage="anchor-hitl"]')).toHaveClass(/node-idle\b/);
     await expect(page.locator('.wardrobe-status')).toHaveCount(1);
     await expect(panel.getByText('Общее визуальное направление', { exact: true })).toBeVisible();
-    for (const u of saved.plan.units) assert.equal(await panel.locator('.anchor-unit').filter({ has: page.getByRole('button', { name: `Скопировать prompt · ${u.unit_key}`, exact: true }) }).locator('.image-prompt').textContent(), u.image_prompt);
-    const first = saved.plan.units[0]; await panel.getByRole('button', { name: `Скопировать prompt · ${first.unit_key}`, exact: true }).click();
+     for (const u of saved.plan.batch_prompt) { const unit = panel.locator(`.anchor-unit[data-unit="${u.unit_key}"]`);
+       assert.equal(await unit.locator('.image-prompt').textContent(), u.image_prompt);
+       await expect(unit).toContainText(`${u.use_case} · ${u.workflow}`); }
+     const first = saved.plan.batch_prompt[0]; await panel.getByRole('button', { name: `Скопировать prompt · ${first.unit_key}`, exact: true }).click();
     assert.equal(await page.evaluate(() => window.__copiedPrompt), first.image_prompt, 'native clipboard receives exact complete prompt bytes');
     // Windows text clipboard uses CRLF; only native newline normalization is allowed.
     assert.equal((await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, '\n'), first.image_prompt, 'clipboard preserves complete whitespace/Unicode prompt');
-    const long = saved.plan.units.at(-1); assert.ok(long.image_prompt.length > 1000);
+     const long = saved.plan.batch_prompt.at(-1); assert.ok(long.image_prompt.length > 1000);
     await panel.getByRole('button', { name: `Скопировать prompt · ${long.unit_key}`, exact: true }).click();
     assert.equal(await page.evaluate(() => window.__copiedPrompt), long.image_prompt);
     assert.equal((await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, '\n'), long.image_prompt, 'longest full prompt copied without truncation');
-    const sheet = saved.plan.units.find(u => u.role === 'character_sheet');
-    assert.deepEqual(await panel.locator('.anchor-unit').filter({ has: page.getByRole('button', { name: `Скопировать prompt · ${sheet.unit_key}`, exact: true }) }).locator('ol > li > code').allTextContents(), sheet.references.map(r => `${r.role} → ${r.source.unit_key}`));
+     for (const sheet of saved.plan.batch_prompt.filter(u => u.use_case === 'hero-sheet')) {
+       const unit = panel.locator(`.anchor-unit[data-unit="${sheet.unit_key}"]`);
+       assert.deepEqual(await unit.locator('ol > li > code').allTextContents(), sheet.references.map(r => `${r.role} → ${r.source.unit_key}`));
+       assert.equal(await unit.locator('details').first().getAttribute('open'), '', 'both ordered sheet bindings are disclosed by default');
+     }
     await panel.locator('.details-body').evaluate(e => { e.scrollTop = 0; });
     await capture('pipeline');
     await panel.getByRole('button', { name: 'Ввод', exact: true }).click();
@@ -186,7 +198,8 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
     await expect(panel.locator('.wardrobe-character')).toContainText('Лея frozen r1');
     await expect(panel.locator('.wardrobe-character')).toContainText('character-image-0-0');
     await expect(panel.getByRole('heading', { name: /^Image evidence/ })).toHaveCount(0);
-    const actual = await get(`/api/executions/${execution}/wardrobe-activity`); assert.deepEqual(actual.input.selected_characters, [character]);
+     const actual = await get(`/api/executions/${execution}/wardrobe-activity`); assert.deepEqual(actual.input.selected_characters, [character]);
+     assert.equal(actual.config.adapter_version, '2'); assert.equal(actual.input.schema_version, '2'); assert.equal(actual.input.capability_set, 'anchor-basics.v2');
     await panel.getByRole('button', { name: 'Настройки', exact: true }).click(); await expect(panel).toContainText('OpenRouter · mock/wardrobe-model');
     await expect(panel).not.toContainText('browser-test-secret');
     await expect(panel).toContainText('Сохранённая конфигурация · только чтение');
@@ -218,7 +231,7 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
       } else if (leaf.endsWith('end')) {
         await expect(panel.locator('.anchor-unit')).toHaveCount(0);
         await expect(panel.getByRole('region', { name: 'Wardrobe result receipt' })).toBeVisible();
-      } else await expect(panel.locator('.anchor-unit')).toHaveCount(7);
+       } else await expect(panel.locator('.anchor-unit')).toHaveCount(5);
       await expect(panel.locator('.details-tabs')).toHaveCount(0);
       await expect(page.locator('.wardrobe-status')).toHaveCount(1);
       await back(panel);
@@ -232,15 +245,20 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
     await page.locator('.breadcrumbs').getByRole('button', { name: 'Pipeline', exact: true }).click();
     await requestView(); assert.deepEqual((await cache()).viewports, storedRequest.viewports, 'Back/reentry preserves each viewport');
     await view(page, 'Chat');
-    await expect(page.locator('.chat-column .anchor-unit')).toHaveCount(7);
-    for (const u of saved.plan.units) assert.equal(await page.locator('.chat-column .anchor-unit').filter({ has: page.getByRole('button', { name: `Скопировать prompt · ${u.unit_key}`, exact: true }) }).locator('.image-prompt').textContent(), u.image_prompt, 'Chat uses the same exact saved prompts');
+     await expect(page.locator('.chat-column .anchor-unit')).toHaveCount(5);
+     for (const u of saved.plan.batch_prompt) {
+       const unit = page.locator(`.chat-column .anchor-unit[data-unit="${u.unit_key}"]`);
+       assert.equal(await unit.locator('.image-prompt').textContent(), u.image_prompt, 'Chat uses the same exact saved prompts');
+       await unit.getByRole('button', { name: `Скопировать prompt · ${u.unit_key}`, exact: true }).click();
+       assert.equal(await page.evaluate(() => window.__copiedPrompt), u.image_prompt, 'Chat full native prompt copy is exact');
+     }
     await page.locator('.chat-column .wardrobe-plan').scrollIntoViewIfNeeded(); await capture('chat');
     const count = http().length;
-    await page.reload(); await expect(page.locator('.anchor-unit')).toHaveCount(7);
+     await page.reload(); await expect(page.locator('.anchor-unit')).toHaveCount(5);
     assert.deepEqual(await get(path), saved); assert.equal(http().length, count, 'reload no provider HTTP');
     writeFileSync(join(data, 'provider-offline'), 'offline');
     await restart(); await page.goto(`${origin}/?execution=${execution}`); await page.waitForLoadState('networkidle');
-    await expect(page.locator('.anchor-unit')).toHaveCount(7); assert.deepEqual(await get(path), saved); assert.deepEqual(await projection(), final);
+     await expect(page.locator('.anchor-unit')).toHaveCount(5); assert.deepEqual(await get(path), saved); assert.deepEqual(await projection(), final);
     assert.equal(http().length, count, 'fresh process/offline provider reads the exact saved plan without HTTP');
     // Return to mocked provider for control/history checks; never touch the user's runtime.
     require('node:fs').unlinkSync(join(data, 'provider-offline'));
@@ -257,7 +275,20 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
     await page.locator('.topbar .run-controls > summary').click(); await expect(page.getByRole('button', { name: 'Повторить работу', exact: true })).toBeEnabled();
     const retryStop = await projection(); await page.getByRole('button', { name: 'Повторить работу', exact: true }).click();
     await expect(status()).toHaveText('Завершён', { timeout: 20000 }); assert.deepEqual((await projection()).stories, retryStop.stories);
-    await page.keyboard.press('Escape');
+     await page.keyboard.press('Escape');
+     // Retired Wardrobe pending bytes stay at the old endpoint, get one real 410 and finish as failed delivery.
+     const retiredProject = crypto.randomUUID(), retired = { id: crypto.randomUUID(), kind: 'start', project_id: retiredProject, execution_id: null, target: null,
+       endpoint: '/api/executions/story-wardrobe', payload: JSON.stringify({ project_id: retiredProject, client_key: crypto.randomUUID(), input_message: 'Retired Wardrobe',
+         shot_ids: ['shot-001'], subjects: [], character_refs: [], shot_duration_ms: 5000 }, null, 2) };
+     const retiredPosts = posts.length;
+     await page.getByRole('button', { name: 'Новая история', exact: true }).click();
+     await page.evaluate(c => localStorage.setItem('kinodel.command.v1.' + c.id, JSON.stringify(c)), retired);
+     await page.reload();
+     await expect.poll(() => page.evaluate(id => localStorage.getItem('kinodel.command.v1.' + id), retired.id)).toBe(null);
+     assert.deepEqual(posts.slice(retiredPosts), [{ path: retired.endpoint, payload: retired.payload }], 'no V2 call/retarget on retired replay');
+     await page.getByRole('button', { name: 'Новая история', exact: true }).click();
+     await page.locator('.delivery-status').getByText('Подробности ошибки', { exact: true }).click();
+     await expect(page.locator('.delivery-status')).toContainText('retired');
     // An old pending Start reopens exactly its frozen historical route, without a second UI button.
     const legacyProject = crypto.randomUUID(), legacyKey = crypto.randomUUID();
     const legacy = { id: crypto.randomUUID(), kind: 'start', project_id: legacyProject, execution_id: null, target: null,
@@ -290,9 +321,16 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
       validation_diagnostic: { basis: 'frozen_input_size', stage: 'input', code: 'evidence_size_limit', serialized_evidence_bytes: 17000000, limit_bytes: 16777216 } };
     let failureActivity = { ...actual, config: { ...actual.config, model: 'mock/exact-wardrobe-only', model_metadata: { ...actual.config.model_metadata, id: 'mock/exact-wardrobe-only' } } };
     await page.route(`**/api/executions/${execution}/wardrobe-activity?include_validation_diagnostic=true`, route => route.fulfill({ json: failureActivity }));
-    await page.reload(); await requestView();
-    await expect(page.locator('.flow-stage[data-stage="wardrobe:model"]')).toContainText('mock/exact-wardrobe-only');
-    await expect(page.locator('.flow-stage[data-stage="wardrobe:model"]')).not.toContainText(final.model);
+     await page.reload(); await requestView();
+     await expect(page.locator('.flow-stage[data-stage="wardrobe:model"]')).toContainText('mock/exact-wardrobe-only');
+     await expect(page.locator('.flow-stage[data-stage="wardrobe:model"]')).not.toContainText(final.model);
+     for (const corrupt of [{ ...actual, config: { ...actual.config, adapter_version: '1' } },
+       { ...actual, input: { ...actual.input, schema_version: '1', capability_set: 'anchor-basics.v1' } }]) {
+       failureActivity = corrupt; await page.reload(); await page.locator('.flow-stage[data-stage="wardrobe:model"]').click();
+       await expect(panel).toContainText('Frozen Wardrobe metadata недоступны');
+       await expect(panel.getByRole('region', { name: 'Frozen Wardrobe config' })).toHaveCount(0);
+       await expect(page.locator('.flow-stage[data-stage="wardrobe:model"]')).not.toContainText('mock/wardrobe-model');
+     }
     failureActivity = sizeFailure;
     await page.route(`**/api/executions/${execution}/projection`, route => route.fulfill({ json: failed }));
     await page.reload(); await requestView(); await page.locator('.flow-stage[data-stage="wardrobe:model"]').click();
@@ -301,16 +339,27 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
     failureActivity = null; await page.reload(); await page.locator('.flow-stage[data-stage="wardrobe:model"]').click();
     await expect(panel).toContainText('ещё не сохранён'); await expect(panel).not.toContainText('17 000 000');
     await expect(panel).not.toContainText('mock/wardrobe-model');
-    for (const width of [820, 390]) {
+     for (const width of [820, 390]) {
       await page.keyboard.press('Escape'); await page.setViewportSize({ width, height: 900 }); await requestView();
       await drill(page, '.flow-stage[data-stage="wardrobe:model"]'); await scope('wardrobe:request');
       await expect(panel).toBeVisible(); assert.equal(await panel.evaluate(e => e.matches(':modal')), true);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'request path and sheet fit narrow screens');
       await page.keyboard.press('Escape'); await expect(node(page, '.flow-stage[data-stage="wardrobe:model"]')).toBeFocused();
-      await back(page.locator('.topbar')); await scope('wardrobe');
-    }
-    assert.equal(posts.length, navigationPosts, 'views/inspection/reads never POST'); assert.deepEqual(errors, []); assert.deepEqual(foreign, []);
-    console.log('PASS W7: real new route/exact approval/running/saved plan; full prompt clipboard, 7 ordered units, frozen r1 inputs/model; exact lost-envelope replay; reload/fresh process offline reopen; non-ready/cancel/technical retry and historical approve→END; no duplicate generation');
+       await back(page.locator('.topbar')); await scope('wardrobe');
+     }
+     await page.unroute(`**/api/executions/${execution}/projection`);
+     await page.unroute(`**/api/executions/${execution}/wardrobe-activity?include_validation_diagnostic=true`);
+     await page.setViewportSize({ width: 1440, height: 900 });
+     await page.route(`**${path}`, route => route.fulfill({ json: { ...saved, plan: { ...saved.plan, schema_version: '1' } } }));
+     await page.reload(); await wardrobeInspector(); await expect(panel).toContainText('Не удалось прочитать exact план');
+     await expect(panel.locator('.anchor-unit')).toHaveCount(0);
+     await page.unroute(`**${path}`); await page.reload(); await wardrobeInspector(); await expect(panel.locator('.anchor-unit')).toHaveCount(5);
+     await page.keyboard.press('Escape'); await root(page); await drill(page, '.flow-stage[data-group="storyboard"]');
+     const frames = page.locator('.flow-stage[data-stage="frames-batch"]');
+     await expect(frames).toContainText('Batch generation'); await expect(frames).toContainText('Storyboard'); await expect(frames).toContainText('Не подключено');
+     await expect(frames).toHaveClass(/node-idle\b/); await expect(page.locator('.flow-stage[data-stage="frames-hitl"]')).toHaveClass(/node-idle\b/);
+     assert.equal(posts.length, navigationPosts, 'views/inspection/reads never POST'); assert.deepEqual(errors, []); assert.deepEqual(foreign, []);
+     console.log('PASS W8 UI: versioned V2 Start/exact approval/5 ordered batch tasks with generated cast 2; shared full prompt copy and two sheet bindings; frozen V2 inputs/config; exact lost-envelope replay and retired 410 without retarget; offline reopen; non-ready/cancel/retry, historical Story unchanged; zero media calls/duplicate generation');
   } finally { if (observerContext) await observerContext.close(); await context.close(); }
 } };
 require('./shell-check.cjs');

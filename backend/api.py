@@ -25,10 +25,11 @@ from backend.domain import (
 )
 from backend.story_control import open_story_runtime
 from backend.openrouter import SelectedCharacter, StoryDiagnostic
-from backend.story_start import DEFAULT_CHARACTER_ROOT, InvalidCharacterSelection, STORY_GRAPH_IDS
-from backend.story_reads import recent_story_executions, story_projection, story_activity, wardrobe_activity
+from backend.story_start import (DEFAULT_CHARACTER_ROOT, InvalidCharacterSelection, STORY_GRAPH_IDS,
+                                 RetiredWardrobeRoute, RETIRED_WARDROBE_MESSAGE, reject_retired_wardrobe)
+from backend.story_reads import recent_story_executions, story_projection, story_activity, wardrobe_activity, retired_wardrobe_counts
 from backend.story_store import read_story
-from backend.wardrobe import VisualAnchorPlanV1, WardrobeInputV1
+from backend.wardrobe import VisualAnchorPlanV2, WardrobeInputV2
 from backend.openrouter_client import OpenRouterModelMetadataV1
 from backend.openrouter_wardrobe import WardrobeInputSizeDiagnostic
 from backend.wardrobe_store import WardrobeDiagnostic, read_wardrobe_plan
@@ -194,12 +195,12 @@ class WardrobeStopState(DomainModel):
 
 class WardrobePlanState(DomainModel):
     ref: ArtifactRef
-    plan: VisualAnchorPlanV1
+    plan: VisualAnchorPlanV2
 
 
 class WardrobeConfigState(DomainModel):
     provider: Literal["OpenRouter"]
-    adapter_version: Literal["1"]
+    adapter_version: Literal["2"]
     model: str
     system_prompt: Narrative
     prompt_digest: Digest
@@ -221,7 +222,7 @@ class WardrobeActivity(DomainModel):
     operation_id: Digest
     approval_request_id: Digest
     input_digest: Digest
-    input: WardrobeInputV1
+    input: WardrobeInputV2
     config: WardrobeConfigState
     attempts: WardrobeAttemptsState | None = None
 
@@ -417,6 +418,9 @@ def create_app(root: Path | None = None, produce_story=fixture_story, *,
         async with open_story_runtime(root if root is not None else resolve_data_root(), produce_story,
                                       character_root=character_root) as runtime:
             app.state.runtime = runtime
+            counts = retired_wardrobe_counts(runtime.db)
+            log.info("Retired Story-Wardrobe v1 data isolated in place; rows and checkpoints retained; counts=%s",
+                     counts, extra={"retired_wardrobe_counts": counts})
             try:
                 await runtime.run()  # Reconcile existing records before advertising readiness.
             except ValueError as error:
@@ -536,6 +540,8 @@ def create_app(root: Path | None = None, produce_story=fixture_story, *,
         try:
             receipt = await request.app.state.runtime.start(body.project_id, body.client_key,
                                                              body.input_message, body.shot_ids)
+        except RetiredWardrobeRoute as error:
+            raise HTTPException(410, str(error)) from error
         except ValueError as error:
             raise HTTPException(409, str(error)) from error
         return {"execution_id": receipt.execution_id, "work_id": receipt.work_id}
@@ -551,7 +557,12 @@ def create_app(root: Path | None = None, produce_story=fixture_story, *,
     async def live_start(body: LiveStart, request: Request):
         return await accept_live_start(body, request, request.app.state.runtime.start_live)
 
-    @app.post("/api/executions/story-wardrobe", status_code=202)
+    @app.post("/api/executions/story-wardrobe")
+    async def retired_wardrobe_start():
+        # No body model: retirement precedes JSON/input validation and all preparation.
+        raise HTTPException(410, RETIRED_WARDROBE_MESSAGE)
+
+    @app.post("/api/executions/story-wardrobe/v2", status_code=202)
     async def wardrobe_start(body: LiveStart, request: Request):
         return await accept_live_start(body, request, request.app.state.runtime.start_wardrobe)
 
@@ -559,6 +570,8 @@ def create_app(root: Path | None = None, produce_story=fixture_story, *,
         try:
             brief = StoryTextInputV1(user_vibe=body.input_message, subjects=body.subjects, shot_duration_ms=body.shot_duration_ms)
             receipt = await start(body.project_id, body.client_key, body.shot_ids, brief, character_refs=body.character_refs)
+        except RetiredWardrobeRoute as error:
+            raise HTTPException(410, str(error)) from error
         except FileNotFoundError as error:
             raise HTTPException(404, "Selected character revision not found") from error
         except InvalidCharacterSelection as error:
@@ -581,6 +594,8 @@ def create_app(root: Path | None = None, produce_story=fixture_story, *,
                 result.pop("wardrobe_plan_ref")
                 result.pop("wardrobe_stop")
             return result
+        except RetiredWardrobeRoute as error:
+            raise HTTPException(410, str(error)) from error
         except (ValueError, TypeError) as error:
             raise HTTPException(409, str(error)) from error
 
@@ -588,6 +603,8 @@ def create_app(root: Path | None = None, produce_story=fixture_story, *,
     async def read_execution(execution_id: CanonicalUUID, request: Request):
         try:
             return ExecutionState.model_validate(_state(request.app.state.runtime.db, execution_id))
+        except RetiredWardrobeRoute as error:
+            raise HTTPException(410, str(error)) from error
         except (ValueError, TypeError) as error:
             raise HTTPException(409, str(error)) from error
 
@@ -600,6 +617,8 @@ def create_app(root: Path | None = None, produce_story=fixture_story, *,
                 activity = {**activity, "operations": [{k: v for k, v in operation.items() if k != "validation_diagnostic"}
                                                       for operation in activity["operations"]]}
             return StoryActivity.model_validate(activity) if activity is not None else None
+        except RetiredWardrobeRoute as error:
+            raise HTTPException(410, str(error)) from error
         except (ValueError, TypeError, KeyError, IndexError, AttributeError) as error:
             raise HTTPException(409, "Recorded Story activity is invalid") from error
         except LookupError as error:
@@ -611,7 +630,10 @@ def create_app(root: Path | None = None, produce_story=fixture_story, *,
         if db.execute("SELECT 1 FROM executions WHERE execution_id=? AND graph_id IN (?,?,?)", (execution_id, *STORY_GRAPH_IDS)).fetchone() is None:
             raise HTTPException(404, "Unknown internal Story execution")
         try:
+            reject_retired_wardrobe(db, execution_id)
             ref, body = read_story(db, execution_id, artifact_id=artifact_id)
+        except RetiredWardrobeRoute as error:
+            raise HTTPException(410, str(error)) from error
         except (ValueError, FileNotFoundError) as error:
             raise HTTPException(404, str(error)) from error
         return {"ref": ref.model_dump(mode="json"), "story": body.model_dump(mode="json")}
@@ -619,7 +641,10 @@ def create_app(root: Path | None = None, produce_story=fixture_story, *,
     @app.get("/api/executions/{execution_id}/wardrobe-plans/{artifact_id}", response_model=WardrobePlanState)
     async def wardrobe_plan(execution_id: CanonicalUUID, artifact_id: CanonicalUUID, request: Request):
         try:
+            reject_retired_wardrobe(request.app.state.runtime.db, execution_id)
             ref, plan = read_wardrobe_plan(request.app.state.runtime.db, execution_id, artifact_id=artifact_id)
+        except RetiredWardrobeRoute as error:
+            raise HTTPException(410, str(error)) from error
         except (ValueError, FileNotFoundError) as error:
             raise HTTPException(404, "Exact Wardrobe plan not found or invalid") from error
         return {"ref": ref, "plan": plan}
@@ -634,6 +659,8 @@ def create_app(root: Path | None = None, produce_story=fixture_story, *,
                 return None
             model = WardrobePreparationFailure if activity["operation_id"] is None else WardrobeActivity
             return model.model_validate(activity)
+        except RetiredWardrobeRoute as error:
+            raise HTTPException(410, str(error)) from error
         except (ValueError, TypeError, KeyError, IndexError, AttributeError, OSError) as error:
             raise HTTPException(409, "Recorded Wardrobe inspection is invalid") from error
         except LookupError as error:
@@ -645,6 +672,8 @@ def create_app(root: Path | None = None, produce_story=fixture_story, *,
             receipt = request.app.state.runtime.respond(execution_id, request_id, body.request_digest,
                                                         body.expected_revision, body.command_key, body.action,
                                                         body.message)
+        except RetiredWardrobeRoute as error:
+            raise HTTPException(410, str(error)) from error
         except ValueError as error:
             raise HTTPException(409, str(error)) from error
         return {"decision_id": receipt.decision_id, "work_id": receipt.work_id}
@@ -654,6 +683,8 @@ def create_app(root: Path | None = None, produce_story=fixture_story, *,
         try:
             work_id = request.app.state.runtime.retry(execution_id, body.work_id,
                                                       body.command_key, body.expected_version)
+        except RetiredWardrobeRoute as error:
+            raise HTTPException(410, str(error)) from error
         except ValueError as error:
             raise HTTPException(409, str(error)) from error
         return {"work_id": work_id}
@@ -662,6 +693,8 @@ def create_app(root: Path | None = None, produce_story=fixture_story, *,
     async def cancel(execution_id: CanonicalUUID, body: ControlCommand, request: Request):
         try:
             work_id = request.app.state.runtime.cancel(execution_id, body.command_key)
+        except RetiredWardrobeRoute as error:
+            raise HTTPException(410, str(error)) from error
         except ValueError as error:
             raise HTTPException(409, str(error)) from error
         return {"work_id": work_id}

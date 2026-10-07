@@ -182,7 +182,7 @@ export function Workspace() {
   };
   const delivery = useCommands(async c => {
     if (c.kind === 'start' && c.receipt?.execution_id) {
-      if (['/api/executions/live-story', '/api/executions/story-wardrobe'].includes(c.endpoint) && !cacheRef.current.states[c.receipt.execution_id]) persist({ states: { ...cacheRef.current.states, [c.receipt.execution_id]: { ...initialUI(), scope: 'storytell' } } });
+      if (['/api/executions/live-story', '/api/executions/story-wardrobe', '/api/executions/story-wardrobe/v2'].includes(c.endpoint) && !cacheRef.current.states[c.receipt.execution_id]) persist({ states: { ...cacheRef.current.states, [c.receipt.execution_id]: { ...initialUI(), scope: 'storytell' } } });
       open(c.receipt.execution_id);
     }
     await client.invalidateQueries({ queryKey: ['executions'] });

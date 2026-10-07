@@ -243,12 +243,12 @@ Implement and verify schemas in activation order. The wider catalog is design co
 - `initial_request.v1`;
 - `brief.v1`;
 - `story.v1`;
-- current pre-activation `VisualAnchorPlanV1` remains W1–W7 evidence; the new image-only slice uses saved
-  validated `VisualAnchorPlanV2`, the next batch FramePlan, candidate-set records and `RenderResultV1`.
-  [W8](../roadmap-mvp.md#wardrobe-batch-output) activates Wardrobe schema/config/start/graph/storage/readers
-  together, with bounded preflight/test-data decision and no V1 consumption bridge/dual reader/replay.
-  Old TEST Wardrobe runs/configs are unsupported after the clean switch; fresh runs are required, not an
-  automatic data reset. Stable keys, `SelectedMedia` and selected slots are unchanged;
+- historical `VisualAnchorPlanV1` remains W1–W7 evidence; active Wardrobe stores validated `VisualAnchorPlanV2`.
+  [W8](../roadmap-mvp.md#wardrobe-batch-output) schema/config/start/graph/storage/readers are implemented,
+  with retained old rows/files isolated and unsupported, no V1 consumption bridge/dual reader/replay or reset.
+  DB v14 permits old artifact v1/new v2 without converting them; final W8 acceptance remains pending.
+  Future batch FramePlan, candidate-set records and `RenderResultV1` belong to the pending media slice.
+  Stable keys, `SelectedMedia` and selected slots are unchanged;
 - mode-discriminated MotionPlan under the next `img2vid/ref2vid` contract, `MontagePlanV1` and `MontageResultV1` when video/montage is enabled; original i2v `MotionPlanV1` retains its meaning;
 - reusable chunk executable schemas when their pipeline is activated; their ownership/content contract is defined now.
 

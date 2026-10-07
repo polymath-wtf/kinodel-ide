@@ -188,7 +188,7 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
       if (folder) { mkdirSync(join(folder, name)); await page.screenshot({ path: join(folder, name, 'screen-state-desktop.png') }); }
     };
     await capture('overview');
-    for (const [group, stages] of Object.entries({ storytell: ['storytell:start', 'storytell:model', 'storytell:end', 'storytell:output', 'storytell:tools'], wardrobe: ['wardrobe', 'anchor-gen', 'anchor-hitl'], storyboard: ['storyboard', 'frames-gen', 'frames-hitl'], filmmaker: ['filmmaker', 'video-gen', 'video-hitl'], montage: ['montage', 'view:montage-output'] })) {
+    for (const [group, stages] of Object.entries({ storytell: ['storytell:start', 'storytell:model', 'storytell:end', 'storytell:output', 'storytell:tools'], wardrobe: ['wardrobe', 'anchor-batch', 'anchor-hitl'], storyboard: ['storyboard', 'frames-batch', 'frames-hitl'], filmmaker: ['filmmaker', 'video-gen', 'video-hitl'], montage: ['montage', 'view:montage-output'] })) {
       await openNode(page, `.flow-stage[data-group="${group}"]`);
       await expect(page.locator('.pipeline-content')).toHaveAttribute('data-scope', group);
       assert.deepEqual(await page.locator('.flow-stage').evaluateAll(nodes => nodes.map(n => n.dataset.stage)), stages);
@@ -276,7 +276,7 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
       }
       if (group === 'wardrobe') {
         await page.keyboard.press('Escape');
-        await page.locator('.flow-stage[data-stage="anchor-gen"]').click();
+        await page.locator('.flow-stage[data-stage="anchor-batch"]').click();
         await expect(page.getByRole('dialog')).toContainText('Workflow details unavailable');
         await capture('tool-inspection');
       }
@@ -325,7 +325,7 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
     }
     const starts = [];
     let lostStart = false;
-    await page.route('**/api/executions/story-wardrobe', async route => {
+    await page.route('**/api/executions/story-wardrobe/v2', async route => {
       starts.push(route.request().postData());
       const response = await route.fetch(); assert.equal(response.status(), 202);
       id = (await response.json()).execution_id;
@@ -357,7 +357,7 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
      const migratedVideo = await page.evaluate(() => JSON.parse(sessionStorage.getItem('kinodel.workspace.v1')));
      assert.equal(migratedVideo.video_defaults_version, 1);
      assert.equal(migratedVideo.cinematic.video_width, '480'); assert.equal(migratedVideo.cinematic.video_height, '480');
-    await page.unroute('**/api/executions/story-wardrobe');
+    await page.unroute('**/api/executions/story-wardrobe/v2');
     assert.equal((await (await harness.get('/api/executions?limit=100')).json()).items.filter(x => x.input_preview === liveMessage).length, 1, 'lost live Start creates one execution');
     const liveProjection = await projection(id);
     assert.equal(liveProjection.graph.id, 'kinodel.story-wardrobe');
@@ -858,7 +858,7 @@ module.exports = async ({ browser, origin, data, folder, restart }) => {
       await root(mobile);
       await openNode(mobile, '.flow-stage[data-group="wardrobe"]');
       await expect(mobile.locator('.pipeline-content')).toHaveAttribute('data-scope', 'wardrobe');
-      await openNode(mobile, '.flow-stage[data-stage="anchor-gen"]');
+      await openNode(mobile, '.flow-stage[data-stage="anchor-batch"]');
       await expect(mobile.getByRole('dialog')).toContainText('Workflow details unavailable');
       assert.equal(await mobile.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'mobile tool inspection does not overflow');
       await mobile.keyboard.press('Escape');

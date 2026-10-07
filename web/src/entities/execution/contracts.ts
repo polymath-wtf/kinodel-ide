@@ -41,23 +41,27 @@ const anchorKey = unit.refine(s => !!s.trim(), 'Blank unit key');
 const anchorTexts = z.array(anchorText).max(256);
 const anchorSubjects = z.array(anchorKey).max(128).refine(unique);
 const anchorRole = z.enum(['portrait', 'background', 'character_sheet']);
-const anchorReference = z.strictObject({ source: z.strictObject({ kind: z.literal('anchor_unit'), unit_key: anchorKey }),
+const anchorUseCase = z.enum(['hero-face', 'location', 'hero-sheet']);
+const useCaseRole = { 'hero-face': 'portrait', location: 'background', 'hero-sheet': 'character_sheet' } as const;
+const anchorReference = z.strictObject({ source: z.strictObject({ kind: z.literal('batch_unit'), unit_key: anchorKey }),
   role: anchorRole, take: anchorTexts, ignore: anchorTexts });
-const anchorUnit = z.strictObject({ unit_key: anchorKey, role: anchorRole, subject_ids: anchorSubjects,
+const anchorUnit = z.strictObject({ unit_key: anchorKey, use_case: anchorUseCase, workflow: z.enum(['txt2img', 'img2img']), subject_ids: anchorSubjects,
   purpose: anchorText, framing: anchorText, drawable_content: anchorText, image_prompt: anchorText,
   preserve: anchorTexts, ignore: anchorTexts, references: z.array(anchorReference).max(256) });
 const narrativeRef = artifactRefSchema.refine(r => r.schema_id === 'story' && ['1', '2'].includes(r.schema_version) && r.produced_by_stage === 'storytell');
-const wardrobeRef = artifactRefSchema.refine(r => r.schema_id === 'visual_anchor_plan' && r.schema_version === '1' && r.produced_by_stage === 'wardrobe');
-export const wardrobePlanSchema = z.strictObject({ schema_id: z.literal('visual_anchor_plan'), schema_version: z.literal('1'), narrative_ref: narrativeRef,
+const wardrobeRef = artifactRefSchema.refine(r => r.schema_id === 'visual_anchor_plan' && r.schema_version === '2' && r.produced_by_stage === 'wardrobe');
+export const wardrobePlanSchema = z.strictObject({ schema_id: z.literal('visual_anchor_plan'), schema_version: z.literal('2'), narrative_ref: narrativeRef,
   direction: z.strictObject({ appearance: anchorText, wardrobe: anchorText, environment: anchorText, lighting: anchorText,
-    palette: anchorTexts, must_preserve: anchorTexts, prohibited_drift: anchorTexts }), units: z.array(anchorUnit).min(1).max(256),
+    palette: anchorTexts, must_preserve: anchorTexts, prohibited_drift: anchorTexts }), batch_prompt: z.array(anchorUnit).min(1).max(256),
 }).superRefine((plan, ctx) => {
   const earlier = new Map<string, z.infer<typeof anchorUnit>>();
-  for (const u of plan.units) {
-    if (earlier.has(u.unit_key) || (u.role === 'background') !== (u.subject_ids.length === 0)
+  for (const u of plan.batch_prompt) {
+    const sheet = u.use_case === 'hero-sheet';
+    if (earlier.has(u.unit_key) || (u.use_case === 'location') !== (u.subject_ids.length === 0)
       || !unique(u.references.map(r => r.source.unit_key))
-      || (u.role === 'character_sheet' ? u.references.map(r => r.role).join(',') !== 'portrait,background' : u.references.length !== 0)
-      || u.references.some(r => { const parent = earlier.get(r.source.unit_key); return !parent || parent.role !== r.role
+      || u.workflow !== (sheet ? 'img2img' : 'txt2img')
+      || (sheet ? u.references.map(r => r.role).join(',') !== 'portrait,background' : u.references.length !== 0)
+      || u.references.some(r => { const parent = earlier.get(r.source.unit_key); return !parent || useCaseRole[parent.use_case] !== r.role
         || (r.role !== 'background' && (parent.subject_ids.length !== u.subject_ids.length || parent.subject_ids.some(s => !u.subject_ids.includes(s)))); })) {
       ctx.addIssue({ code: 'custom', message: 'Invalid ordered Wardrobe dependencies/ownership' });
     }
@@ -160,7 +164,8 @@ export const projectionSchema = z.strictObject({ execution_id: uuidSchema, proje
   }
   const wardrobe = p.graph.id === 'kinodel.story-wardrobe';
   const plan = p.wardrobe_plan_ref, stop = p.wardrobe_stop;
-  if (wardrobe !== (p.wardrobe_plan_ref !== undefined && p.wardrobe_stop !== undefined)
+  if (wardrobe && p.graph.version !== '2'
+    || wardrobe !== (p.wardrobe_plan_ref !== undefined && p.wardrobe_stop !== undefined)
     || !wardrobe && (p.wardrobe_plan_ref !== undefined || p.wardrobe_stop !== undefined)
     || plan && (plan.project_id !== p.project_id || plan.execution_id !== p.execution_id)
     || wardrobe && p.outcome?.outcome === 'completed' && (!plan || p.outcome.subject_artifact_id !== plan.artifact_id || p.outcome.source_id !== plan.operation_id)
@@ -192,11 +197,11 @@ const contextRef = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('agent_resource'), resource_id: text, version: text, digest }),
 ]);
 const wardrobePreparedSchema = z.strictObject({ operation_id: digest, approval_request_id: digest, input_digest: digest, attempts: wardrobeAttemptsSchema.optional(),
-  config: z.strictObject({ provider: z.literal('OpenRouter'), adapter_version: z.literal('1'), model: text.max(256), system_prompt: narrative,
+  config: z.strictObject({ provider: z.literal('OpenRouter'), adapter_version: z.literal('2'), model: text.max(256), system_prompt: narrative,
     prompt_digest: digest, model_metadata_digest: digest, timeout_seconds: z.union([z.literal(60), z.literal(180)]), max_tokens: z.literal(8192), reasoning_effort: z.literal('low'),
     model_metadata: z.strictObject({ id: text.max(256), supported_parameters: z.array(text).max(256), input_modalities: z.array(text).max(256), supported_efforts: z.array(text).max(256).nullable() }),
   }).refine(c => c.model_metadata.id === c.model, 'Model metadata mismatch'),
-  input: z.strictObject({ schema_version: z.literal('1'), capability_set: z.literal('anchor-basics.v1'), narrative_ref: narrativeRef, story: storySchema,
+  input: z.strictObject({ schema_version: z.literal('2'), capability_set: z.literal('anchor-basics.v2'), narrative_ref: narrativeRef, story: storySchema,
     narrative_input: textBriefSchema, selected_characters: z.array(characterRefSchema).max(16),
     text_context: z.array(z.strictObject({ alias: anchorKey, source_ref: contextRef, role: z.enum(['canon', 'continuity', 'inspiration', 'evidence', 'guidance']), content: narrative, projection_digest: digest })).max(256),
     image_evidence: z.array(z.strictObject({ alias: anchorKey, role: anchorRole, subject_ids: anchorSubjects,

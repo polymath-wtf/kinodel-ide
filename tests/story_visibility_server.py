@@ -22,9 +22,7 @@ def install():
         await asyncio.sleep(1.5)
         payload = json.loads(request.content)
         if payload["response_format"]["json_schema"]["name"] == "wardrobe_result":
-            plan = draft_data()
-            for unit in plan["units"]:
-                unit["subject_ids"] = ["fox"] if unit["role"] != "background" else []
+            plan = draft_data("fox")
             return httpx.Response(200, json={"choices": [{"finish_reason": "stop", "message": {"content": json.dumps({"status": "ready", "plan": plan, "explanation": None})}}]})
         task = json.loads(payload["messages"][1]["content"])
         if task["brief"]["user_vibe"] == "harness:live-error":

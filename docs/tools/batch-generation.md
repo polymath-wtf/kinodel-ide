@@ -1,26 +1,29 @@
 # Batch-generation: препродакшн image-ноды
 
-Статус: **архитектурный проект, 7 октября 2026; DTO V2, batch runtime и media UI ещё не реализованы**.
+Статус: **7 октября 2026: Wardrobe V2 DTO/adapter/storage/runtime/API и exact frontend reader реализованы; финальная W8-приёмка pending. Batch/media runtime и media UI ещё не реализованы**.
 Первый потребитель — Wardrobe, следующий — Storyboard. Общие side-effect/review правила остаются в
 [Render](render.md); backend/LLM-задачи — в [Local MVP](../roadmap-mvp.md#wardrobe-batch-output),
 workflow/job/media/UI-задачи — в [ComfyUI roadmap](../roadmap-comfyui.md#wardrobe-comfyui).
 
 ## 1. Что есть сейчас
 
-**CURRENT, до W8 activation:** Wardrobe уже возвращает ordered batch, но физическое имя массива —
-`plan.units`, не `batch_prompt`:
+**Реализованный Wardrobe V2:** единственный массив заданий — `plan.batch_prompt`:
 
 ```text
-LLM → WardrobeResultV1 {status, plan:{direction, units:[...]}, explanation}
-adapter → VisualAnchorPlanV1 {narrative_ref, direction, units:[...]}
+LLM → WardrobeResultV2 {status, plan:{direction, batch_prompt:[...]}, explanation}
+adapter → VisualAnchorPlanV2 {schema_id, schema_version:"2", narrative_ref, direction, batch_prompt:[...]}
 store → exact wardrobe_plan
 ```
 
-Каждый `AnchorUnitV1` содержит `unit_key`, `role`, `image_prompt`, creative constraints и `references`.
-V1 допускает 1–256 units: portrait/background без render refs, sheet с ordered earlier-unit
-`[portrait, background]`. Image evidence, показанная LLM, не становится входом рендера.
-`use_case` и `workflow` в текущем strict schema отсутствуют. ComfyUI умеет pure preparation/replay,
-но ещё не upload/submit/import. Текущий UI показывает authored scopes, не реальные image jobs.
+`WardrobeInputV2` использует `anchor-basics.v2`; каждый `AnchorBatchUnitV2` содержит unique `unit_key`,
+`use_case`, semantic `workflow`, полный `image_prompt`, creative constraints и ordered `references`.
+1–256 заданий: hero-face/location — zero-ref txt2img, hero-sheet — img2img с ровно двумя earlier
+`batch_unit` refs в порядке `[portrait,background]`. Image evidence, показанная LLM, не становится входом рендера.
+Versioned Start `/api/executions/story-wardrobe/v2` создаёт `kinodel.story-wardrobe` v2; старые V1
+runs/configs сохранены, но изолированы и неподдержаны, без reset/conversion. W1–W7 —
+[историческая приёмка](../roadmap-mvp.md#wardrobe-backend), не active contract.
+ComfyUI умеет pure preparation/replay, но ещё не upload/submit/import. Pipeline/Chat читают V2 план;
+mocked/offline/browser проверки выполнены, full discovery и live V2 provider acceptance остаются pending.
 
 ## 2. Один тип, несколько экземпляров
 
@@ -32,9 +35,9 @@ V1 допускает 1–256 units: portrait/background без render refs, she
 | Storyboard | `frames-batch` | exact `storyboard_plan` | `frames-hitl` / `story_frames` |
 
 Внешнее UI-имя обоих — **Batch generation**, с подписью Anchors или Storyboard.
-В новом versioned маршруте они заменяют `anchor-gen`/`frames-gen`. Нынешний inspection specimen
-`cinematic.v1.json` описывает старый маршрут, не совместимый renderer. Его authored UI specimen/projection
-заменяется при new-route activation; сейчас JSON/UI не меняем и старые identities не переинтерпретируем.
+Authored TS UI уже использует эти disconnected names вместо `anchor-gen`/`frames-gen`; это не
+подключение media route или jobs. Исторический inspection specimen `cinematic.v1.json` сохранён
+без изменений и не является совместимым renderer; старые identities не переинтерпретируются.
 Video остаётся отдельной capability: первый batch-контракт генерирует изображения.
 
 Это матрёшка из **N отдельных durable jobs**, а не один POST с тремя outputs:
@@ -62,7 +65,7 @@ UI-вложенность не требует динамически компи�
 
 ## 3. Новый creative output: `batch_prompt`
 
-Для следующего Wardrobe schema предлагается `VisualAnchorDraftV2={direction,batch_prompt}`,
+Реализованный Wardrobe schema: `VisualAnchorDraftV2={direction,batch_prompt}`,
 `VisualAnchorPlanV2={schema_id,schema_version:"2",narrative_ref,direction,batch_prompt}`.
 Ready/non-ready envelope сохраняет смысл `{status,plan,explanation}`; ref/schema identity добавляет
 adapter, не модель. `batch_prompt` — единственный массив заданий в V2, без дублирующего `units`.
@@ -88,7 +91,8 @@ Wardrobe сохраняет `subject_ids,purpose,framing,drawable_content,preser
 но разные `unit_key`/subjects. Storyboard сохраняет свои shot/composition/state-before поля в
 следующем `FramePlan`, а не становится VisualAnchorPlan.
 
-`references.source` — tagged union:
+Для реализованного Wardrobe `references.source` — только `{kind:"batch_unit",unit_key}`.
+Общий будущий batch/Storyboard контракт предусматривает tagged union:
 
 - `{kind:"batch_unit",unit_key}`: exact output **более раннего** задания того же batch;
 - `{kind:"supplied_image",alias}`: разрешённый image alias из frozen stage input. Adapter замораживает
@@ -136,18 +140,20 @@ hero-sheet — img2img с `[portrait,background]` из batch. Supplied-image con
 замена общей `location` пересоздаёт оба sheets. Неизменные keys и candidate lineage сохраняются.
 
 Модель получает frozen allowed use cases/modes/reference signatures и guidance **до** написания
-prompt. Schema, authored prompt, validators, frozen owner config, storage/readers и новые start/graph
-identities активируются вместе в [W8](../roadmap-mvp.md#wardrobe-batch-output). Mocked/schema и offline
-recovery проверяем сначала, затем реальный model-authored `plan.batch_prompt` и exact V2 reopen — до
-заявления Wardrobe V2 provider readiness. Существующая W6 live-приёмка доказывает только V1.
+prompt. Schema, authored prompt, validators, `WardrobeStartSettingsV2` / `WardrobeOwnerConfigV2`,
+`PreparedWardrobeInputsV2`, storage/readers и новые start/graph identities реализованы согласованно
+в [W8](../roadmap-mvp.md#wardrobe-batch-output). Adapter 2 принимает только V2 configs с 180 s / 8192 / low.
+Mocked/schema/offline recovery и UI проверены; full discovery и реальный model-authored
+`plan.batch_prompt` с offline exact V2 reopen ещё не приняты. W6 live-приёмка доказывает только V1.
 
 **Новый Wardrobe/batch route — V2-only.** ComfyUI получает только exact сохранённый validated
 `VisualAnchorPlanV2`, без V1 consumption adapter, dual reader, replay или `units → batch_prompt` bridge.
-После явной clean activation прежние **тестовые Wardrobe** runs/configs неподдержаны; нужны свежие runs.
-W1–W7 и отчёты сохраняют исторический completion, не обещают forward compatibility. W8 preflight
-определяет затронутые test data/pending work и согласует archive/isolation либо отдельно разрешённый
-bounded reset; автоматического удаления/сброса нет. Story/Brief/video compatibility вне этой границы
-не меняется. Сейчас это только решение в документах, не активация или data reset.
+Прежние **тестовые Wardrobe** runs/configs неподдержаны; нужны свежие runs. Exact старый graph triple
+сохранён, но исключён из runner/list, commands/reads отклоняются. Unversioned Start возвращает 410
+до payload work; сохранённые browser envelopes не перенаправляются. DB v14 сохраняет old artifact v1
+и new v2 rows/files; это retention, не V1 reader/conversion. Fixture isolation/preflight реализованы;
+пользовательский backend ожидает его собственного restart, его root/counts здесь не проверены.
+W1–W7 остаются историческими; reset/deletion нет, Story/Brief/video compatibility не меняется.
 
 Порядок: W8 V2 → ComfyUI V2-only saved-plan handoff → один portrait job → N jobs / полный review.
 Read-only preparation разрешена заранее; initial render и technical Retry не вызывают Wardrobe повторно.

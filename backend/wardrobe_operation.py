@@ -36,10 +36,12 @@ async def produce_wardrobe_operation(db: sqlite3.Connection, execution_id: str, 
         from backend.openrouter import StoryWardrobeOwnerConfigV2, read_owner_config
         start_config = read_owner_config(db.execute("SELECT owner_config FROM executions WHERE execution_id=?",
                                                    (execution_id,)).fetchone()[0])
-        settings = start_config.wardrobe_settings if isinstance(start_config, StoryWardrobeOwnerConfigV2) else None
+        if not isinstance(start_config, StoryWardrobeOwnerConfigV2):
+            raise ValueError("Wardrobe requires frozen Start settings v2")
+        settings = start_config.wardrobe_settings
         frozen = await adapter.prepare_wardrobe_request(supplied, originals, settings=settings)
         record = store.prepare_wardrobe_operation(db, execution_id, approval_request_id, frozen,
-            settings.repair_instruction if settings is not None else adapter.REPAIR_INSTRUCTION)
+            settings.repair_instruction)
     if record["candidate"] is not None:
         return store.commit_wardrobe_operation(db, record["operation_id"])
     while True:

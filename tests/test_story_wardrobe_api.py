@@ -27,6 +27,7 @@ from backend.story_store import _destination
 from tests.test_characters import image_input
 from tests.test_story_cast import draft
 from tests.test_wardrobe_openrouter import capability, envelope
+from tests.test_story_wardrobe_runtime import five_unit_plan, seed_retired, retained_inventory
 
 
 class WardrobeFixtures:
@@ -52,10 +53,10 @@ class WardrobeFixtures:
                 return httpx.Response(200, json=envelope({"status": "ready", "story": draft(), "explanation": None}))
             if callable(wardrobe_output):
                 return wardrobe_output(request)
-            result = wardrobe_output or json.loads(envelope()["choices"][0]["message"]["content"])
+            result = wardrobe_output or {"status": "ready", "plan": five_unit_plan(), "explanation": None}
             if result.get("plan"):
-                for unit in result["plan"]["units"]:
-                    unit["subject_ids"] = ["comedian"] if unit["role"] != "background" else []
+                for unit in result["plan"]["batch_prompt"]:
+                    unit["subject_ids"] = ["comedian"] if unit["use_case"] != "location" else []
             return httpx.Response(200, json=envelope(result))
         return patch("backend.openrouter_client.httpx.AsyncClient",
                      partial(httpx.AsyncClient, transport=httpx.MockTransport(respond)))
@@ -251,9 +252,7 @@ class WardrobeCommandTests(WardrobeFixtures, unittest.IsolatedAsyncioTestCase):
                             await asyncio.Event().wait()
                         except asyncio.CancelledError:
                             # A provider response can arrive despite task cancellation; never bind it.
-                            result = json.loads(envelope()["choices"][0]["message"]["content"])
-                            for unit in result["plan"]["units"]:
-                                unit["subject_ids"] = ["comedian"] if unit["role"] != "background" else []
+                            result = {"status": "ready", "plan": five_unit_plan(), "explanation": None}
                             return httpx.Response(200, json=envelope(result))
                         finally:
                             stopped.set()
@@ -280,7 +279,8 @@ class WardrobeCommandTests(WardrobeFixtures, unittest.IsolatedAsyncioTestCase):
                             if boundary == "checkpoint":
                                 # Saver writes are drained, not abandoned on graph cancellation.
                                 done, _ = await asyncio.wait({running}, timeout=0.15)
-                                self.assertFalse(done)
+                                self.assertFalse(done, f"checkpoint writer stopped={stopped.is_set()}; "
+                                    f"outcomes={runtime.db.execute('SELECT outcome FROM execution_outcomes').fetchall()}")
                                 self.assertFalse(stopped.is_set())
                                 self.assertEqual(runtime.db.execute("SELECT * FROM execution_outcomes").fetchall(), [])
                                 release.set()
@@ -341,12 +341,12 @@ class WardrobeAPITests(WardrobeFixtures, unittest.TestCase):
         original = repository.read_image(selected, stored_image.digest)[1]
         body = self.start_body(character_refs=[selected.model_dump(mode="json")])
         with self.transport(), self.client() as client:
-            self.assertEqual(client.post("/api/executions/story-wardrobe", json=body).status_code, 401)
+            self.assertEqual(client.post("/api/executions/story-wardrobe/v2", json=body).status_code, 401)
             headers = {"X-Kinodel-CSRF": client.get("/api/session").json()["csrf_token"]}
-            self.assertEqual(client.post("/api/executions/story-wardrobe", json=body).status_code, 403)
+            self.assertEqual(client.post("/api/executions/story-wardrobe/v2", json=body).status_code, 403)
             # Commands accept durable work only; the independent worker is temporarily held.
             with patch("backend.story_control.StoryRuntime.run", return_value=0):
-                response = client.post("/api/executions/story-wardrobe", json=body, headers=headers)
+                response = client.post("/api/executions/story-wardrobe/v2", json=body, headers=headers)
                 self.assertEqual(response.status_code, 202, response.text)
                 self.assertFalse(any(r.method == "POST" for r in self.requests))
             receipt = response.json()
@@ -366,6 +366,8 @@ class WardrobeAPITests(WardrobeFixtures, unittest.TestCase):
             plan = client.get(path)
             self.assertEqual(plan.status_code, 200, plan.text)
             saved = plan.json()
+            self.assertEqual((saved["ref"]["schema_version"], saved["plan"]["schema_version"]), ("2", "2"))
+            self.assertEqual(len(saved["plan"]["batch_prompt"]), 5)
             self.assertEqual(saved["ref"], ref)
             self.assertEqual(saved["plan"]["narrative_ref"], final["stories"][0]["ref"])
             self.assertEqual(client.get(f"/api/executions/{execution}").status_code, 200)
@@ -389,7 +391,7 @@ class WardrobeAPITests(WardrobeFixtures, unittest.TestCase):
         with patch.dict(os.environ, {"OPENROUTER_API_KEY": "", "LLM_MODEL": ""}), \
                 patch("backend.openrouter_client.httpx.AsyncClient", side_effect=AssertionError("Offline reopen made HTTP")), self.client() as client:
             headers = {"X-Kinodel-CSRF": client.get("/api/session").json()["csrf_token"]}
-            self.assertEqual(client.post("/api/executions/story-wardrobe", json=body, headers=headers).json(), receipt)
+            self.assertEqual(client.post("/api/executions/story-wardrobe/v2", json=body, headers=headers).json(), receipt)
             self.assertEqual(client.post("/api/executions/live-story", json=body, headers=headers).status_code, 409)
             self.assertEqual(client.get(path).json(), saved)
             self.assertEqual(self.wait(client, execution, "completed"), final)
@@ -399,7 +401,7 @@ class WardrobeAPITests(WardrobeFixtures, unittest.TestCase):
         with self.transport(), self.client() as client:
             self.assertEqual(client.get(f"/api/executions/{uuid4()}/wardrobe-activity").status_code, 401)
             headers = {"X-Kinodel-CSRF": client.get("/api/session").json()["csrf_token"]}
-            execution = client.post("/api/executions/story-wardrobe", json=self.start_body(character_refs=[selected.model_dump(mode="json")]), headers=headers).json()["execution_id"]
+            execution = client.post("/api/executions/story-wardrobe/v2", json=self.start_body(character_refs=[selected.model_dump(mode="json")]), headers=headers).json()["execution_id"]
             projection = self.wait(client, execution, "waiting_review")
             path = f"/api/executions/{execution}/wardrobe-activity"
             before = client.get(path)
@@ -417,6 +419,8 @@ class WardrobeAPITests(WardrobeFixtures, unittest.TestCase):
                                                         "repairs": 0, "diagnostic": None})
             self.assertEqual(saved["config"]["model"], "test/model")
             self.assertEqual(saved["config"]["provider"], "OpenRouter")
+            self.assertEqual(saved["config"]["adapter_version"], "2")
+            self.assertEqual(saved["input"]["schema_version"], "2")
             self.assertEqual(saved["input"]["narrative_ref"], final["stories"][0]["ref"])
             self.assertEqual(saved["input"]["selected_characters"], [selected.model_dump(mode="json")])
             self.assertIn("Frozen Lea", saved["input"]["text_context"][0]["content"])
@@ -438,7 +442,7 @@ class WardrobeAPITests(WardrobeFixtures, unittest.TestCase):
             self.root = self.root.with_name(status)
             with self.subTest(status=status), self.transport({"status": status, "plan": None, "explanation": "New direction needs a new run."}), self.client() as client:
                 headers = {"X-Kinodel-CSRF": client.get("/api/session").json()["csrf_token"]}
-                response = client.post("/api/executions/story-wardrobe", json=self.start_body(), headers=headers)
+                response = client.post("/api/executions/story-wardrobe/v2", json=self.start_body(), headers=headers)
                 self.assertEqual(response.status_code, 202, response.text)
                 execution = response.json()["execution_id"]
                 self.http_approve(client, execution, self.wait(client, execution, "waiting_review"), headers)
@@ -465,7 +469,7 @@ class WardrobeAPITests(WardrobeFixtures, unittest.TestCase):
             [ImageInput(original, "image/png")] * 2, mutation_id="create").ref
         with self.transport(), self.client() as client:
             headers = {"X-Kinodel-CSRF": client.get("/api/session").json()["csrf_token"]}
-            execution = client.post("/api/executions/story-wardrobe", headers=headers,
+            execution = client.post("/api/executions/story-wardrobe/v2", headers=headers,
                 json=self.start_body(character_refs=[selected.model_dump(mode="json")])).json()["execution_id"]
             projection = self.wait(client, execution, "waiting_review")
             path = f"/api/executions/{execution}/wardrobe-activity"
@@ -537,7 +541,7 @@ class WardrobeAPITests(WardrobeFixtures, unittest.TestCase):
     def test_http_transient_retry_preserves_work_then_completes(self):
         with self.transport(lambda _: httpx.Response(503)), self.client() as client:
             headers = {"X-Kinodel-CSRF": client.get("/api/session").json()["csrf_token"]}
-            response = client.post("/api/executions/story-wardrobe", json=self.start_body(), headers=headers)
+            response = client.post("/api/executions/story-wardrobe/v2", json=self.start_body(), headers=headers)
             self.assertEqual(response.status_code, 202, response.text)
             execution = response.json()["execution_id"]
             decision = self.http_approve(client, execution, self.wait(client, execution, "waiting_review"), headers)
@@ -559,7 +563,7 @@ class WardrobeAPITests(WardrobeFixtures, unittest.TestCase):
     def test_attempt_diagnostics_are_guarded_opt_in_offline_and_corruption_fails_closed(self):
         with self.transport(lambda _: httpx.Response(429, content=b"private-test-secret")), self.client() as client:
             headers = {"X-Kinodel-CSRF": client.get("/api/session").json()["csrf_token"]}
-            execution = client.post("/api/executions/story-wardrobe", headers=headers, json=self.start_body()).json()["execution_id"]
+            execution = client.post("/api/executions/story-wardrobe/v2", headers=headers, json=self.start_body()).json()["execution_id"]
             path = f"/api/executions/{execution}/wardrobe-activity"
             diagnostic_path = path + "?include_validation_diagnostic=true"
             self.assertIsNone(client.get(diagnostic_path).json())
@@ -599,7 +603,7 @@ class WardrobeAPITests(WardrobeFixtures, unittest.TestCase):
             self.root = self.root.with_name(case)
             with self.subTest(case=case), self.transport(lambda _: httpx.Response(200, json={"choices": []})), self.client() as client:
                 headers = {"X-Kinodel-CSRF": client.get("/api/session").json()["csrf_token"]}
-                response = client.post("/api/executions/story-wardrobe", json=self.start_body(), headers=headers)
+                response = client.post("/api/executions/story-wardrobe/v2", json=self.start_body(), headers=headers)
                 self.assertEqual(response.status_code, 202, response.text)
                 execution = response.json()["execution_id"]
                 review = self.wait(client, execution, "waiting_review")
@@ -618,6 +622,63 @@ class WardrobeAPITests(WardrobeFixtures, unittest.TestCase):
                 self.assertEqual(retry.status_code, 409)
                 for private in ("test-secret", "owner_config", "image_url", str(self.library)):
                     self.assertNotIn(private, json.dumps(blocked) + retry.text)
+
+    def test_old_endpoint_rejects_before_body_validation_or_any_preparation(self):
+        with self.client() as client:
+            headers = {"X-Kinodel-CSRF": client.get("/api/session").json()["csrf_token"]}
+            with patch("backend.openrouter.pin_story_owner", side_effect=AssertionError("Old endpoint pin")), \
+                    patch("backend.openrouter_client.httpx.AsyncClient", side_effect=AssertionError("Old endpoint HTTP")), \
+                    patch("backend.story_control.StoryRuntime.start_wardrobe", side_effect=AssertionError("Old endpoint start")):
+                for payload in ({}, self.start_body()):
+                    response = client.post("/api/executions/story-wardrobe", json=payload, headers=headers)
+                    self.assertEqual(response.status_code, 410, response.text)
+                    self.assertIn("retired", response.json()["detail"])
+                response = client.post("/api/executions/story-wardrobe", content=b"not-json", headers=headers)
+                self.assertEqual(response.status_code, 410, response.text)
+            self.assertEqual(client.portal.call(lambda: client.app.state.runtime.db.execute("SELECT COUNT(*) FROM executions").fetchone()), (0,))
+
+    def test_retired_inventory_logged_once_before_runner_and_all_reads_commands_reject(self):
+        async def seed():
+            async with open_story_runtime(self.root, fixture_story) as runtime:
+                item = seed_retired(runtime.db, self.project, key="new")
+                return item, retained_inventory(runtime.db, item[0])
+        item, frozen = asyncio.run(seed())
+        with patch("backend.openrouter_client.httpx.AsyncClient", side_effect=AssertionError("Retired HTTP")), \
+                patch("backend.openrouter.read_owner_config", side_effect=AssertionError("Retired config")), \
+                patch("backend.characters.CharacterRepository.read_exact", side_effect=AssertionError("Retired Character")), \
+                patch("backend.story_runner.build_story_graph", side_effect=AssertionError("Retired graph")), \
+                self.assertLogs("backend.api", level="INFO") as logs:
+            for _ in range(2):
+                with self.client() as client:
+                    headers = {"X-Kinodel-CSRF": client.get("/api/session").json()["csrf_token"]}
+                    execution, work, review, _, artifact, digest = item
+                    for path in ("", "/projection", "/story-activity", "/wardrobe-activity",
+                                 f"/stories/{artifact}", f"/wardrobe-plans/{artifact}"):
+                        response = client.get(f"/api/executions/{execution}" + path)
+                        self.assertEqual(response.status_code, 410, response.text)
+                        self.assertIn("retired", response.json()["detail"])
+                        self.assertNotIn("private", response.text)
+                    self.assertEqual(client.get("/api/executions").json(), {"items": []})
+                    for route in ("story-wardrobe/v2", "live-story", "internal-story"):
+                        body = self.start_body()
+                        if route == "internal-story":
+                            body.pop("subjects")
+                            body.pop("shot_duration_ms")
+                        response = client.post("/api/executions/" + route, json=body, headers=headers)
+                        self.assertEqual(response.status_code, 410, response.text)
+                    for path, body in ((f"/reviews/{review}/respond", {"command_key": "approve", "request_digest": digest,
+                            "expected_revision": 1, "action": "approve"}), ("/cancel", {"command_key": "cancel"}),
+                            ("/retry", {"command_key": "retry", "work_id": work, "expected_version": 0})):
+                        response = client.post(f"/api/executions/{execution}" + path, json=body, headers=headers)
+                        self.assertEqual(response.status_code, 410, response.text)
+                    self.assertEqual(client.portal.call(lambda: retained_inventory(client.app.state.runtime.db, execution)), frozen)
+            inventory_logs = [record for record in logs.records if hasattr(record, "retired_wardrobe_counts")]
+            self.assertEqual(len(inventory_logs), 2)
+            self.assertEqual(inventory_logs[0].retired_wardrobe_counts,
+                {"executions": 1, "work_statuses": {"pending": 1}, "story_operations": 0, "wardrobe_operations": 1,
+                 "artifacts": 1, "review_requests": 1, "execution_controls": 0})
+            self.assertIn("isolated", inventory_logs[0].getMessage())
+            self.assertNotIn("private", str(inventory_logs[0].__dict__))
 
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@ const load = require('./load-typescript.cjs');
   assert.equal(start.endpoint, '/api/executions/internal-story', 'fixture/test starts retain their route');
   const live = createCommand('start', id, null, null, { project_id: id, client_key: id, input_message: 'Лис', shot_ids: ['s1'],
     subjects: [{ subject_id: 'fox', description: 'Любопытный лис' }], shot_duration_ms: 5000 });
-  assert.equal(live.endpoint, '/api/executions/story-wardrobe', 'ordinary live Start uses the current implemented pipeline');
+  assert.equal(live.endpoint, '/api/executions/story-wardrobe/v2', 'ordinary live Start uses only the active versioned pipeline');
   saveCommand(storage, live);
   assert.equal(pendingCommands(storage)[0].endpoint, live.endpoint);
   await deliverCommand(storage, live.id, async endpoint => { assert.equal(endpoint, live.endpoint); return { execution_id: id, work_id: 'live-work' }; }, async () => {});
@@ -20,14 +20,14 @@ const load = require('./load-typescript.cjs');
   const selectedBody = { project_id: id, client_key: id, input_message: 'Лея', shot_ids: ['s1'],
     subjects: [], character_refs: [ref], shot_duration_ms: 5000 };
   const selected = createCommand('start', id, null, null, selectedBody);
-  assert.equal(selected.endpoint, '/api/executions/story-wardrobe');
+  assert.equal(selected.endpoint, '/api/executions/story-wardrobe/v2');
   const wardrobe = createCommand('start', id, null, null, selectedBody);
-  assert.equal(wardrobe.endpoint, '/api/executions/story-wardrobe');
+  assert.equal(wardrobe.endpoint, '/api/executions/story-wardrobe/v2');
   saveCommand(storage, wardrobe);
   await assert.rejects(deliverCommand(storage, wardrobe.id, async () => { throw new ReadError('network', 'lost'); }, async () => {}));
   assert.equal(pendingCommands(storage)[0].payload, JSON.stringify(selectedBody));
   await deliverCommand(storage, wardrobe.id, async (endpoint, payload) => {
-    assert.equal(endpoint, '/api/executions/story-wardrobe'); assert.equal(payload, JSON.stringify(selectedBody));
+    assert.equal(endpoint, '/api/executions/story-wardrobe/v2'); assert.equal(payload, JSON.stringify(selectedBody));
     return { execution_id: id, work_id: 'wardrobe-work' };
   }, async () => {});
   assert.throws(() => saveCommand(storage, { ...selected, endpoint: '/api/executions/unknown' }));
@@ -37,6 +37,23 @@ const load = require('./load-typescript.cjs');
   storage.setItem('kinodel.command.v1.' + historical.id, historicalBytes);
   assert.deepEqual(pendingCommands(storage)[0], historical);
   assert.equal(storage.getItem('kinodel.command.v1.' + historical.id), historicalBytes, 'reading never rewrites an old envelope');
+  const retired = { ...selected, id: crypto.randomUUID(), endpoint: '/api/executions/story-wardrobe', payload: JSON.stringify(selectedBody, null, 2) };
+  const retiredBytes = JSON.stringify(retired), retiredKey = 'kinodel.command.v1.' + retired.id;
+  storage.setItem(retiredKey, retiredBytes);
+  assert.deepEqual(pendingCommands(storage).find(c => c.id === retired.id), retired);
+  assert.equal(storage.getItem(retiredKey), retiredBytes, 'old Wardrobe envelope remains byte-exact until delivery');
+  let retiredPosts = 0;
+  await assert.rejects(deliverCommand(storage, retired.id, async (endpoint, payload) => {
+    retiredPosts++; assert.equal(endpoint, retired.endpoint); assert.equal(payload, retired.payload);
+    throw new ReadError('http', 'Story-Wardrobe v1 is retired. Start a fresh v2 run.', 410);
+  }, async record => {
+    assert.equal(record.rejection.status, 410); assert.equal(record.payload, retired.payload); assert.equal(record.endpoint, retired.endpoint);
+    assert.deepEqual(pendingCommands(storage).find(c => c.id === retired.id), record, '410 persisted before reconciliation');
+    throw new Error('interrupted rejection handler');
+  }));
+  await deliverCommand(storage, retired.id, async () => { throw new Error('retired rejection never retries or retargets'); }, async record => assert.equal(record.rejection.status, 410));
+  assert.equal(retiredPosts, 1); assert.equal(storage.getItem(retiredKey), null);
+  assert.equal(storage.getItem('kinodel.command.v1.' + historical.id), historicalBytes, 'unrelated pending Story command retained byte-exact');
   await assert.rejects(deliverCommand(storage, historical.id, async () => { throw new ReadError('network', 'lost'); }, async () => {}));
   assert.equal(pendingCommands(storage)[0].payload, historical.payload);
   assert.equal(storage.getItem('kinodel.command.v1.' + historical.id), historicalBytes);

@@ -17,7 +17,7 @@ import httpx
 from PIL import Image
 
 from backend.domain import MAX_JSON_BYTES, canonical_json, sha256_digest
-from tests.test_wardrobe import draft_data, input_data
+from tests.test_wardrobe import draft_data, full_batch_draft, full_batch_input, input_data
 
 
 MODEL = "test/wardrobe"
@@ -101,18 +101,112 @@ class WardrobeOpenRouterTests(unittest.IsolatedAsyncioTestCase):
             return factory(**options)
         return patch("backend.openrouter_client.httpx.AsyncClient", client)
 
-    async def test_new_timeout_and_historical_config_are_distinct(self):
+    async def test_v2_timeout_is_bounded_and_historical_timeout_rejects(self):
         from backend import openrouter_wardrobe as adapter
-        from backend.openrouter import StoryOwnerConfig
         with self.transport():
             frozen = await adapter.prepare_wardrobe_request(supplied_input(), {})
         self.assertEqual(adapter.read_wardrobe_config(frozen).timeout_seconds, 180)
         historical = json.loads(frozen)
         historical["timeout_seconds"] = 60
         body = encoded(historical)
-        self.assertEqual(adapter.read_wardrobe_config(body).timeout_seconds, 60)
-        self.assertEqual(canonical_json(adapter.read_wardrobe_config(body)).decode(), body)
-        self.assertEqual(StoryOwnerConfig.model_fields["timeout_seconds"].annotation, __import__("typing").Literal[60])
+        with self.assertRaisesRegex(ValueError, "frozen"):
+            adapter.read_wardrobe_config(body)
+
+    async def test_full_five_batch_and_frozen_prompt_capabilities_are_supplied_before_completion(self):
+        from backend import openrouter_wardrobe as adapter
+        from backend.domain import parse_json_model
+        from backend.wardrobe import VisualAnchorPlanV2, WardrobeResultV2
+        supplied, draft = full_batch_input(), full_batch_draft()
+        with self.transport(envelope({"status": "ready", "plan": draft, "explanation": None})):
+            settings = adapter.pin_wardrobe_settings(MODEL)
+            frozen = await adapter.prepare_wardrobe_request(supplied, {}, settings=settings)
+            config = adapter.read_wardrobe_config(frozen)
+            plan = await adapter.complete_wardrobe(frozen)
+        self.assertEqual(settings.adapter_version, "2")
+        self.assertEqual(config.result_schema, WardrobeResultV2.model_json_schema())
+        request = json.loads(self.requests[-1].content)
+        prompt = request["messages"][0]["content"]
+        self.assertEqual(prompt, settings.system_prompt)
+        for term in ("WardrobeInputV2", "WardrobeResultV2", "batch_prompt", "anchor-basics.v2",
+                     "hero-face", "location", "hero-sheet", "txt2img", "img2img", "batch_unit",
+                     "portrait/background", "1–256", "filename"):
+            self.assertIn(term, prompt)
+        for term in ("WardrobeInputV1", "WardrobeResultV1", "anchor-basics.v1", "anchor_unit"):
+            self.assertNotIn(term, prompt)
+        self.assertEqual(plan.schema_version, "2")
+        self.assertEqual(plan.narrative_ref.model_dump(mode="json"), supplied["narrative_ref"])
+        self.assertEqual(plan.model_dump(mode="json")["batch_prompt"], draft["batch_prompt"])
+        self.assertEqual(config.prompt_digest, sha256_digest(prompt.encode()))
+        with patch.dict(os.environ, {"OPENROUTER_API_KEY": "", "LLM_MODEL": ""}), \
+                patch("pathlib.Path.read_text", side_effect=AssertionError("exact DTO reopen only")):
+            self.assertEqual(parse_json_model(canonical_json(plan), VisualAnchorPlanV2), plan)
+        self.assertEqual([r.method for r in self.requests], ["GET", "POST"])
+
+    async def test_old_adapter_schema_input_request_and_settings_reject_offline_before_http(self):
+        from backend import openrouter_wardrobe as adapter
+        with self.transport():
+            frozen = await adapter.prepare_wardrobe_request(supplied_input(), {})
+        original = json.loads(frozen)
+        variants = []
+        old_adapter = deepcopy(original)
+        old_adapter["adapter_version"] = "1"
+        variants.append(old_adapter)
+        old_schema = deepcopy(original)
+        old_schema["result_schema"] = {"title": "WardrobeResultV1", "type": "object"}
+        old_schema["result_schema_digest"] = sha256_digest(encoded(old_schema["result_schema"]).encode())
+        variants.append(old_schema)
+        old_input = deepcopy(original)
+        old_input["wardrobe_input"].update(schema_version="1", capability_set="anchor-basics.v1")
+        old_input["input_digest"] = sha256_digest(encoded(old_input["wardrobe_input"]).encode())
+        variants.append(old_input)
+        old_request = deepcopy(original)
+        request = json.loads(old_request["base_request"])
+        request["messages"][1]["content"][0]["text"] = encoded(old_input["wardrobe_input"])
+        old_request["base_request"] = encoded(request)
+        old_request["base_request_digest"] = sha256_digest(old_request["base_request"].encode())
+        variants.append(old_request)
+        self.requests.clear()
+        with self.transport(), patch.dict(os.environ, {"OPENROUTER_API_KEY": "", "LLM_MODEL": ""}), \
+                patch("pathlib.Path.read_text", side_effect=AssertionError("offline config read")):
+            for changed in variants:
+                with self.subTest(version=changed["adapter_version"]), self.assertRaisesRegex(ValueError, "frozen"):
+                    adapter.read_wardrobe_config(encoded(changed))
+                with self.assertRaisesRegex(ValueError, "frozen"):
+                    await adapter.complete_wardrobe(encoded(changed))
+        with self.transport():
+            with self.assertRaises(ValueError):
+                await adapter.prepare_wardrobe_request(old_input["wardrobe_input"], {})
+            settings = adapter.pin_wardrobe_settings(MODEL).model_dump(mode="json")
+            settings["adapter_version"] = "1"
+            with self.assertRaises(ValueError):
+                await adapter.prepare_wardrobe_request(supplied_input(), {}, settings=settings)
+        self.assertEqual(self.requests, [])
+
+    async def test_invalid_output_and_explicit_repair_keep_exact_v2_schema_and_base_request(self):
+        from backend import openrouter_wardrobe as adapter
+        from backend.wardrobe import WardrobeResultV2
+        with self.transport():
+            frozen = await adapter.prepare_wardrobe_request(supplied_input(), {})
+        self.requests.clear()
+        malformed = envelope({"status": "ready", "plan": {"direction": {}, "units": []}, "explanation": None})
+        with self.transport(malformed), self.assertRaises(adapter.WardrobeInvalidOutput):
+            await adapter.complete_wardrobe(frozen)
+        self.assertEqual([r.method for r in self.requests], ["POST"])
+        instruction = adapter.REPAIR_INSTRUCTION
+        repair = adapter.prepare_wardrobe_repair(frozen, instruction)
+        with self.transport(), patch("pathlib.Path.read_text", side_effect=AssertionError("frozen repair only")):
+            result = await adapter.complete_wardrobe(frozen, repair_instruction=instruction)
+        config = adapter.read_wardrobe_config(frozen)
+        request, base = json.loads(repair), json.loads(config.base_request)
+        self.assertEqual(request["messages"][:-1], base["messages"])
+        self.assertEqual(request["messages"][-1], {"role": "user", "content": instruction})
+        self.assertEqual(request["response_format"], base["response_format"])
+        self.assertEqual(request["response_format"]["json_schema"]["schema"], WardrobeResultV2.model_json_schema())
+        self.assertEqual(self.requests[-1].content, repair.encode())
+        self.assertEqual([r.method for r in self.requests], ["POST", "POST"])
+        self.assertEqual(result.schema_version, "2")
+        self.assertIn("batch_prompt", instruction)
+        self.assertIn("batch_unit", instruction)
 
     async def test_failed_http_measures_actual_phase_without_private_text(self):
         from backend import openrouter_client as provider
@@ -164,7 +258,7 @@ class WardrobeOpenRouterTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(importlib.util.find_spec("backend.openrouter_wardrobe"),
                              "The concrete frozen Wardrobe adapter is absent")
         from backend import openrouter_wardrobe as adapter
-        from backend.wardrobe import VisualAnchorPlanV1
+        from backend.wardrobe import VisualAnchorPlanV2, WardrobeResultV2
 
         self.assertIsNotNone(importlib.util.find_spec("backend.openrouter_client"), "Shared provider adapter is absent")
         from backend import openrouter_client as provider
@@ -175,7 +269,11 @@ class WardrobeOpenRouterTests(unittest.IsolatedAsyncioTestCase):
             frozen = await adapter.prepare_wardrobe_request(supplied, {})
             config = adapter.read_wardrobe_config(frozen)
             result = await adapter.complete_wardrobe(config)
-        self.assertIsInstance(result, VisualAnchorPlanV1)
+        self.assertIsInstance(result, VisualAnchorPlanV2)
+        self.assertEqual(result.schema_version, "2")
+        self.assertEqual(result.model_dump(mode="json")["batch_prompt"], draft_data()["batch_prompt"])
+        self.assertEqual(config.adapter_version, "2")
+        self.assertEqual(config.result_schema, WardrobeResultV2.model_json_schema())
         self.assertEqual(result.narrative_ref.model_dump(mode="json"), supplied["narrative_ref"])
         self.assertEqual([r.method for r in self.requests], ["GET", "POST"])
         self.assertEqual(self.requests[1].content, config.base_request.encode())
@@ -212,7 +310,7 @@ class WardrobeOpenRouterTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(picture, {"type": "image_url", "image_url": {"url":
                 f'data:{image["ref"]["mime_type"]};base64,' + base64.b64encode(bodies[image["alias"]]).decode("ascii")}})
         self.assertEqual((supplied, bodies), before)
-        self.assertEqual(result.units[0].references, [])  # Evidence is not automatic render conditioning.
+        self.assertEqual(result.batch_prompt[0].references, [])  # Evidence is not automatic render conditioning.
         self.assertEqual([r.method for r in self.requests], ["GET", "POST"])
 
     async def test_missing_extra_or_wrong_image_bytes_never_reach_post(self):
@@ -377,7 +475,7 @@ class WardrobeOpenRouterTests(unittest.IsolatedAsyncioTestCase):
         with self.transport(), self.assertRaisesRegex(ValueError, "frozen"):
             await adapter.complete_wardrobe(config)
         self.assertEqual([r.method for r in self.requests], ["GET"])
-        for body in (frozen + " ", frozen.replace('"adapter_version":"1"', '"adapter_version":"1","adapter_version":"1"')):
+        for body in (frozen + " ", frozen.replace('"adapter_version":"2"', '"adapter_version":"2","adapter_version":"2"')):
             with self.assertRaisesRegex(ValueError, "frozen"):
                 adapter.read_wardrobe_config(body)
 
@@ -418,12 +516,17 @@ class WardrobeOpenRouterTests(unittest.IsolatedAsyncioTestCase):
         from backend import openrouter_wardrobe as adapter
         private = "private-provider-content-test-secret"
         wrong_subject = draft_data()
-        wrong_subject["units"][0]["subject_ids"] = [private]
+        wrong_subject["batch_prompt"][0]["subject_ids"] = [private]
         wrong_parent = draft_data()
-        wrong_parent["units"][2]["references"][0]["source"]["unit_key"] = private
+        wrong_parent["batch_prompt"][2]["references"][0]["source"]["unit_key"] = private
         invalid_ref = draft_data()
-        invalid_ref["units"][0]["references"] = [{"source": {"kind": "input", "alias": private},
-                                                "role": "portrait", "take": [], "ignore": []}]
+        invalid_ref["batch_prompt"][2]["references"][0]["source"] = {"kind": "supplied_image", "alias": private}
+        wrong_mode = draft_data()
+        wrong_mode["batch_prompt"][2]["workflow"] = "txt2img"
+        v1_draft = {"direction": draft_data()["direction"], "units": [
+            {"unit_key": "hero_face", "subject_ids": ["hero"], "role": "portrait",
+             "purpose": "Identity", "framing": "Close-up", "drawable_content": "Traveler",
+             "image_prompt": "Watercolor traveler in a red coat.", "preserve": [], "ignore": [], "references": []}]}
         variants = [None, [], {}, {"choices": []}, {"choices": envelope()["choices"] * 2},
                     {"choices": [{"finish_reason": "stop", "message": []}]},
                     {"choices": [{"finish_reason": "stop", "message": {"content": [{"text": private}]}}]},
@@ -444,7 +547,7 @@ class WardrobeOpenRouterTests(unittest.IsolatedAsyncioTestCase):
                        {"status": "needs_input", "plan": draft_data(), "explanation": private},
                        {"status": "ready", "plan": {**draft_data(), "approved": True}, "explanation": None},
                        *[{"status": "ready", "plan": draft, "explanation": None}
-                         for draft in (wrong_subject, wrong_parent, invalid_ref)]):
+                          for draft in (wrong_subject, wrong_parent, invalid_ref, wrong_mode, v1_draft)]):
             variants.append(envelope(result))
         with self.transport():
             config = await adapter.prepare_wardrobe_request(supplied_input(), {})
@@ -578,8 +681,8 @@ class WardrobeOpenRouterTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_mutable_typed_input_and_request_capacity_are_checked_before_post(self):
         from backend import openrouter_wardrobe as adapter
-        from backend.wardrobe import WardrobeInputV1
-        supplied = WardrobeInputV1.model_validate(supplied_input())
+        from backend.wardrobe import WardrobeInputV2
+        supplied = WardrobeInputV2.model_validate(supplied_input())
         supplied.story.shots[0].subject_ids.append("undeclared")
         with self.transport(), self.assertRaises(ValueError):
             await adapter.prepare_wardrobe_request(supplied, {})
@@ -602,10 +705,10 @@ class WardrobeOpenRouterTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_input_size_diagnostic_counts_combined_evidence_and_utf8_exactly(self):
         from backend import openrouter_wardrobe as adapter
-        from backend.wardrobe import WardrobeInputV1
+        from backend.wardrobe import WardrobeInputV2
 
         supplied, bodies = visual_input(("PNG", "PNG"))
-        self.assertIsNone(adapter.wardrobe_input_size_diagnostic(WardrobeInputV1.model_validate(supplied)))
+        self.assertIsNone(adapter.wardrobe_input_size_diagnostic(WardrobeInputV2.model_validate(supplied)))
         raw = large_png((2100, 1800))
         self.assertLess(len(raw), 10 * MAX_JSON_BYTES)
         self.assertLess(4 * ((len(raw) + 2) // 3), 16 * MAX_JSON_BYTES)

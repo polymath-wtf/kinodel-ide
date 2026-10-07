@@ -26,7 +26,7 @@ def input_data(version="2", selected=False):
         subjects.append({"subject_id": "fox", "description": "A curious fox"})
     text = "Watercolor, muted red and slate blue; a soft window light."
     return {
-        "schema_version": "1", "capability_set": "anchor-basics.v1",
+        "schema_version": "2", "capability_set": "anchor-basics.v2",
         "narrative_ref": {**artifact_ref(), "schema_id": "story", "schema_version": version,
                           "produced_by_stage": "storytell", "digest": artifact_digest(body)},
         "story": story,
@@ -43,12 +43,13 @@ def input_data(version="2", selected=False):
 
 
 def reference(key, role):
-    return {"source": {"kind": "anchor_unit", "unit_key": key}, "role": role,
+    return {"source": {"kind": "batch_unit", "unit_key": key}, "role": role,
             "take": ["Identity" if role == "portrait" else "Environment"], "ignore": ["Temporary lighting"]}
 
 
-def unit(key, role, subjects, references=None):
-    return {"unit_key": key, "subject_ids": subjects, "role": role,
+def unit(key, use_case, subjects, references=None):
+    return {"unit_key": key, "subject_ids": subjects, "use_case": use_case,
+            "workflow": "img2img" if use_case == "hero-sheet" else "txt2img",
             "purpose": "Reusable visual identity", "framing": "Front view",
             "drawable_content": "A traveler in a red coat" if subjects else "An empty rainy street",
             "image_prompt": "  Watercolor traveler in a red coat, soft window light from the left.  ",
@@ -60,45 +61,148 @@ def draft_data(hero="hero"):
                           "environment": "Rainy slate-blue street", "lighting": "Soft window light from the left",
                           "palette": ["Muted red", "Slate blue"], "must_preserve": ["Identity"],
                           "prohibited_drift": ["Extra cast"]},
-            "units": [unit("hero_face", "portrait", [hero]), unit("location", "background", []),
-                      unit("hero_sheet", "character_sheet", [hero],
-                           [reference("hero_face", "portrait"), reference("location", "background")])]}
+            "batch_prompt": [unit("hero_face", "hero-face", [hero]), unit("location", "location", []),
+                             unit("hero_sheet", "hero-sheet", [hero],
+                                  [reference("hero_face", "portrait"), reference("location", "background")])]}
+
+
+def full_batch_input(version="2"):
+    supplied = input_data(version)
+    subjects = {"hero": "ada", "fox": "leo"}
+    for shot in supplied["story"]["shots"]:
+        shot["subject_ids"] = [subjects[subject] for subject in shot["subject_ids"]]
+    for subject in supplied["narrative_input"]["subjects"]:
+        subject["subject_id"] = subjects[subject["subject_id"]]
+    if version == "2":
+        supplied["story"]["generated_characters"][0]["subject_id"] = "leo"
+    supplied["narrative_ref"]["digest"] = artifact_digest(
+        (StoryV2 if version == "2" else StoryV1).model_validate(supplied["story"]))
+    supplied["image_evidence"] = []
+    return supplied
+
+
+def full_batch_draft():
+    return {"direction": draft_data()["direction"], "batch_prompt": [
+        unit("ada_face", "hero-face", ["ada"]), unit("leo_face", "hero-face", ["leo"]),
+        unit("location", "location", []),
+        unit("ada_sheet", "hero-sheet", ["ada"], [reference("ada_face", "portrait"), reference("location", "background")]),
+        unit("leo_sheet", "hero-sheet", ["leo"], [reference("leo_face", "portrait"), reference("location", "background")]),
+    ]}
 
 
 class WardrobeTests(unittest.TestCase):
     def resolve(self, draft=None, supplied=None):
         return wardrobe.resolve_wardrobe_draft(draft or draft_data(), supplied or input_data())
 
+    def test_v2_is_the_only_active_creative_schema_family(self):
+        for name in ("WardrobeInputV2", "WardrobeResultV2", "VisualAnchorDraftV2", "VisualAnchorPlanV2",
+                     "AnchorBatchUnitV2", "BatchUnitSourceV2"):
+            self.assertTrue(hasattr(wardrobe, name), f"Missing active V2 schema: {name}")
+        for name in ("WardrobeInputV1", "WardrobeResultV1", "VisualAnchorDraftV1", "VisualAnchorPlanV1",
+                     "AnchorUnitV1", "AnchorUnitSourceV1"):
+            self.assertFalse(hasattr(wardrobe, name), f"Obsolete active V1 schema: {name}")
+
+    def test_full_five_batch_preserves_order_duplicate_use_cases_and_exact_story_provenance(self):
+        for version in ("1", "2"):
+            supplied, draft = full_batch_input(version), full_batch_draft()
+            before = deepcopy((supplied, draft))
+            plan = self.resolve(draft, supplied)
+            self.assertEqual(plan.schema_version, "2")
+            self.assertEqual(plan.narrative_ref.model_dump(mode="json"), supplied["narrative_ref"])
+            self.assertEqual(plan.model_dump(mode="json")["batch_prompt"], draft["batch_prompt"])
+            self.assertEqual([item.unit_key for item in plan.batch_prompt],
+                             ["ada_face", "leo_face", "location", "ada_sheet", "leo_sheet"])
+            self.assertEqual([item.workflow for item in plan.batch_prompt],
+                             ["txt2img", "txt2img", "txt2img", "img2img", "img2img"])
+            self.assertEqual((supplied, draft), before)
+
+    def test_workflow_and_reference_signature_matrix_rejects_without_fallback(self):
+        for index, mode in ((0, "img2img"), (1, "img2img"), (2, "txt2img"), (0, "portrait.json"),
+                            (0, "comfyui"), (0, None), (0, True)):
+            draft = draft_data()
+            draft["batch_prompt"][index]["workflow"] = mode
+            with self.subTest(index=index, mode=mode), self.assertRaises(ValueError):
+                self.resolve(draft)
+        for index, refs in ((0, [reference("location", "background")]),
+                            (1, [reference("hero_face", "portrait")]), (2, []),
+                            (2, [reference("hero_face", "portrait")]),
+                            (2, [reference("location", "background"), reference("hero_face", "portrait")])):
+            draft = draft_data()
+            draft["batch_prompt"][index]["references"] = refs
+            with self.subTest(index=index, refs=refs), self.assertRaises(ValueError):
+                self.resolve(draft)
+        draft = draft_data()
+        del draft["batch_prompt"][0]["workflow"]
+        with self.assertRaises(ValueError):
+            self.resolve(draft)
+
+    def test_batch_count_and_canonical_artifact_one_mib_ceiling(self):
+        draft = draft_data()
+        draft["batch_prompt"] = [unit(f"location-{i}", "location", []) for i in range(MAX_LIST_ITEMS)]
+        self.assertEqual(len(self.resolve(draft).batch_prompt), MAX_LIST_ITEMS)
+        draft["batch_prompt"].append(unit("overflow", "location", []))
+        with self.assertRaises(ValueError):
+            self.resolve(draft)
+        draft["batch_prompt"].pop()
+        for item in draft["batch_prompt"]:
+            item["image_prompt"] = "x" * 5000
+        with self.assertRaisesRegex(ValueError, "large"):
+            self.resolve(draft)
+
+    def test_v1_shapes_provider_fields_and_duplicate_sources_reject(self):
+        for fields in ({"schema_version": "1"}, {"capability_set": "anchor-basics.v1"}):
+            with self.subTest(fields=fields), self.assertRaises(ValueError):
+                wardrobe.WardrobeInputV2.model_validate({**input_data(), **fields})
+        draft = draft_data()
+        with self.assertRaises(ValueError):
+            self.resolve({"direction": draft["direction"], "units": draft["batch_prompt"]})
+        for field in ("role", "order", "depends_on", "provider", "provider_payload", "workflow_file", "asset_ref", "url", "path"):
+            changed = deepcopy(draft)
+            changed["batch_prompt"][0][field] = "portrait"
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                self.resolve(changed)
+        changed = deepcopy(draft)
+        changed["batch_prompt"][2]["references"][0]["source"]["kind"] = "anchor_unit"
+        with self.assertRaises(ValueError):
+            self.resolve(changed)
+        changed = deepcopy(draft)
+        changed["batch_prompt"][2]["references"][1]["source"]["unit_key"] = "hero_face"
+        with self.assertRaises(ValueError):
+            self.resolve(changed)
+        plan = self.resolve().model_dump(mode="json")
+        with self.assertRaises(ValueError):
+            wardrobe.VisualAnchorPlanV2.model_validate({**plan, "schema_version": "1"})
+
     def test_selected_and_generated_subjects_are_exact_and_not_published(self):
         for selected in (False, True):
             supplied = input_data(selected=selected)
             hero = SELECTED if selected else "hero"
             draft = draft_data(hero)
-            draft["units"].append(unit("fox_face", "portrait", ["fox"]))
+            draft["batch_prompt"].append(unit("fox_face", "hero-face", ["fox"]))
             before = deepcopy((supplied, draft))
             plan = self.resolve(draft, supplied)
             self.assertEqual(plan.narrative_ref.model_dump(mode="json"), supplied["narrative_ref"])
-            self.assertEqual(plan.units[-1].subject_ids, ["fox"])
+            self.assertEqual(plan.batch_prompt[-1].subject_ids, ["fox"])
             self.assertEqual((supplied, draft), before)
             self.assertEqual(wardrobe.validate_wardrobe_plan(plan, supplied), plan)
             self.assertNotIn("approved", json.dumps(plan.model_dump(mode="json")))
             self.assertNotIn("character_ref", json.dumps(draft))
 
-    def test_v1_and_v2_need_no_full_brief_video_or_fixed_unit_count(self):
+    def test_story_v1_and_v2_need_no_full_brief_video_or_fixed_unit_count(self):
         for version in ("1", "2"):
             supplied = input_data(version)
-            for units in ([unit("environment", "background", [])], draft_data()["units"],
-                          [*draft_data()["units"], unit("fox", "portrait", ["fox"])]):
+            for units in ([unit("environment", "location", [])], draft_data()["batch_prompt"],
+                          [*draft_data()["batch_prompt"], unit("fox", "hero-face", ["fox"])]):
                 with self.subTest(version=version, count=len(units)):
-                    plan = self.resolve({**draft_data(), "units": units}, supplied)
-                    self.assertEqual(len(plan.units), len(units))
+                    plan = self.resolve({**draft_data(), "batch_prompt": units}, supplied)
+                    self.assertEqual(len(plan.batch_prompt), len(units))
 
     def test_sheet_keeps_ordered_earlier_portrait_background_and_evidence_is_not_a_render_ref(self):
         plan = self.resolve()
-        self.assertEqual([ref.role for ref in plan.units[2].references], ["portrait", "background"])
-        self.assertEqual([ref.source.unit_key for ref in plan.units[2].references], ["hero_face", "location"])
-        self.assertEqual(plan.units[0].references, [])
-        self.assertEqual(plan.units[1].references, [])
+        self.assertEqual([ref.role for ref in plan.batch_prompt[2].references], ["portrait", "background"])
+        self.assertEqual([ref.source.unit_key for ref in plan.batch_prompt[2].references], ["hero_face", "location"])
+        self.assertEqual(plan.batch_prompt[0].references, [])
+        self.assertEqual(plan.batch_prompt[1].references, [])
         without_evidence = input_data()
         without_evidence["image_evidence"] = []
         self.assertEqual(self.resolve(supplied=without_evidence), plan)
@@ -106,23 +210,23 @@ class WardrobeTests(unittest.TestCase):
     def test_opaque_keys_aliases_and_image_ids_roundtrip_as_data(self):
         keys = ["  Герой / лицо: 🦊  ", "фон: #1 [дождь]", "界" * 128]
         draft = draft_data()
-        for anchor, key in zip(draft["units"], keys):
+        for anchor, key in zip(draft["batch_prompt"], keys):
             anchor["unit_key"] = key
-        draft["units"][2]["references"] = [reference(keys[0], "portrait"), reference(keys[1], "background")]
+        draft["batch_prompt"][2]["references"] = [reference(keys[0], "portrait"), reference(keys[1], "background")]
         supplied = input_data()
         supplied["text_context"][0]["alias"] = "Стиль · акварель ?"
         supplied["image_evidence"][0]["alias"] = "  image / герой #1  "
         supplied["image_evidence"][0]["ref"].update(source_id="../портрет.png", revision_id="  ревизия: 3/β  ")
         before = deepcopy((draft, supplied))
         try:
-            prepared = wardrobe.WardrobeInputV1.model_validate(supplied)
+            prepared = wardrobe.WardrobeInputV2.model_validate(supplied)
         except ValueError as error:
             self.fail(f"Opaque UnitKey values were rejected: {error}")
-        self.assertEqual(parse_json_model(canonical_json(prepared), wardrobe.WardrobeInputV1).model_dump(mode="json"), supplied)
+        self.assertEqual(parse_json_model(canonical_json(prepared), wardrobe.WardrobeInputV2).model_dump(mode="json"), supplied)
         plan = self.resolve(draft, prepared)
-        self.assertEqual([anchor.unit_key for anchor in plan.units], keys)
-        self.assertEqual([ref.source.unit_key for ref in plan.units[2].references], keys[:2])
-        self.assertEqual(parse_json_model(canonical_json(plan), wardrobe.VisualAnchorPlanV1), plan)
+        self.assertEqual([anchor.unit_key for anchor in plan.batch_prompt], keys)
+        self.assertEqual([ref.source.unit_key for ref in plan.batch_prompt[2].references], keys[:2])
+        self.assertEqual(parse_json_model(canonical_json(plan), wardrobe.VisualAnchorPlanV2), plan)
         self.assertEqual((draft, supplied), before)
         for field in ("source_id", "revision_id", "alias"):
             for value in ("", " \n\t", True, "界" * 129):
@@ -130,18 +234,18 @@ class WardrobeTests(unittest.TestCase):
                 image = invalid["image_evidence"][0]
                 (image if field == "alias" else image["ref"])[field] = value
                 with self.subTest(field=field, value=str(value)[:20]), self.assertRaises(ValueError):
-                    wardrobe.WardrobeInputV1.model_validate(invalid)
+                    wardrobe.WardrobeInputV2.model_validate(invalid)
 
     def test_duplicate_forward_missing_self_and_wrong_role_parents_block(self):
         mutations = [
-            lambda data: data["units"].append(deepcopy(data["units"][0])),
-            lambda data: data["units"].reverse(),
-            lambda data: data["units"][2]["references"][0]["source"].update(unit_key="missing"),
-            lambda data: data["units"][2]["references"][0]["source"].update(unit_key="hero_sheet"),
-            lambda data: data["units"][2]["references"][0]["source"].update(unit_key="location"),
-            lambda data: data["units"][2]["references"].reverse(),
-            lambda data: data["units"][2]["references"].pop(),
-            lambda data: data["units"][2]["references"].append(deepcopy(data["units"][2]["references"][0])),
+            lambda data: data["batch_prompt"].append(deepcopy(data["batch_prompt"][0])),
+            lambda data: data["batch_prompt"].reverse(),
+            lambda data: data["batch_prompt"][2]["references"][0]["source"].update(unit_key="missing"),
+            lambda data: data["batch_prompt"][2]["references"][0]["source"].update(unit_key="hero_sheet"),
+            lambda data: data["batch_prompt"][2]["references"][0]["source"].update(unit_key="location"),
+            lambda data: data["batch_prompt"][2]["references"].reverse(),
+            lambda data: data["batch_prompt"][2]["references"].pop(),
+            lambda data: data["batch_prompt"][2]["references"].append(deepcopy(data["batch_prompt"][2]["references"][0])),
         ]
         for mutate in mutations:
             data = draft_data()
@@ -151,12 +255,12 @@ class WardrobeTests(unittest.TestCase):
 
     def test_unknown_subjects_and_reference_ownership_block(self):
         for mutate in (
-            lambda data: data["units"][0].update(subject_ids=["invented"]),
-            lambda data: data["units"][2].update(subject_ids=["fox"]),
-            lambda data: data["units"][1].update(subject_ids=["hero"]),
-            lambda data: data["units"][0].update(subject_ids=[]),
-            lambda data: data["units"][2].update(subject_ids=[]),
-            lambda data: data["units"][0].update(subject_ids=["hero", "hero"]),
+            lambda data: data["batch_prompt"][0].update(subject_ids=["invented"]),
+            lambda data: data["batch_prompt"][2].update(subject_ids=["fox"]),
+            lambda data: data["batch_prompt"][1].update(subject_ids=["hero"]),
+            lambda data: data["batch_prompt"][0].update(subject_ids=[]),
+            lambda data: data["batch_prompt"][2].update(subject_ids=[]),
+            lambda data: data["batch_prompt"][0].update(subject_ids=["hero", "hero"]),
         ):
             data = draft_data()
             mutate(data)
@@ -164,38 +268,39 @@ class WardrobeTests(unittest.TestCase):
                 self.resolve(data)
 
     def test_schema_only_offers_supported_earlier_unit_render_sources(self):
-        for model in (wardrobe.VisualAnchorDraftV1, wardrobe.VisualAnchorPlanV1):
+        for model in (wardrobe.VisualAnchorDraftV2, wardrobe.VisualAnchorPlanV2):
             definitions = model.model_json_schema()["$defs"]
             self.assertNotIn("AnchorInputAliasV1", definitions)
             self.assertNotIn("AnchorInputSourceV1", definitions)
+            self.assertEqual(definitions["BatchUnitSourceV2"]["properties"]["kind"]["const"], "batch_unit")
 
     def test_input_render_sources_are_rejected_at_schema_boundary(self):
         draft = draft_data()
         for alias in ("unknown", "selected_face"):
-            draft["units"][0]["references"] = [{"source": {"kind": "input", "alias": alias},
-                                                 "role": "portrait", "take": ["Identity"], "ignore": []}]
+            draft["batch_prompt"][2]["references"][0]["source"] = {"kind": "supplied_image", "alias": alias}
             with self.subTest(alias=alias), self.assertRaises(ValueError):
-                wardrobe.VisualAnchorDraftV1.model_validate(draft)
+                wardrobe.VisualAnchorDraftV2.model_validate(draft)
         plan = self.resolve().model_dump(mode="json")
-        plan["units"][0]["references"] = [{"source": {"kind": "input", "ref": input_data()["image_evidence"][0]["ref"]},
-                                            "role": "portrait", "take": ["Identity"], "ignore": []}]
+        plan["batch_prompt"][2]["references"][0]["source"] = {
+            "kind": "input", "ref": input_data()["image_evidence"][0]["ref"]}
         with self.assertRaises(ValueError):
-            wardrobe.VisualAnchorPlanV1.model_validate(plan)
+            wardrobe.VisualAnchorPlanV2.model_validate(plan)
 
-    def test_missing_or_unsupported_roles_never_fall_back(self):
-        for role in (None, "frame", "sheet", "visual", "main"):
+    def test_missing_or_unsupported_use_cases_and_reference_roles_never_fall_back(self):
+        for role in (None, "frame", "sheet", "portrait", "background", "character_sheet"):
             data = draft_data()
-            data["units"][0]["role"] = role
+            data["batch_prompt"][0]["use_case"] = role
             with self.subTest(role=role), self.assertRaises(ValueError):
                 self.resolve(data)
         for target in ("unit", "reference"):
             data = draft_data()
-            del (data["units"][0] if target == "unit" else data["units"][2]["references"][0])["role"]
+            item = data["batch_prompt"][0] if target == "unit" else data["batch_prompt"][2]["references"][0]
+            del item["use_case" if target == "unit" else "role"]
             with self.subTest(target=target), self.assertRaises(ValueError):
                 self.resolve(data)
         data = draft_data()
-        data["units"].insert(0, unit("other_location", "background", []))
-        data["units"][2]["references"] = [reference("other_location", "background")]
+        data["batch_prompt"].insert(0, unit("other_location", "location", []))
+        data["batch_prompt"][2]["references"] = [reference("other_location", "background")]
         with self.assertRaisesRegex(ValueError, "capability"):
             self.resolve(data)
 
@@ -235,7 +340,7 @@ class WardrobeTests(unittest.TestCase):
             story = StoryV2.model_validate(supplied["story"])
             supplied["narrative_ref"]["digest"] = artifact_digest(story)
             with self.subTest(supplied=supplied), self.assertRaises(ValueError):
-                wardrobe.WardrobeInputV1.model_validate(supplied)
+                wardrobe.WardrobeInputV2.model_validate(supplied)
 
     def test_frozen_projections_and_evidence_have_exact_unique_alias_metadata(self):
         for mutate in (
@@ -255,32 +360,32 @@ class WardrobeTests(unittest.TestCase):
             supplied = input_data()
             mutate(supplied)
             with self.subTest(supplied=supplied), self.assertRaises(ValueError):
-                wardrobe.WardrobeInputV1.model_validate(supplied)
+                wardrobe.WardrobeInputV2.model_validate(supplied)
 
     def test_nonblank_bounded_prompts_keys_direction_and_arrays_preserve_original_text(self):
         for field in ("unit_key", "purpose", "framing", "drawable_content", "image_prompt"):
             for value in ("", " \n\t", True, "x" * (129 if field == "unit_key" else MAX_STRING_CHARS + 1)):
                 data = draft_data()
-                data["units"][0][field] = value
+                data["batch_prompt"][0][field] = value
                 with self.subTest(field=field, value=str(value)[:20]), self.assertRaises(ValueError):
                     self.resolve(data)
         for mutate in (
-            lambda data: data.update(units=[]),
+            lambda data: data.update(batch_prompt=[]),
             lambda data: data["direction"].update(lighting="  "),
             lambda data: data["direction"].update(palette=["  "]),
-            lambda data: data["units"][0].update(preserve=["x"] * (MAX_LIST_ITEMS + 1)),
+            lambda data: data["batch_prompt"][0].update(preserve=["x"] * (MAX_LIST_ITEMS + 1)),
         ):
             data = draft_data()
             mutate(data)
             with self.subTest(data=data), self.assertRaises(ValueError):
                 self.resolve(data)
-        self.assertEqual(self.resolve().units[0].image_prompt, draft_data()["units"][0]["image_prompt"])
+        self.assertEqual(self.resolve().batch_prompt[0].image_prompt, draft_data()["batch_prompt"][0]["image_prompt"])
 
     def test_model_result_is_complete_draft_or_nonready_not_persistent_identity(self):
-        result = wardrobe.WardrobeResultV1.model_validate({"status": "ready", "plan": draft_data(), "explanation": None})
+        result = wardrobe.WardrobeResultV2.model_validate({"status": "ready", "plan": draft_data(), "explanation": None})
         self.assertEqual(result.plan.model_dump(mode="json"), draft_data())
         for status in ("needs_input", "out_of_scope"):
-            wardrobe.WardrobeResultV1.model_validate({"status": status, "plan": None, "explanation": "Missing canon"})
+            wardrobe.WardrobeResultV2.model_validate({"status": status, "plan": None, "explanation": "Missing canon"})
         for data in (
             {"status": "ready", "plan": None, "explanation": None},
             {"status": "ready", "plan": draft_data(), "explanation": "Extra"},
@@ -289,13 +394,13 @@ class WardrobeTests(unittest.TestCase):
             {"status": "ready", "plan": {**draft_data(), "narrative_ref": input_data()["narrative_ref"]}, "explanation": None},
         ):
             with self.subTest(data=data), self.assertRaises(ValueError):
-                wardrobe.WardrobeResultV1.model_validate(data)
+                wardrobe.WardrobeResultV2.model_validate(data)
 
     def test_strict_canonical_json_rejects_duplicates_floats_extras_and_missing_nullable_fields(self):
-        for model, data in ((wardrobe.WardrobeInputV1, input_data()),
-                            (wardrobe.VisualAnchorDraftV1, draft_data()),
-                            (wardrobe.VisualAnchorPlanV1, self.resolve().model_dump(mode="json")),
-                            (wardrobe.WardrobeResultV1, {"status": "ready", "plan": draft_data(), "explanation": None})):
+        for model, data in ((wardrobe.WardrobeInputV2, input_data()),
+                            (wardrobe.VisualAnchorDraftV2, draft_data()),
+                            (wardrobe.VisualAnchorPlanV2, self.resolve().model_dump(mode="json")),
+                            (wardrobe.WardrobeResultV2, {"status": "ready", "plan": draft_data(), "explanation": None})):
             value = model.model_validate(data)
             body = canonical_json(value)
             self.assertEqual(parse_json_model(body, model), value)
@@ -308,23 +413,23 @@ class WardrobeTests(unittest.TestCase):
                      b'{"status":"needs_input","plan":null,"explanation":NaN}',
                      b'{"status":"needs_input","plan":null}'):
             with self.subTest(body=body), self.assertRaises(ValueError):
-                parse_json_model(body, wardrobe.WardrobeResultV1)
+                parse_json_model(body, wardrobe.WardrobeResultV2)
 
     def test_mutated_and_constructed_instances_are_revalidated_without_side_effects(self):
-        supplied = wardrobe.WardrobeInputV1.model_validate(input_data())
+        supplied = wardrobe.WardrobeInputV2.model_validate(input_data())
         supplied.story.shots[0].subject_ids.append("unknown")
         with self.assertRaises(ValueError):
             self.resolve(supplied=supplied)
-        draft = wardrobe.VisualAnchorDraftV1.model_validate(draft_data())
-        draft.units[0].subject_ids.append("unknown")
+        draft = wardrobe.VisualAnchorDraftV2.model_validate(draft_data())
+        draft.batch_prompt[0].subject_ids.append("unknown")
         with self.assertRaises(ValueError):
             self.resolve(draft=draft)
         plan = self.resolve()
-        plan.units[0].subject_ids.append("unknown")
+        plan.batch_prompt[0].subject_ids.append("unknown")
         with self.assertRaises(ValueError):
             wardrobe.validate_wardrobe_plan(plan, input_data())
-        malformed = wardrobe.VisualAnchorDraftV1.model_construct(**{**draft_data(), "approved": True})
-        malformed.units[0]["image_prompt"] = "  "
+        malformed = wardrobe.VisualAnchorDraftV2.model_construct(**{**draft_data(), "approved": True})
+        malformed.batch_prompt[0]["image_prompt"] = "  "
         with self.assertRaises(ValueError):
             self.resolve(malformed)
 

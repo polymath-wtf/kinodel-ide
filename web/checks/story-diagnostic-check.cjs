@@ -16,17 +16,17 @@ const operation = { operation_id: digest, action: 'generate', status: 'blocked',
 const activity = { model: projection.model, system_prompt: 'Mock frozen prompt', prompt_digest: digest, operations: [operation] };
 const storyRef = { artifact_id: id, project_id: id, execution_id: id, operation_id: digest, schema_id: 'story', schema_version: '2',
   produced_by_stage: 'storytell', digest, uri: `kinodel://projects/${id}/artifacts/${id}`, media_type: 'application/json' };
-const wardrobeProjection = { ...projection, graph: { id: 'kinodel.story-wardrobe', version: '1', digest },
+const wardrobeProjection = { ...projection, graph: { id: 'kinodel.story-wardrobe', version: '2', digest },
   work: [{ work_id: 'work', kind: 'resume', status: 'blocked', blocked_reason: 'wardrobe_unavailable', work_version: 2 }],
   stories: [{ ref: storyRef, version: 1, current: true }], reviews: [{ request_id: digest, digest, revision: 1, binding_revision: 1,
     previous_request_id: null, base_ref: storyRef, accepted: true, applied: true, decision_id: digest, work_id: digest,
     action: 'approve', message: null, result: { kind: 'approved_subject', ref: storyRef, response: null } }],
   wardrobe_plan_ref: null, wardrobe_stop: { work_id: 'work', reason: 'wardrobe_unavailable', explanation: 'Сохранённый сбой Wardrobe', allowed_actions: ['retry', 'cancel'] } };
 const prepared = { operation_id: digest, approval_request_id: digest, input_digest: digest,
-  config: { provider: 'OpenRouter', adapter_version: '1', model: 'mock/frozen-wardrobe', system_prompt: 'Frozen Wardrobe instruction', prompt_digest: digest,
+  config: { provider: 'OpenRouter', adapter_version: '2', model: 'mock/frozen-wardrobe', system_prompt: 'Frozen Wardrobe instruction', prompt_digest: digest,
     model_metadata_digest: digest, timeout_seconds: 60, max_tokens: 8192, reasoning_effort: 'low',
     model_metadata: { id: 'mock/frozen-wardrobe', supported_parameters: [], input_modalities: ['text', 'image'], supported_efforts: ['low'] } },
-  input: { schema_version: '1', capability_set: 'anchor-basics.v1', narrative_ref: storyRef,
+  input: { schema_version: '2', capability_set: 'anchor-basics.v2', narrative_ref: storyRef,
     story: { schema_id: 'story', schema_version: '2', hook: 'Fox', story: 'Fox returns', shots: [{ shot_id: 's1', action: 'Returns', narrative_function: 'End', subject_ids: [], state_before: 'Before', state_after: 'After' }], generated_characters: [] },
     narrative_input: { user_vibe: 'Fox', subjects: [], shot_duration_ms: 5000 }, selected_characters: [], text_context: [], image_evidence: [] } };
 let diagnostic, currentPipeline = true, wardrobeMode = false, wardrobeAttempts;
@@ -52,7 +52,7 @@ let diagnostic, currentPipeline = true, wardrobeMode = false, wardrobeAttempts;
       else if (url.pathname === '/api/executions') value = { items: [{ execution_id: id, project_id: id,
         input_preview: projection.submitted.input_message, status: 'blocked', current_story: null }] };
        else if (url.pathname === `/api/executions/${id}/projection`) value = wardrobeMode ? wardrobeProjection : currentPipeline
-        ? { ...projection, graph: { ...projection.graph, id: 'kinodel.story-wardrobe', version: '1' }, wardrobe_plan_ref: null, wardrobe_stop: null }
+         ? { ...projection, graph: { ...projection.graph, id: 'kinodel.story-wardrobe', version: '2' }, wardrobe_plan_ref: null, wardrobe_stop: null }
         : projection;
       else if (url.pathname === `/api/executions/${id}/story-activity`) {
         optedIn.push(url.searchParams.get('include_validation_diagnostic'));

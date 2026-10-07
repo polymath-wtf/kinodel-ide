@@ -5,6 +5,7 @@ from contextlib import closing
 import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from uuid import uuid4
 
@@ -218,6 +219,67 @@ class StoryControlTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(await again.run(), 1)
             self.assertIsNotNone(again.db.execute("SELECT checkpoint_id FROM review_requests "
                                                   "WHERE execution_id=?", (receipt.execution_id,)).fetchone()[0])
+
+    async def test_repeated_shutdown_cancellation_holds_root_until_real_saver_writes_drain(self):
+        from backend.ownership import own_data_root
+        from backend.story_control import open_story_runtime
+
+        for method in ("aput", "aput_writes"):
+            with self.subTest(method=method):
+                root = self.root / method
+                entered, leaving, release, stopped = (asyncio.Event() for _ in range(4))
+                tasks = []
+
+                async def owner():
+                    async with open_story_runtime(root, produce_story) as runtime:
+                        await runtime.start(self.project, "start", "Fox", ["s1"])
+                        original = getattr(runtime.saver, method)
+
+                        async def held(*args, **kwargs):
+                            # Checkpoint during execution; interrupt task-write as the graph exits.
+                            hold = not entered.is_set() and (method == "aput" or
+                                any(channel == "__interrupt__" for channel, _ in args[1]))
+                            if not hold:
+                                return await original(*args, **kwargs)
+                            entered.set()
+                            try:
+                                await release.wait()
+                                return await original(*args, **kwargs)
+                            finally:
+                                stopped.set()
+
+                        with patch.object(runtime.saver, method, held):
+                            running = asyncio.create_task(runtime.run())
+                            tasks.append(running)
+                            await entered.wait()
+                            leaving.set()
+                        # The invocation captured held(); its write outlives the patch, not ownership.
+                    self.assertTrue(stopped.is_set(), "Root released before saver quiescence")
+
+                owning = asyncio.create_task(owner())
+                try:
+                    await asyncio.wait_for(leaving.wait(), 5)
+                    for _ in range(3):
+                        done, _ = await asyncio.wait({owning}, timeout=0.1)
+                        self.assertFalse(done)
+                        self.assertFalse(stopped.is_set())
+                        with self.assertRaises(OSError):
+                            with own_data_root(root):
+                                self.fail("Root ownership released with a held saver writer")
+                        owning.cancel()
+                    release.set()
+                    results = await asyncio.gather(owning, *tasks, return_exceptions=True)
+                    self.assertIsInstance(results[0], asyncio.CancelledError)
+                    self.assertTrue(stopped.is_set())
+                    self.assertTrue(all(task.done() for task in tasks))
+                    # A fresh owner can resume the unchanged work after the drain and lock release.
+                    async with open_story_runtime(root, produce_story) as again:
+                        await again.run()
+                        self.assertEqual(again.db.execute("SELECT COUNT(*) FROM artifacts").fetchone(), (1,))
+                        self.assertEqual(again.db.execute("SELECT * FROM execution_outcomes").fetchall(), [])
+                finally:
+                    release.set()
+                    await asyncio.gather(owning, *tasks, return_exceptions=True)
 
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@ export function ExecutionDetails({ projection, stage, close, opener, read, graph
   useEffect(() => { setTab(defaultTab); }, [defaultTab, stage?.id]);
   const content = tab === 'Inputs' ? projection?.submitted : tab === 'Outputs' ? { stories: projection?.stories, outcome: projection?.outcome } : { execution_id: projection?.execution_id, project_id: projection?.project_id, graph: projection?.graph, model: projection?.model, work: projection?.work };
   const agent = stage?.kind === 'agent';
-  const generation = !!stage && ['anchor-gen', 'frames-gen', 'video-gen'].includes(stage.id);
+  const generation = !!stage && ['anchor-batch', 'frames-batch', 'video-gen'].includes(stage.id);
   const savedStory = !!stage && stage.kind !== 'internal' && ['storytell', 'story-hitl'].includes(stage.id) && !!projection;
   const request = !!stage && stage.id.startsWith('storytell:') && stage.kind !== 'internal';
   const wardrobeRequest = !!stage && stage.id.startsWith('wardrobe:');

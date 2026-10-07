@@ -36,6 +36,29 @@ class InvalidCharacterSelection(ValueError):
     pass
 
 
+class RetiredWardrobeRoute(ValueError):
+    """Retained V1 data is isolated, not replayed or converted to current work."""
+
+
+RETIRED_WARDROBE_MESSAGE = "Story-Wardrobe v1 is retired; retained data is isolated. Start a fresh v2 run."
+
+
+def reject_retired_wardrobe(db: sqlite3.Connection, execution_id: str) -> None:
+    from backend.wardrobe_store import is_retired_wardrobe_graph
+
+    identity = db.execute("SELECT graph_id,graph_version,graph_digest FROM executions WHERE execution_id=?",
+                          (execution_id,)).fetchone()
+    if is_retired_wardrobe_graph(identity):
+        raise RetiredWardrobeRoute(RETIRED_WARDROBE_MESSAGE)
+
+
+def _reject_retired_start_key(db, project_id, client_key):
+    row = db.execute("SELECT execution_id FROM executions WHERE project_id=? AND client_key=?",
+                     (project_id, client_key)).fetchone()
+    if row is not None:
+        reject_retired_wardrobe(db, row[0])
+
+
 class StartReceipt(NamedTuple):
     execution_id: str  # Also the LangGraph thread_id.
     work_id: str
@@ -44,6 +67,7 @@ class StartReceipt(NamedTuple):
 def load_test_story_start(db: sqlite3.Connection, execution_id: str) -> tuple[StartReceipt, StoryState]:
     """Rebuild the graph input only from committed start records; fail closed on mismatches."""
     _uuid(execution_id)
+    reject_retired_wardrobe(db, execution_id)
     row = db.execute(
         "SELECT project_id,input_message,shot_ids,client_key,start_digest,graph_id,graph_version,graph_digest,owner_config "
         "FROM executions WHERE execution_id=?", (execution_id,),
@@ -55,7 +79,7 @@ def load_test_story_start(db: sqlite3.Connection, execution_id: str) -> tuple[St
     if row is None or work is None or row[3] is None:
         raise ValueError("Unknown or unsupported internal Story start")
     from backend import wardrobe_store
-    wardrobe = row[5:8] == (wardrobe_store.GRAPH_ID, wardrobe_store.GRAPH_VERSION, wardrobe_store.GRAPH_DIGEST)
+    wardrobe = wardrobe_store.is_current_wardrobe_graph(row[5:8])
     live = wardrobe or (row[5] == LIVE_GRAPH_ID and row[6] in LIVE_GRAPH_DIGESTS and row[7] == LIVE_GRAPH_DIGESTS[row[6]])
     if not live and (row[5:8] != (GRAPH_ID, GRAPH_VERSION, GRAPH_DIGEST) or row[8] is not None):
         raise ValueError("Unknown or unsupported internal Story start")
@@ -118,6 +142,7 @@ async def _start_live_story(db, saver, project_id, client_key, shot_ids, brief, 
     _validated_test_inputs(project_id, brief.user_vibe, shot_ids)
     if len(shot_ids) > 8 or type(client_key) is not str or not 0 < len(client_key) <= 128:
         raise ValueError("Live Story needs 1–8 shots and a bounded client key")
+    _reject_retired_start_key(db, project_id, client_key)
     await validate_story_storage(db, saver)
     route = wardrobe_store.GRAPH_ID if wardrobe else LIVE_GRAPH_ID
     old = db.execute("SELECT execution_id,shot_ids,owner_config,graph_id FROM executions WHERE project_id=? AND client_key=?", (project_id, client_key)).fetchone()
@@ -162,6 +187,7 @@ async def _start_story(db, saver, project_id, client_key, input_message, shot_id
     if type(client_key) is not str or not 0 < len(client_key) <= 256:
         raise ValueError("Invalid start client key")
     client_key.encode("utf-8")
+    _reject_retired_start_key(db, project_id, client_key)
     await validate_story_storage(db, saver)
     if owner_config is not None:
         from backend.openrouter import read_owner_config
@@ -183,6 +209,7 @@ async def _start_story(db, saver, project_id, client_key, input_message, shot_id
         row = db.execute("SELECT execution_id,start_digest,graph_id FROM executions WHERE project_id=? AND client_key=?",
                           (project_id, client_key)).fetchone()
         if row:
+            reject_retired_wardrobe(db, row[0])
             if row[2] != graph_identity[0]:
                 raise ValueError("Start client key conflicts with another route")
             receipt, _ = load_test_story_start(db, row[0])

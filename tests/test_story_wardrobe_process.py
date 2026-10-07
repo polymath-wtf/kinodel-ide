@@ -21,6 +21,7 @@ from backend.domain import StoryTextInputV1, sha256_digest
 from backend.story_control import open_story_runtime
 from tests.test_story_cast import draft
 from tests.test_wardrobe_openrouter import capability, envelope
+from tests.test_story_wardrobe_runtime import five_unit_plan
 
 
 async def child(root, mode, action=None):
@@ -42,9 +43,7 @@ async def child(root, mode, action=None):
             await asyncio.Event().wait()
         if mode == "repair":
             return httpx.Response(200, json={"choices": []})
-        result = json.loads(envelope()["choices"][0]["message"]["content"])
-        for unit in result["plan"]["units"]:
-            unit["subject_ids"] = ["comedian"] if unit["role"] != "background" else []
+        result = {"status": "ready", "plan": five_unit_plan(), "explanation": None}
         return httpx.Response(200, json=envelope(result))
 
     async def setup_response(request):
@@ -215,6 +214,8 @@ class StoryWardrobeProcessTests(ProcessStoryTest):
                 expected = record["repair_request"] if mode == "repair" else json.loads(record["owner_config"])["base_request"]
                 self.assertEqual(posts[0], expected)
         ref = recovered["plan"]["ref"]
+        self.assertEqual(ref["schema_version"], "2")
+        self.assertEqual(len(recovered["plan"]["body"]["batch_prompt"]), 5)
         self.assertEqual(recovered["plan"]["body"]["narrative_ref"], before["current_ref"])
         self.assertEqual(recovered["plan_binding"], [ref["artifact_id"], 1])
         self.assertEqual(recovered["outcome"], ["completed", ref["operation_id"], ref["artifact_id"]])

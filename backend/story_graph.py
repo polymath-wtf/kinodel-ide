@@ -58,7 +58,21 @@ def build_story_graph(db: sqlite3.Connection, saver: object,
                       *, wardrobe: bool = False, character_root: Path | None = None):
     """Historical Story ends at approval; the verified new route continues to a saved plan."""
 
+    def require_route(state):
+        from backend import wardrobe_store
+        from backend.story_start import GRAPH_ID, GRAPH_VERSION, GRAPH_DIGEST, LIVE_GRAPH_ID, LIVE_GRAPH_DIGESTS
+
+        identity = db.execute("SELECT graph_id,graph_version,graph_digest FROM executions WHERE execution_id=?",
+                              (state["execution_id"],)).fetchone()
+        supported = (wardrobe_store.is_current_wardrobe_graph(identity) if wardrobe else
+            identity == (GRAPH_ID, GRAPH_VERSION, GRAPH_DIGEST) or (identity is not None and
+                identity[0] == LIVE_GRAPH_ID and identity[1] in LIVE_GRAPH_DIGESTS and
+                identity[2] == LIVE_GRAPH_DIGESTS[identity[1]]))
+        if not supported:
+            raise ValueError("Story graph does not match a supported frozen approval route")
+
     async def story(state: StoryState) -> dict:
+        require_route(state)
         execution = state["execution_id"]
         row = db.execute("SELECT project_id,input_message,shot_ids,owner_config FROM executions WHERE execution_id=?",
                          (execution,)).fetchone()
@@ -119,6 +133,7 @@ def build_story_graph(db: sqlite3.Connection, saver: object,
                 "binding_revision": (expected or 0) + 1, "story_activation": trigger}
 
     async def prepare(state: StoryState) -> dict:
+        require_route(state)
         ref = ArtifactRef.model_validate(state["story_ref"])
         request = prepare_story_review(
             db, state["execution_id"], state["story_activation"], ref,
@@ -129,17 +144,14 @@ def build_story_graph(db: sqlite3.Connection, saver: object,
 
     async def wait(state: StoryState) -> dict:
         # Pure before interrupt: the node is replayed on every resume.
+        require_route(state)
         decision_id = interrupt(state["review_ref"])
         if not isinstance(decision_id, str):
             raise ValueError("Invalid decision reference")
         return {"decision_id": decision_id}
 
     async def apply(state: StoryState) -> Command[Literal["storytell", "wardrobe", "__end__"]]:
-        from backend import wardrobe_store
-        identity = db.execute("SELECT graph_id,graph_version,graph_digest FROM executions WHERE execution_id=?",
-                              (state["execution_id"],)).fetchone()
-        if wardrobe != (identity == (wardrobe_store.GRAPH_ID, wardrobe_store.GRAPH_VERSION, wardrobe_store.GRAPH_DIGEST)):
-            raise ValueError("Story graph does not match the frozen approval route")
+        require_route(state)
         request_id = state["review_ref"]["request_id"]
         row = db.execute("SELECT action FROM review_requests WHERE execution_id=? AND request_id=? "
                          "AND decision_id=?", (state["execution_id"], request_id, state["decision_id"])).fetchone()
@@ -157,6 +169,7 @@ def build_story_graph(db: sqlite3.Connection, saver: object,
         raise ValueError("Unsupported Story decision")
 
     async def wardrobe_node(state: StoryState) -> dict:
+        require_route(state)
         from backend.openrouter_wardrobe import WardrobeInvalidOutput, WardrobeOwnerUnavailable
         from backend.story_start import DEFAULT_CHARACTER_ROOT
         from backend.wardrobe_operation import produce_wardrobe_operation
@@ -222,6 +235,7 @@ def validate_wardrobe_success(db: sqlite3.Connection, execution_id: str, request
     from backend.story_start import load_test_story_start
     from backend import wardrobe_store
 
+    wardrobe_store._require_current_route(db, execution_id)
     load_test_story_start(db, execution_id)
     record = wardrobe_store.find_wardrobe_operation(db, execution_id, request_id)
     if record is None or record["next_activation"] is None or record["candidate_kind"] != "plan":

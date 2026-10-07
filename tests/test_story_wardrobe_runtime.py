@@ -15,16 +15,56 @@ import httpx
 from backend import story_graph, wardrobe_store
 from backend.database import open_database
 from backend.domain import OwnerResponseV1, StoryTextInputV1, StorytellResultV2, canonical_json, sha256_digest
-from backend.openrouter import StoryOwnerConfigV2
-from backend.review_store import accept_story_decision, apply_story_decision
+from backend.openrouter import StoryWardrobeOwnerConfigV2
+from backend.openrouter_wardrobe import pin_wardrobe_settings
+from backend.review_store import _digest, accept_story_decision, apply_story_decision
 from backend.saver import open_saver
-from backend.story_control import cancel_story
+from backend.story_control import cancel_story, retry_story_work
 from backend.story_runner import run_story_work
-from backend.story_start import _payload_digest, load_test_story_start
+from backend.story_start import _payload_digest, load_test_story_start, start_test_story
 from backend.story_store import read_story
 from tests.test_story_cast import draft
 from tests.test_story_runner import produce_story
 from tests.test_wardrobe_openrouter import capability, envelope
+from tests.test_wardrobe import full_batch_draft
+
+
+def five_unit_plan():
+    plan = full_batch_draft()
+    for unit in plan["batch_prompt"]:
+        unit["subject_ids"] = ["comedian"] if unit["use_case"] != "location" else []
+    return plan
+
+
+def seed_retired(db, project, *, status="pending", key=None):
+    """Independent retained V1 specimen; its obsolete config must never be hydrated."""
+    execution, artifact, work = str(uuid4()), str(uuid4()), str(uuid4())
+    digest = sha256_digest(b"retained V1 bytes")
+    db.execute("INSERT INTO executions (execution_id,project_id,input_message,shot_ids,client_key,start_digest,"
+               "graph_id,graph_version,graph_digest,owner_config) VALUES (?,?,?,?,?,?,?,?,?,?)",
+               (execution, project, "Retained private V1", '["s1"]', key or execution, digest,
+                wardrobe_store.RETIRED_GRAPH_ID, wardrobe_store.RETIRED_GRAPH_VERSION,
+                wardrobe_store.RETIRED_GRAPH_DIGEST, '{"obsolete_private_config":true}'))
+    db.execute("INSERT INTO execution_work (work_id,execution_id,kind,source_id,payload_digest,status) "
+               "VALUES (?,?, 'start', ?, ?, ?)", (work, execution, execution, digest, status))
+    db.execute("INSERT INTO artifacts VALUES (?,?,?,?,?,?,?,?)", (artifact, execution, "op-" + execution,
+               digest, "kinodel://retained/" + artifact, "visual_anchor_plan", "1", "wardrobe"))
+    request, decision = "request-" + execution, "decision-" + execution
+    db.execute("INSERT INTO review_requests (request_id,execution_id,trigger_activation,subject_artifact_id,"
+               "subject_digest,binding_revision,request_revision,request_digest,checkpoint_id,task_id,interrupt_id,"
+               "decision_key,decision_digest,decision_id,action,applied_activation) VALUES (?,?,?,?,?,1,1,?,?,?,?,?,?,?,?,?)",
+               (request, execution, digest, artifact, digest, digest, "old-cp", "old-task", "old-interrupt",
+                "approve", _digest("kinodel.story-decision.v1", request, digest, 1, "approve", None), decision, "approve", digest))
+    db.execute("INSERT INTO wardrobe_operations (operation_id,execution_id,activation_id,approval_request_id,"
+               "input_digest,prepared_inputs,owner_config,repair_request) VALUES (?,?,?,?,?,?,?,?)",
+               ("wardrobe-" + execution, execution, digest, request, digest, "obsolete-pins", "obsolete-config", "obsolete-repair"))
+    return execution, work, request, decision, artifact, digest
+
+
+def retained_inventory(db, execution):
+    return {table: db.execute(f"SELECT rowid,* FROM {table} WHERE execution_id=?", (execution,)).fetchall()
+            for table in ("executions", "execution_work", "artifacts", "story_operations", "wardrobe_operations",
+                          "review_requests", "execution_controls", "execution_outcomes", "execution_bindings")}
 
 
 class StoryWardrobeRuntimeTests(unittest.IsolatedAsyncioTestCase):
@@ -40,13 +80,14 @@ class StoryWardrobeRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(environment.stop)
 
     def seed_start(self, db):
-        # No public start exposure in this slice; create a NEW exact frozen execution.
+        # Create a NEW exact frozen V2 execution, including Start-owned Wardrobe settings.
         prompt = "Frozen Story instruction"
-        config = StoryOwnerConfigV2(adapter_version="2", model="test/model",
+        config = StoryWardrobeOwnerConfigV2(adapter_version="2", model="test/model",
             brief=StoryTextInputV1(user_vibe="A robot joke", subjects=[], shot_duration_ms=5000),
             selected_characters=[], system_prompt=prompt, result_schema=StorytellResultV2.model_json_schema(),
             clarification_schema=OwnerResponseV1.model_json_schema(), prompt_digest=sha256_digest(prompt.encode()),
-            timeout_seconds=60, max_tokens=8192, max_attempts=2, repair_limit=1, reasoning_effort="low")
+            timeout_seconds=60, max_tokens=8192, max_attempts=2, repair_limit=1, reasoning_effort="low",
+            wardrobe_settings=pin_wardrobe_settings("test/model"))
         frozen = canonical_json(config).decode()
         digest = _payload_digest(config.brief.user_vibe, ["s1"], frozen)
         db.execute("INSERT INTO executions (execution_id,project_id,input_message,shot_ids,client_key,start_digest,"
@@ -71,10 +112,10 @@ class StoryWardrobeRuntimeTests(unittest.IsolatedAsyncioTestCase):
             if callable(wardrobe_output):
                 return wardrobe_output(request)
             # A reusable fixture draft, with its subject changed to this execution's generated cast.
-            result = wardrobe_output or json.loads(envelope()["choices"][0]["message"]["content"])
+            result = wardrobe_output or {"status": "ready", "plan": five_unit_plan(), "explanation": None}
             if result.get("plan"):
-                for unit in result["plan"]["units"]:
-                    unit["subject_ids"] = ["comedian"] if unit["role"] != "background" else []
+                for unit in result["plan"]["batch_prompt"]:
+                    unit["subject_ids"] = ["comedian"] if unit["use_case"] != "location" else []
             return httpx.Response(200, json=envelope(result))
         return patch("backend.openrouter_client.httpx.AsyncClient",
                      partial(httpx.AsyncClient, transport=httpx.MockTransport(respond)))
@@ -95,7 +136,7 @@ class StoryWardrobeRuntimeTests(unittest.IsolatedAsyncioTestCase):
             receipt, initial = load_test_story_start(db, self.execution)
             self.assertEqual(receipt.execution_id, self.execution)
             self.assertEqual(initial, story_graph.initial_story_state(self.project, self.execution, live=True))
-            for column, value in (("graph_digest", sha256_digest(b"wrong")), ("graph_version", "2")):
+            for column, value in (("graph_digest", sha256_digest(b"wrong")), ("graph_version", "1")):
                 original = db.execute(f"SELECT {column} FROM executions").fetchone()[0]
                 db.execute(f"UPDATE executions SET {column}=?", (value,))
                 with self.assertRaises(ValueError):
@@ -129,6 +170,7 @@ class StoryWardrobeRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 with self.transport(before_wardrobe=check_claim):
                     self.assertEqual(await self.drain(db, saver), 1)
                 ref, plan = wardrobe_store.read_wardrobe_plan(db, self.execution)
+                self.assertEqual((ref.schema_version, plan.schema_version, len(plan.batch_prompt)), ("2", "2", 5))
                 self.assertEqual(plan.narrative_ref, read_story(db, self.execution)[0])
                 self.assertEqual(db.execute("SELECT outcome,source_id,subject_artifact_id FROM execution_outcomes").fetchone(),
                                  ("completed", ref.operation_id, ref.artifact_id))
@@ -373,6 +415,133 @@ class StoryWardrobeRuntimeTests(unittest.IsolatedAsyncioTestCase):
                     await self.drain(db, saver)
                 self.assertEqual(db.execute("SELECT * FROM execution_outcomes").fetchall(), [])
                 self.assertEqual(db.execute("SELECT status,blocked_reason FROM execution_work WHERE work_id=?", (decision.work_id,)).fetchone(), ("blocked", "wardrobe_invalid"))
+
+    async def test_retired_work_and_reconciliation_are_untouched_across_reopen(self):
+        specimens = []
+        with open_database(self.root) as db:
+            async with open_saver(self.root, db) as saver:
+                for status in ("pending", "claimed", "completed", "blocked"):
+                    item = seed_retired(db, self.project, status=status)
+                    specimens.append(item)
+                terminal = seed_retired(db, self.project, status="claimed")
+                db.execute("INSERT INTO execution_outcomes VALUES (?, 'completed', ?, ?)",
+                           (terminal[0], terminal[2], terminal[4]))
+                specimens.append(terminal)
+                cancelling = seed_retired(db, self.project)
+                db.execute("INSERT INTO execution_controls VALUES (?,?, 'cancel', ?, NULL)",
+                           (cancelling[0], "cancel", cancelling[1]))
+                specimens.append(cancelling)
+                # Include actual old-thread saver rows, without a V1 config reader.
+                from langgraph.graph import END, START, StateGraph
+                graph = StateGraph(story_graph.StoryState)
+                graph.add_node("old", lambda state: {})
+                graph.add_edge(START, "old")
+                graph.add_edge("old", END)
+                for item in specimens:
+                    await graph.compile(checkpointer=saver).ainvoke(
+                        story_graph.initial_story_state(self.project, item[0]),
+                        {"configurable": {"thread_id": item[0]}}, durability="sync")
+                checkpoints = {item[0]: [saved async for saved in saver.alist(
+                    {"configurable": {"thread_id": item[0]}})] for item in specimens}
+                frozen = {item[0]: retained_inventory(db, item[0]) for item in specimens}
+        for _ in range(2):
+            with open_database(self.root) as db:
+                async with open_saver(self.root, db) as saver:
+                    with patch.object(saver, "aget_tuple", side_effect=AssertionError("Retired checkpoint read")), \
+                            patch("backend.openrouter_client.httpx.AsyncClient", side_effect=AssertionError("Retired HTTP")), \
+                            patch("backend.story_runner.build_story_graph", side_effect=AssertionError("Retired graph")):
+                        self.assertEqual(await self.drain(db, saver), 0)
+                    for item in specimens:
+                        self.assertEqual(retained_inventory(db, item[0]), frozen[item[0]])
+                        self.assertEqual([saved async for saved in saver.alist(
+                            {"configurable": {"thread_id": item[0]}})], checkpoints[item[0]])
+
+    async def test_retired_services_reject_before_duplicate_receipts_or_writes(self):
+        with open_database(self.root) as db:
+            item = seed_retired(db, self.project, status="blocked")
+            execution, work, request, decision, _, digest = item
+            db.execute("INSERT INTO execution_work (work_id,execution_id,kind,source_id,payload_digest,resume_ref,status) "
+                       "VALUES (?,?, 'resume', ?, ?, ?, 'blocked')", ("resume-" + execution, execution, request, digest, decision))
+            db.execute("UPDATE execution_work SET blocked_reason='owner_unavailable' WHERE work_id=?", (work,))
+            db.execute("INSERT INTO execution_controls VALUES (?,?, 'retry', ?, 0)", (execution, "retry", work))
+            db.execute("INSERT INTO execution_work (work_id,execution_id,kind,source_id,payload_digest,status) "
+                       "VALUES (?,?, 'cancel', 'cancel', ?, 'pending')", ("cancel-" + execution, execution, digest))
+            db.execute("INSERT INTO execution_controls VALUES (?,?, 'cancel', ?, NULL)",
+                       (execution, "cancel", "cancel-" + execution))
+            frozen = retained_inventory(db, execution)
+            for call in (
+                    lambda: accept_story_decision(db, execution, request, digest, 1, "approve", "approve", None),
+                    lambda: apply_story_decision(db, execution, request, decision),
+                    lambda: cancel_story(db, execution, "cancel"),
+                    lambda: cancel_story(db, execution, "new-cancel"),
+                    lambda: retry_story_work(db, execution, work, "retry", 0)):
+                with self.assertRaisesRegex(ValueError, "retired"):
+                    call()
+                self.assertFalse(db.in_transaction)
+                self.assertEqual(retained_inventory(db, execution), frozen)
+
+    async def test_current_graph_cannot_resume_retired_thread_even_with_same_node_names(self):
+        from langgraph.graph import END, START, StateGraph
+        from langgraph.types import Command, interrupt
+        with open_database(self.root) as db:
+            async with open_saver(self.root, db) as saver:
+                item = seed_retired(db, self.project)
+                old = StateGraph(story_graph.StoryState)
+                old.add_node("story_wait", lambda state: {"decision_id": interrupt(state["review_ref"])})
+                old.add_node("story_apply", lambda state: {"approved_story": {}})
+                old.add_edge(START, "story_wait")
+                old.add_edge("story_wait", "story_apply")
+                old.add_edge("story_apply", END)
+                config = {"configurable": {"thread_id": item[0]}}
+                await old.compile(checkpointer=saver).ainvoke({**story_graph.initial_story_state(self.project, item[0]),
+                    "review_ref": {"request_id": item[2]}, "story_ref": {}}, config, durability="sync")
+                frozen = retained_inventory(db, item[0])
+                for wardrobe in (False, True):
+                    current = story_graph.build_story_graph(db, saver, produce_story, wardrobe=wardrobe)
+                    with self.assertRaisesRegex(ValueError, "(retired|frozen.*route)"):
+                        await current.ainvoke(Command(resume=item[3]), config, durability="sync")
+                    self.assertEqual(retained_inventory(db, item[0]), frozen)
+                with self.assertRaisesRegex(ValueError, "route identity"):
+                    story_graph.validate_wardrobe_success(db, item[0], item[2])
+
+    async def test_mixed_retired_story_only_and_v2_runs_progress_without_starvation(self):
+        with open_database(self.root) as db, self.transport():
+            async with open_saver(self.root, db) as saver:
+                retired = seed_retired(db, self.project)
+                frozen = retained_inventory(db, retired[0])
+                story = await start_test_story(db, saver, self.project, "independent", "Fixture Story", ["s1"])
+                self.seed_start(db)
+                self.assertEqual(await self.drain(db, saver), 2)
+                for execution in (story.execution_id, self.execution):
+                    request = db.execute("SELECT request_id,request_digest,binding_revision FROM review_requests WHERE execution_id=?",
+                                         (execution,)).fetchone()
+                    accept_story_decision(db, execution, *request, "approve", "approve", None)
+                self.assertEqual(await self.drain(db, saver), 2)
+                self.assertEqual(db.execute("SELECT execution_id FROM execution_outcomes ORDER BY rowid").fetchall(),
+                                 [(story.execution_id,), (self.execution,)])
+                self.assertEqual(wardrobe_store.read_wardrobe_plan(db, self.execution)[0].schema_version, "2")
+                self.assertEqual(retained_inventory(db, retired[0]), frozen)
+
+    async def test_unknown_wardrobe_identity_is_not_isolated_as_retired(self):
+        with open_database(self.root) as db:
+            async with open_saver(self.root, db) as saver:
+                item = seed_retired(db, self.project)
+                for version, digest in (("1", sha256_digest(b"tampered")), ("99", wardrobe_store.RETIRED_GRAPH_DIGEST),
+                                        (None, wardrobe_store.RETIRED_GRAPH_DIGEST), ("1", None)):
+                    db.execute("UPDATE executions SET graph_version=?,graph_digest=?", (version, digest))
+                    db.execute("UPDATE execution_work SET status='pending' WHERE work_id=?", (item[1],))
+                    with self.subTest(version=version, digest=digest), self.assertRaisesRegex(ValueError, "unsupported"):
+                        await self.drain(db, saver)
+                    self.assertEqual(db.execute("SELECT status FROM execution_work WHERE work_id=?", (item[1],)).fetchone(), ("blocked",))
+
+    async def test_retired_rows_do_not_bypass_missing_saver_startup_integrity(self):
+        with open_database(self.root) as db:
+            item = seed_retired(db, self.project)
+            frozen = retained_inventory(db, item[0])
+            with self.assertRaisesRegex(ValueError, "Missing saver"):
+                async with open_saver(self.root, db):
+                    self.fail("Retirement bypassed checkpoint integrity")
+            self.assertEqual(retained_inventory(db, item[0]), frozen)
 
 
 if __name__ == "__main__":

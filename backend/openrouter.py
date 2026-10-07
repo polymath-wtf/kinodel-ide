@@ -10,7 +10,7 @@ from pydantic import Field, TypeAdapter, ValidationError, model_validator
 
 from backend import openrouter_client as provider
 from backend.openrouter_client import FinishReason, TransportException, credential as _credential, encode
-from backend.openrouter_wardrobe import WardrobeStartSettingsV1
+from backend.openrouter_wardrobe import WardrobeStartSettingsV2
 from backend.characters import CharacterRef, CharacterV1
 from backend.domain import (Digest, DomainModel, MAX_JSON_BYTES, Narrative, OwnerResponseV1, StoryTextInputV1, StoryTextSubjectV1, StoryV1, StoryV2,
                             StorytellResultV1, StorytellResultV2, canonical_json, parse_json_model, sha256_digest,
@@ -149,7 +149,7 @@ class StoryOwnerConfigV2(StoryOwnerConfig):
 class StoryWardrobeOwnerConfigV2(StoryOwnerConfigV2):
     """New starts extend v2 without changing historical canonical config bytes."""
 
-    wardrobe_settings: WardrobeStartSettingsV1
+    wardrobe_settings: WardrobeStartSettingsV2
 
     @model_validator(mode="after")
     def same_model(self):

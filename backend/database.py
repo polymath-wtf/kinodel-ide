@@ -15,7 +15,7 @@ from backend.ownership import own_data_root
 
 DATABASE_NAME = "application.sqlite3"
 APPLICATION_ID = 0x4B494E4F  # KINO; SQLite header identity, not a business record.
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 BUSY_TIMEOUT_MS = 1000
 INITIALIZING = ".kinodel-initializing-v1"
 READY = ".kinodel-ready-v1"
@@ -197,6 +197,19 @@ CREATE TABLE wardrobe_operations (
     CHECK(next_activation IS NULL OR (candidate_kind='plan') = (artifact_id IS NOT NULL))
 );
 """
+WARDROBE_V2_SCHEMA = """
+CREATE TABLE batch_artifacts (
+    artifact_id TEXT PRIMARY KEY, execution_id TEXT NOT NULL REFERENCES executions(execution_id),
+    operation_id TEXT NOT NULL UNIQUE, digest TEXT NOT NULL, uri TEXT NOT NULL UNIQUE,
+    schema_id TEXT NOT NULL, schema_version TEXT NOT NULL, produced_by_stage TEXT NOT NULL,
+    CHECK((schema_id='story' AND schema_version IN ('1','2') AND produced_by_stage='storytell')
+       OR (schema_id='visual_anchor_plan' AND schema_version IN ('1','2') AND produced_by_stage='wardrobe'))
+);
+INSERT INTO batch_artifacts (rowid,artifact_id,execution_id,operation_id,digest,uri,schema_id,schema_version,produced_by_stage)
+    SELECT rowid,artifact_id,execution_id,operation_id,digest,uri,schema_id,schema_version,produced_by_stage FROM artifacts;
+DROP TABLE artifacts;
+ALTER TABLE batch_artifacts RENAME TO artifacts;
+"""
 
 
 def _schema(db: sqlite3.Connection) -> list[tuple[str, str, str]]:
@@ -226,6 +239,8 @@ def _expected_schema(version: int) -> list[tuple[str, str, str]]:
             candidate.executescript(STORY_DIAGNOSTIC_SCHEMA)
         if version >= 13:
             candidate.executescript(WARDROBE_SCHEMA)
+        if version >= 14:
+            candidate.executescript(WARDROBE_V2_SCHEMA)
         return _schema(candidate)
 
 
@@ -244,7 +259,7 @@ def _validate(db: sqlite3.Connection) -> None:
     if db.execute("PRAGMA application_id").fetchone()[0] != APPLICATION_ID:
         raise ValueError("Unknown application database identity")
     version = db.execute("PRAGMA user_version").fetchone()[0]
-    if version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, SCHEMA_VERSION):
+    if version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, SCHEMA_VERSION):
         raise ValueError("Unsupported application database version; maintenance required")
     if _schema(db) != ([] if version == 1 else _expected_schema(version)):
         raise ValueError("Unexpected application database schema")
@@ -499,7 +514,14 @@ def open_database(root: Path) -> Iterator[sqlite3.Connection]:
             if db.execute("PRAGMA user_version").fetchone()[0] == 12:
                 db.execute("PRAGMA synchronous=FULL")
                 db.executescript(
-                    f"BEGIN IMMEDIATE; {WARDROBE_SCHEMA} PRAGMA user_version={SCHEMA_VERSION}; COMMIT;"
+                    f"BEGIN IMMEDIATE; {WARDROBE_SCHEMA} PRAGMA user_version=13; COMMIT;"
+                )
+                _validate(db)
+            if db.execute("PRAGMA user_version").fetchone()[0] == 13:
+                # Retain V1 rows/bytes; only new V2 artifacts become insertable.
+                db.execute("PRAGMA synchronous=FULL")
+                db.executescript(
+                    f"BEGIN IMMEDIATE; {WARDROBE_V2_SCHEMA} PRAGMA user_version=14; COMMIT;"
                 )
                 _validate(db)
             _marker(root / READY, create=True)

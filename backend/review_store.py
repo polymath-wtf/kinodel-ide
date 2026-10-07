@@ -114,6 +114,9 @@ def accept_story_decision(db: sqlite3.Connection, execution_id: str, request_id:
                           request_digest: str, expected_revision: int, command_key: str,
                           action: str, message: str | None) -> DecisionRef:
     """Idempotent acceptance; a unique resume work item commits with the decision."""
+    from backend.story_start import reject_retired_wardrobe
+
+    reject_retired_wardrobe(db, execution_id)
     _uuid(execution_id)
     if not isinstance(command_key, str) or not 0 < len(command_key) <= 128:
         raise ValueError("Invalid command key")
@@ -180,6 +183,9 @@ def accept_story_decision(db: sqlite3.Connection, execution_id: str, request_id:
 def apply_story_decision(db: sqlite3.Connection, execution_id: str, request_id: str,
                          decision_id: str) -> str:
     """Commit exact approval/route receipt; replay never changes the current binding."""
+    from backend.story_start import reject_retired_wardrobe
+
+    reject_retired_wardrobe(db, execution_id)
     db.execute("BEGIN IMMEDIATE")
     try:
         row = db.execute("SELECT decision_id,action,subject_artifact_id,subject_digest,"
@@ -199,7 +205,7 @@ def apply_story_decision(db: sqlite3.Connection, execution_id: str, request_id: 
         from backend import wardrobe_store
         identity = db.execute("SELECT graph_id,graph_version,graph_digest FROM executions WHERE execution_id=?",
                               (execution_id,)).fetchone()
-        wardrobe = identity == (wardrobe_store.GRAPH_ID, wardrobe_store.GRAPH_VERSION, wardrobe_store.GRAPH_DIGEST)
+        wardrobe = wardrobe_store.is_current_wardrobe_graph(identity)
         if identity[0] == wardrobe_store.GRAPH_ID and not wardrobe:
             raise ValueError("Unsupported frozen Wardrobe route")
         next_activation = _digest("kinodel.story-review-apply.v1", request_id, decision_id, row[1])

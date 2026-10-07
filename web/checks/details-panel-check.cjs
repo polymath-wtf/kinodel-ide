@@ -170,9 +170,9 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
     // View/scope/Start/library/execution navigation close obsolete details without discarding durable UI state.
     await runDetails(); await page.getByRole('button', { name: 'Chat', exact: true }).click(); await expect(panel()).toHaveCount(0);
     await runDetails(); await page.getByRole('button', { name: 'Новая история', exact: true }).click(); await expect(panel()).toHaveCount(0);
-    await page.locator('.start-form button').first().click();
+    await page.locator('.topbar').click({ button: 'right' }); // Current shell Back, not the removed form Back button.
     await runDetails(); await page.getByRole('button', { name: 'Characters', exact: true }).click(); await expect(panel()).toHaveCount(0);
-    await page.getByRole('button', { name: 'Pipeline', exact: true }).click();
+    await view(page, 'Pipeline');
     await runDetails(); await page.locator('.project-name').click();
     await page.locator('.recent-runs li button').filter({ hasText: other.submitted.input_message }).click();
     await expect(page.locator('.execution')).toHaveAttribute('data-execution', other.execution_id); await expect(panel()).toHaveCount(0);
@@ -188,9 +188,9 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
     await page.goto(origin); await drill(page, '.flow-stage[data-group="wardrobe"]'); await action('wardrobe').click();
     await expect(panel()).toContainText('Сохранённые результаты этого этапа не подключены');
     await page.keyboard.press('Escape'); await expect(action('wardrobe')).toBeFocused();
-    await action('anchor-gen').click(); await expect(panel()).toContainText('Workflow details unavailable');
+    await action('anchor-batch').click(); await expect(panel()).toContainText('Workflow details unavailable');
     await page.getByRole('button', { name: 'Characters', exact: true }).click(); await expect(panel()).toHaveCount(0);
-    await page.getByRole('button', { name: 'Pipeline', exact: true }).click(); await expect(panel()).toHaveCount(0); await scope('wardrobe');
+    await view(page, 'Pipeline'); await expect(panel()).toHaveCount(0); await scope('wardrobe');
     for (const width of [820, 390]) {
       await page.setViewportSize({ width, height: 900 });
       await page.locator('.react-flow__node[data-id="wardrobe-0"]').focus(); await action('wardrobe').focus(); await page.keyboard.press('Enter');

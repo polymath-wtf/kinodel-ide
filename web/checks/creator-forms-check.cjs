@@ -184,7 +184,7 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
     assert.equal((await cache()).start.subjects, before.start.subjects);
     // Start pending bytes remain untouched even if the form's library/settings change.
     await start(); let lost = true;
-    await page.route('**/api/executions/story-wardrobe', async route => { if (lost) { await route.fetch(); await route.abort('failed'); } else await route.continue(); });
+    await page.route('**/api/executions/story-wardrobe/v2', async route => { if (lost) { await route.fetch(); await route.abort('failed'); } else await route.continue(); });
     await submit.click(); await expect(page.getByRole('button', { name: 'Повторить отправку', exact: true })).toBeVisible();
     const pending = posts.at(-1);
     await duration.fill('2'); await page.reload();
@@ -193,7 +193,7 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
     assert.deepEqual(posts.at(-1), pending, 'automatic reload replay uses saved command bytes');
     lost = false; await page.getByRole('button', { name: 'Повторить отправку', exact: true }).click(); await waitStory();
     assert.deepEqual(posts.at(-1), pending, 'explicit replay uses saved command bytes');
-    await page.unroute('**/api/executions/story-wardrobe');
+    await page.unroute('**/api/executions/story-wardrobe/v2');
     // Old gender is read-only text, survives unrelated edits and uncertain same-byte replay.
     await page.getByRole('button', { name: 'Characters', exact: true }).click();
     await page.getByRole('button', { name: 'Открыть Лея новая', exact: true }).click();

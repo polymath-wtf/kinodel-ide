@@ -1,4 +1,5 @@
 import os
+import json
 from contextlib import closing, contextmanager
 from pathlib import Path
 import queue
@@ -13,6 +14,21 @@ from unittest.mock import patch
 
 from backend.database import APPLICATION_ID, BUSY_TIMEOUT_MS, DATABASE_NAME, OPERATION_SCHEMA, REVIEW_SCHEMA, RUNNER_SCHEMA, SCHEMA_VERSION, START_SCHEMA, STORY_SCHEMA, V2_SCHEMA, open_database
 from backend.ownership import own_data_root
+from backend import database
+
+
+def historical_schema(version):
+    if version == 1:
+        return ""
+    script = V2_SCHEMA if version == 2 else STORY_SCHEMA
+    for introduced, ddl in ((4, OPERATION_SCHEMA), (5, REVIEW_SCHEMA), (6, START_SCHEMA),
+                            (7, RUNNER_SCHEMA), (8, database.CONTROL_SCHEMA),
+                            (9, database.DISCUSSION_SCHEMA), (10, database.LIVE_STORY_SCHEMA),
+                            (11, database.STORY_V2_SCHEMA), (12, database.STORY_DIAGNOSTIC_SCHEMA),
+                            (13, database.WARDROBE_SCHEMA)):
+        if version >= introduced:
+            script += ddl
+    return script
 
 
 class DatabaseTests(unittest.TestCase):
@@ -53,6 +69,122 @@ class DatabaseTests(unittest.TestCase):
                                     "wardrobe_operations"})
             with self.assertRaises(sqlite3.ProgrammingError):
                 db.execute("SELECT 1")
+
+    def test_v14_retains_v13_fingerprint_and_only_widens_anchor_versions(self):
+        self.assertEqual(database.SCHEMA_VERSION, 14)
+        self.assertNotEqual(database._expected_schema(13), database._expected_schema(14))
+        for version in (13, 14):
+            with closing(sqlite3.connect(":memory:")) as db:
+                db.executescript(historical_schema(13) + (database.WARDROBE_V2_SCHEMA if version == 14 else ""))
+                self.assertEqual(database._schema(db), database._expected_schema(version))
+                db.execute("INSERT INTO executions (execution_id,project_id,input_message,shot_ids) VALUES ('e','p','vibe','[]')")
+                for schema, schema_version, owner, accepted in (
+                        ("story", "1", "storytell", True), ("story", "2", "storytell", True),
+                        ("visual_anchor_plan", "1", "wardrobe", True),
+                        ("visual_anchor_plan", "2", "wardrobe", version == 14),
+                        ("visual_anchor_plan", "3", "wardrobe", False),
+                        ("visual_anchor_plan", "2", "storytell", False), ("story", "2", "wardrobe", False),
+                        ("other", "2", "wardrobe", False)):
+                    row = (f"{schema}-{schema_version}-{owner}", "e", f"op-{schema}-{schema_version}-{owner}",
+                           "digest", f"uri-{schema}-{schema_version}-{owner}", schema, schema_version, owner)
+                    with self.subTest(db_version=version, row=row):
+                        if accepted:
+                            db.execute("INSERT INTO artifacts VALUES (?,?,?,?,?,?,?,?)", row)
+                        else:
+                            with self.assertRaises(sqlite3.IntegrityError):
+                                db.execute("INSERT INTO artifacts VALUES (?,?,?,?,?,?,?,?)", row)
+
+    def test_versions_one_through_thirteen_upgrade_with_each_correct_stamp(self):
+        validate = database._validate
+        for version in range(1, 14):
+            root = self.root.parent / f"schema-{version}"
+            root.mkdir()
+            with closing(sqlite3.connect(root / DATABASE_NAME)) as old:
+                old.executescript(f"PRAGMA application_id={APPLICATION_ID}; {historical_schema(version)} PRAGMA user_version={version};")
+            stamps = []
+            def checked(db):
+                stamps.append(db.execute("PRAGMA user_version").fetchone()[0])
+                validate(db)
+            with self.subTest(version=version), patch.object(database, "_validate", side_effect=checked):
+                with open_database(root) as db:
+                    self.assertEqual(db.execute("PRAGMA user_version").fetchone(), (14,))
+                    self.assertEqual(database._schema(db), database._expected_schema(14))
+                    self.assertEqual(db.execute("PRAGMA foreign_key_check").fetchall(), [])
+            expected = [version, *range(max(3, version + 1), 15)]
+            self.assertEqual(list(dict.fromkeys(stamps)), expected)
+
+    def test_populated_v13_upgrade_preserves_all_rows_rowids_fks_and_old_bytes(self):
+        self.root.mkdir()
+        old_plan = json.dumps({"schema_id": "visual_anchor_plan", "schema_version": "1", "units": [
+            {"unit_key": "old face", "role": "portrait", "image_prompt": "Exact historical prompt 🦊"}]},
+            ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+        old_start = '{"adapter_version":"2","wardrobe_settings":{"adapter_version":"1","system_prompt":"frozen old guidance"}}'
+        old_config = '{"adapter_version":"1","wardrobe_input":{"schema_version":"1","capability_set":"anchor-basics.v1"}}'
+        old_pins = '{"schema_version":"1","planned_artifact_id":"anchor"}'
+        saved = self.root / "projects" / "project" / "artifacts" / "old-plan.json"
+        saved.parent.mkdir(parents=True)
+        saved.write_bytes(old_plan)
+        with closing(sqlite3.connect(self.path, isolation_level=None)) as old:
+            old.executescript(f"PRAGMA application_id={APPLICATION_ID}; {historical_schema(13)} PRAGMA user_version=13;")
+            old.execute("INSERT INTO executions (rowid,execution_id,project_id,input_message,shot_ids,owner_config) VALUES (17,'e','project','old','[]',?)", (old_start,))
+            old.execute("INSERT INTO artifacts VALUES ('story','e','story-op','story-digest','story-uri','story','2','storytell')")
+            old.execute("INSERT INTO artifacts (rowid,artifact_id,execution_id,operation_id,digest,uri,schema_id,schema_version,produced_by_stage) "
+                        "VALUES (42,'anchor','e','anchor-op','anchor-digest','anchor-uri','visual_anchor_plan','1','wardrobe')")
+            old.execute("INSERT INTO execution_bindings (rowid,execution_id,slot,artifact_id,binding_revision) VALUES (54,'e','story','story',1)")
+            old.execute("INSERT INTO execution_bindings (rowid,execution_id,slot,artifact_id,binding_revision) VALUES (55,'e','wardrobe_plan','anchor',1)")
+            old.execute("INSERT INTO story_operations (operation_id,execution_id,activation_id,input_digest,prepared_inputs,artifact_id,next_activation) "
+                        "VALUES ('story-op','e','story-activation','story-input','old-story-pins','story','story-next')")
+            old.execute("INSERT INTO review_requests (request_id,execution_id,trigger_activation,subject_artifact_id,subject_digest,binding_revision,request_revision,request_digest) "
+                        "VALUES ('review','e','review-activation','story','story-digest',1,1,'review-digest')")
+            old.execute("INSERT INTO wardrobe_operations (rowid,operation_id,execution_id,activation_id,approval_request_id,input_digest,prepared_inputs,owner_config,repair_request,owner_attempts,candidate_kind,candidate_body,candidate_digest,artifact_id,next_activation) "
+                        "VALUES (67,'anchor-op','e','anchor-activation','review','anchor-input',?,?,'old-repair',1,'plan',?,'anchor-digest','anchor','anchor-next')",
+                        (old_pins, old_config, old_plan.decode()))
+            old.execute("INSERT INTO execution_work (work_id,execution_id,kind,source_id,payload_digest,status) VALUES ('work','e','resume','review','decision-digest','completed')")
+            old.execute("INSERT INTO execution_controls VALUES ('e','retry-command','retry','work',0)")
+            old.execute("INSERT INTO execution_outcomes VALUES ('e','completed','anchor-op','anchor')")
+            tables = [row[0] for row in old.execute("SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name")]
+            frozen = {table: old.execute(f"SELECT rowid,* FROM {table} ORDER BY rowid").fetchall() for table in tables}
+        for _ in range(2):
+            with open_database(self.root) as db:
+                self.assertEqual(db.execute("PRAGMA user_version").fetchone(), (14,))
+                self.assertEqual(db.execute("PRAGMA foreign_key_check").fetchall(), [])
+                for table in tables:
+                    self.assertEqual(db.execute(f"SELECT rowid,* FROM {table} ORDER BY rowid").fetchall(), frozen[table])
+            self.assertEqual(saved.read_bytes(), old_plan)
+
+    def test_v13_migration_failure_rolls_back_schema_stamp_and_rows(self):
+        self.root.mkdir()
+        with closing(sqlite3.connect(self.path, isolation_level=None)) as old:
+            old.executescript(f"PRAGMA application_id={APPLICATION_ID}; {historical_schema(13)} PRAGMA user_version=13;")
+            old.execute("INSERT INTO executions (execution_id,project_id,input_message,shot_ids) VALUES ('e','p','vibe','[]')")
+            before = database._schema(old)
+        with patch.object(database, "WARDROBE_V2_SCHEMA", database.WARDROBE_V2_SCHEMA + "SELECT * FROM missing_table;"):
+            with self.assertRaises(sqlite3.OperationalError):
+                with open_database(self.root):
+                    self.fail("Partial v14 migration accepted")
+        with closing(sqlite3.connect(self.path)) as old:
+            self.assertEqual(old.execute("PRAGMA user_version").fetchone(), (13,))
+            self.assertEqual(database._schema(old), before)
+            self.assertEqual(old.execute("SELECT input_message FROM executions").fetchone(), ("vibe",))
+        with open_database(self.root) as db:
+            self.assertEqual(db.execute("PRAGMA user_version").fetchone(), (14,))
+
+    def test_v13_tampered_schema_or_foreign_keys_refuse_without_migration(self):
+        for failure in ("schema", "foreign_keys"):
+            self.root = self.root.parent / f"invalid-v13-{failure}"
+            self.root.mkdir()
+            self.path = self.root / DATABASE_NAME
+            with closing(sqlite3.connect(self.path, isolation_level=None)) as old:
+                old.executescript(f"PRAGMA application_id={APPLICATION_ID}; {historical_schema(13)} PRAGMA user_version=13;")
+                if failure == "schema":
+                    old.execute("CREATE TABLE unexpected (payload TEXT)")
+                else:
+                    old.execute("INSERT INTO executions (execution_id,project_id,input_message,shot_ids) VALUES ('e','p','vibe','[]')")
+                    old.execute("INSERT INTO execution_bindings VALUES ('e','wardrobe_plan','missing-artifact',1)")
+            with self.subTest(failure=failure):
+                self.refuse_unchanged()
+                with closing(sqlite3.connect(self.path)) as old:
+                    self.assertEqual(old.execute("PRAGMA user_version").fetchone(), (13,))
 
     def test_existing_empty_directory_is_fresh(self):
         self.root.mkdir()

@@ -5,6 +5,7 @@ import sqlite3
 from pathlib import Path
 from typing import Awaitable, Callable
 
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.types import Command
 
@@ -32,13 +33,57 @@ class _WorkerStopped(Exception):
     pass
 
 
+class _InvocationSaver(BaseCheckpointSaver):
+    """One local graph invocation's write barrier, not another storage implementation."""
+
+    def __init__(self, saver: AsyncSqliteSaver):
+        super().__init__(serde=saver.serde)
+        self._saver = saver
+        self.aget_tuple = saver.aget_tuple
+        self.alist = saver.alist
+        self.get_next_version = saver.get_next_version
+        # Capture caller-injected public methods too; never patch the owned saver itself.
+        self._put, self._put_writes = saver.aput, saver.aput_writes
+        self._writes = []
+        self._closed = False
+        self._graph_task = None
+
+    @property
+    def config_specs(self):
+        return self._saver.config_specs
+
+    async def _write(self, call, *args, **kwargs):
+        if self._closed or (self._graph_task is not None and self._graph_task.done()):
+            raise RuntimeError("Story checkpoint invocation is closed")
+        task = asyncio.create_task(call(*args, **kwargs))
+        self._writes.append(task)
+        # Cancelling graph/executor awaiters must not abort a started SQLite write.
+        return await asyncio.shield(task)
+
+    async def aput(self, config, checkpoint, metadata, new_versions):
+        return await self._write(self._put, config, checkpoint, metadata, new_versions)
+
+    async def aput_writes(self, config, writes, task_id, task_path=""):
+        return await self._write(self._put_writes, config, writes, task_id, task_path=task_path)
+
+    async def settle(self, graph_task):
+        await asyncio.gather(graph_task, return_exceptions=True)
+        # Any late orphaned framework call retains this closed proxy, not a later invocation's saver.
+        self._closed = True
+        results = await asyncio.gather(*self._writes, return_exceptions=True)
+        for result in results:
+            if isinstance(result, BaseException):
+                raise result
+
+
 async def _invoke(db, graph, invocation, config, execution_id, stop):
     task = asyncio.create_task(graph.ainvoke(invocation, config, durability="sync"))
+    graph.checkpointer._graph_task = task
     try:
         while not task.done():
             if cancel_requested(db, execution_id) or (stop is not None and stop.is_set()):
                 task.cancel()
-                await asyncio.gather(task, return_exceptions=True)  # Saver/task cleanup precedes terminal/lock release.
+                await asyncio.gather(task, return_exceptions=True)
                 if stop is not None and stop.is_set():
                     raise _WorkerStopped()
                 return False
@@ -51,10 +96,19 @@ async def _invoke(db, graph, invocation, config, execution_id, stop):
         if stop is not None and stop.is_set():
             raise _WorkerStopped()
         return not cancel_requested(db, execution_id)
-    except asyncio.CancelledError:
-        task.cancel()
-        await asyncio.gather(task, return_exceptions=True)
-        raise
+    finally:
+        if not task.done():
+            task.cancel()
+        draining = asyncio.create_task(graph.checkpointer.settle(task))
+        cancelled = False
+        while not draining.done():
+            try:
+                await asyncio.shield(draining)
+            except asyncio.CancelledError:
+                cancelled = True  # Repeated caller cancellation cannot release storage ownership early.
+        draining.result()
+        if cancelled:
+            raise asyncio.CancelledError()
 
 
 def _finish_cancel(db, execution_id):
@@ -278,22 +332,23 @@ async def run_story_work(db: sqlite3.Connection, saver: AsyncSqliteSaver,
     """Drain pending and abandoned claims under one caller-owned root lock/saver lifetime."""
     await validate_story_storage(db, saver)
     from backend import wardrobe_store
-    graphs = {}
+    retired = (wardrobe_store.RETIRED_GRAPH_ID, wardrobe_store.RETIRED_GRAPH_VERSION, wardrobe_store.RETIRED_GRAPH_DIGEST)
 
     def select_graph(execution_id):
         load_test_story_start(db, execution_id)  # Verify the entire frozen identity before selecting topology.
         wardrobe = db.execute("SELECT graph_id FROM executions WHERE execution_id=?",
                               (execution_id,)).fetchone()[0] == wardrobe_store.GRAPH_ID
-        if wardrobe not in graphs:
-            graphs[wardrobe] = build_story_graph(db, saver, produce_story, wardrobe=wardrobe, character_root=character_root)
-        return graphs[wardrobe], wardrobe
+        # Never reopen a settled write proxy: old framework tasks must stay fenced out.
+        graph = build_story_graph(db, _InvocationSaver(saver), produce_story, wardrobe=wardrobe, character_root=character_root)
+        return graph, wardrobe
     # Recover runnable checkpoints whose segment was incorrectly settled before a stable wait.
     for execution_id, digest in db.execute(
         "SELECT e.execution_id,e.start_digest FROM executions e WHERE e.graph_id IS NOT NULL "
+        "AND NOT (e.graph_id IS ? AND e.graph_version IS ? AND e.graph_digest IS ?) "
         "AND NOT EXISTS (SELECT 1 FROM execution_outcomes o WHERE o.execution_id=e.execution_id) "
         "AND NOT EXISTS (SELECT 1 FROM execution_controls c WHERE c.execution_id=e.execution_id AND c.kind='cancel') "
         "AND NOT EXISTS (SELECT 1 FROM execution_work w WHERE w.execution_id=e.execution_id "
-        "AND w.status IN ('pending','claimed','blocked'))"
+        "AND w.status IN ('pending','claimed','blocked'))", retired
     ).fetchall():
         graph, wardrobe = select_graph(execution_id)
         config = {"configurable": {"thread_id": execution_id}}
@@ -320,8 +375,9 @@ async def run_story_work(db: sqlite3.Connection, saver: AsyncSqliteSaver,
         if inserted.rowcount != 1:
             raise ValueError("Unfinished checkpoint has already been reconciled")
     rows = db.execute(
-        "SELECT work_id,execution_id,kind,source_id,payload_digest,resume_ref FROM execution_work "
-        "WHERE status IN ('pending','claimed') ORDER BY rowid"
+        "SELECT w.work_id,w.execution_id,w.kind,w.source_id,w.payload_digest,w.resume_ref FROM execution_work w "
+        "JOIN executions e ON e.execution_id=w.execution_id WHERE w.status IN ('pending','claimed') "
+        "AND NOT (e.graph_id IS ? AND e.graph_version IS ? AND e.graph_digest IS ?) ORDER BY w.rowid", retired
     ).fetchall()
     processed = 0
     for work in rows:

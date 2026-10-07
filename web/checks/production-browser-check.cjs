@@ -209,7 +209,7 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
     const shared = (await cache()).start;
     await submit.click();
     await expect.poll(() => new URL(page.url()).searchParams.get('execution')).toMatch(/^[0-9a-f-]{36}$/);
-    const payload = posts.at(-1); assert.equal(payload.url, '/api/executions/story-wardrobe');
+    const payload = posts.at(-1); assert.equal(payload.url, '/api/executions/story-wardrobe/v2');
     assert.deepEqual(payload.body.shot_ids, ['shot-001', 'shot-002', 'shot-003']); assert.equal(payload.body.shot_duration_ms, 4004);
     assert.equal(payload.body.input_message, shared.message); assert.deepEqual(payload.body.character_refs, shared.character_refs);
     assert.deepEqual(payload.body.subjects, []);
@@ -281,7 +281,7 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
     assert.deepEqual((await cache()).states[Object.keys(original.states)[0]], original.states[Object.keys(original.states)[0]]);
     assert.equal((await cache()).start.subjects, original.start.subjects);
     assert.deepEqual(catalogs, [], 'ordinary form does not read/refresh profile catalog');
-     assert.equal(posts.length, 1); assert.equal(posts[0].url, '/api/executions/story-wardrobe', 'only ordinary pipeline Start: zero production validate/catalog/render calls');
+     assert.equal(posts.length, 1); assert.equal(posts[0].url, '/api/executions/story-wardrobe/v2', 'only ordinary pipeline Start: zero production validate/catalog/render calls');
     assert.deepEqual(errors, []); assert.deepEqual(foreign, []);
       console.log(`PASS compact Story settings: collapsed card bottom=${ordinaryBottom}, with selected character/legacy=${legacyBottom}; FIVE bordered desktop groups/seven aligned inputs, 72–90px dimensions/72px count/84px duration with inline сек, compact group widths, img2vid/ref2vid labels, no helper/footer copy; >=12px uncut headings, neutral configured badge, keyboard model disclosure + GET refetch/no mutation; exact refs/drafts/timing preserved; 1440/820/390px 44px targets; one mocked Start, no render/paid calls.`);
   } finally { await context.close(); }

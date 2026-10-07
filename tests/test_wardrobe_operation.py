@@ -26,17 +26,18 @@ from backend import database, openrouter_wardrobe as adapter
 from backend.characters import CharacterBio, CharacterRepository
 from backend.domain import (OwnerResponseV1, StoryTextInputV1, StoryV2, canonical_json,
                             sha256_digest)
-from backend.openrouter import SelectedCharacter, StoryOwnerConfigV2, encode
+from backend.openrouter import SelectedCharacter, StoryOwnerConfigV2, StoryWardrobeOwnerConfigV2, encode
 from backend.review_store import (_digest, accept_story_decision, bind_story_wait,
                                   prepare_story_review)
 from backend.story_start import _payload_digest
 from backend.story_store import commit_story_operation, prepare_story_operation, read_story
 from tests.test_characters import image_input
+from tests.test_wardrobe import full_batch_draft
 from tests.test_wardrobe_openrouter import MODEL, capability, envelope, supplied_input, large_png
 
 
 GRAPH_ID = "kinodel.story-wardrobe"
-GRAPH_DIGEST = sha256_digest(b"kinodel.story-wardrobe.v1:OpenRouter+frozen-storytell-v2+text-input+generated-cast>storytell>story_prepare_review>story_wait>story_apply>wardrobe>END|clarify+revise>storytell")
+RETIRED_GRAPH_DIGEST = sha256_digest(b"kinodel.story-wardrobe.v1:OpenRouter+frozen-storytell-v2+text-input+generated-cast>storytell>story_prepare_review>story_wait>story_apply>wardrobe>END|clarify+revise>storytell")
 
 
 class WardrobeOperationTests(unittest.IsolatedAsyncioTestCase):
@@ -74,14 +75,15 @@ class WardrobeOperationTests(unittest.IsolatedAsyncioTestCase):
                 "plan": {"direction": {"appearance": "Warm silhouette", "wardrobe": "Blue coat",
                     "environment": "Rainy street", "lighting": "Soft daylight", "palette": ["blue"],
                     "must_preserve": [], "prohibited_drift": []},
-                    "units": [{"unit_key": "hero portrait", "subject_ids": [subject], "role": "portrait",
+                    "batch_prompt": [{"unit_key": "hero portrait", "subject_ids": [subject], "use_case": "hero-face", "workflow": "txt2img",
                         "purpose": "Identity", "framing": "Close-up", "drawable_content": "Person in blue coat",
                         "image_prompt": "A person in a blue coat under soft daylight.",
                         "preserve": [], "ignore": [], "references": []}]}}))
         return patch("backend.openrouter_client.httpx.AsyncClient",
                      partial(httpx.AsyncClient, transport=httpx.MockTransport(respond)))
 
-    def fixture(self, db, *, selected=False, apply=True, graph_id=GRAPH_ID, image_inputs=None):
+    def fixture(self, db, *, selected=False, apply=True, graph_id=GRAPH_ID, image_inputs=None, frozen_settings=True):
+        _, store = self.modules()
         subjects = [{"subject_id": "hero", "description": "A warm traveler"}]
         cards = []
         if selected:
@@ -92,16 +94,18 @@ class WardrobeOperationTests(unittest.IsolatedAsyncioTestCase):
             subjects = [item.narrative_subject().model_dump(mode="json") for item in cards]
         brief = StoryTextInputV1(user_vibe="Return a ribbon", subjects=subjects, shot_duration_ms=5000)
         from backend.domain import StorytellResultV2
-        config = StoryOwnerConfigV2(adapter_version="2", model=MODEL, brief=brief,
+        config_type = StoryWardrobeOwnerConfigV2 if frozen_settings else StoryOwnerConfigV2
+        config = config_type(adapter_version="2", model=MODEL, brief=brief,
             selected_characters=cards, system_prompt="Frozen Story instruction", result_schema=StorytellResultV2.model_json_schema(),
             clarification_schema=OwnerResponseV1.model_json_schema(), prompt_digest=sha256_digest(b"Frozen Story instruction"),
-            timeout_seconds=60, max_tokens=8192, max_attempts=2, repair_limit=1, reasoning_effort="low")
+            timeout_seconds=60, max_tokens=8192, max_attempts=2, repair_limit=1, reasoning_effort="low",
+            **({"wardrobe_settings": adapter.pin_wardrobe_settings(MODEL)} if frozen_settings else {}))
         frozen = canonical_json(config).decode()
         start_digest = _payload_digest(brief.user_vibe, ["s1"], frozen)
         db.execute("INSERT INTO executions (execution_id,project_id,input_message,shot_ids,client_key,start_digest,"
                    "graph_id,graph_version,graph_digest,owner_config) VALUES (?,?,?,?,?,?,?,?,?,?)",
                    (self.execution, self.project, brief.user_vibe, '["s1"]', "new-synthetic", start_digest,
-                    graph_id, "1", GRAPH_DIGEST, frozen))
+                     graph_id, store.GRAPH_VERSION, store.GRAPH_DIGEST, frozen))
         db.execute("INSERT INTO execution_work (work_id,execution_id,kind,source_id,payload_digest,status) "
                    "VALUES (?,?, 'start', ?, ?, 'completed')", (str(uuid4()), self.execution, self.execution, start_digest))
         activation = sha256_digest(b"synthetic new Story activation")
@@ -141,6 +145,176 @@ class WardrobeOperationTests(unittest.IsolatedAsyncioTestCase):
             await adapter.complete_wardrobe(frozen, repair_instruction=instruction)
         self.assertEqual(self.requests[-1].content, repair.encode())
 
+    def test_current_and_exact_retired_identity_are_distinct_not_a_blanket_skip(self):
+        _, store = self.modules()
+        current = (store.GRAPH_ID, store.GRAPH_VERSION, store.GRAPH_DIGEST)
+        retired = (store.RETIRED_GRAPH_ID, store.RETIRED_GRAPH_VERSION, store.RETIRED_GRAPH_DIGEST)
+        self.assertEqual(current[:2], (GRAPH_ID, "2"))
+        self.assertEqual(retired, (GRAPH_ID, "1", RETIRED_GRAPH_DIGEST))
+        self.assertNotEqual(current[2], retired[2])
+        self.assertTrue(store.is_current_wardrobe_graph(current))
+        self.assertTrue(store.is_retired_wardrobe_graph(retired))
+        for identity in (retired, (GRAPH_ID, "3", current[2]), (GRAPH_ID, "2", retired[2]),
+                         ("kinodel.live-story", "2", current[2])):
+            self.assertFalse(store.is_current_wardrobe_graph(identity))
+        for identity in (current, (GRAPH_ID, "1", current[2]), (GRAPH_ID, "3", retired[2]),
+                         ("unknown", "1", retired[2])):
+            self.assertFalse(store.is_retired_wardrobe_graph(identity))
+
+    async def test_unsupported_graph_rejects_all_store_entries_before_config_story_or_provider(self):
+        operation, store = self.modules()
+        with database.open_database(self.root) as db:
+            review, _, _ = self.fixture(db)
+            with self.transport():
+                await operation.produce_wardrobe_operation(db, self.execution, review.request_id, character_root=self.library)
+            operation_id = db.execute("SELECT operation_id FROM wardrobe_operations").fetchone()[0]
+            record = store.read_wardrobe_operation(db, operation_id)
+            before = db.execute("SELECT * FROM wardrobe_operations").fetchall()
+            self.requests.clear()
+            for identity in ((store.RETIRED_GRAPH_ID, store.RETIRED_GRAPH_VERSION, store.RETIRED_GRAPH_DIGEST),
+                             (GRAPH_ID, "2", sha256_digest(b"unknown")), (GRAPH_ID, "99", store.GRAPH_DIGEST),
+                             ("unknown.graph", "2", store.GRAPH_DIGEST)):
+                db.execute("UPDATE executions SET graph_id=?,graph_version=?,graph_digest=?", identity)
+                with self.subTest(identity=identity), self.transport(), \
+                        patch.object(store, "read_owner_config", side_effect=AssertionError("Unsupported start read")), \
+                        patch.object(store, "read_wardrobe_config", side_effect=AssertionError("Unsupported operation config read")), \
+                        patch.object(store, "read_story", side_effect=AssertionError("Unsupported Story read")), \
+                        patch.object(store, "_destination", side_effect=AssertionError("Unsupported artifact read")), \
+                        patch.object(adapter, "prepare_wardrobe_request", side_effect=AssertionError("Unsupported preparation")):
+                    for call in (
+                            lambda: store.wardrobe_authority(db, self.execution, review.request_id),
+                            lambda: store.find_wardrobe_operation(db, self.execution, review.request_id),
+                            lambda: store.read_wardrobe_operation(db, operation_id),
+                            lambda: store.read_wardrobe_plan(db, self.execution),
+                            lambda: store.prepare_wardrobe_operation(db, self.execution, review.request_id, "corrupt", "repair"),
+                            lambda: store.reserve_wardrobe_attempt(db, operation_id),
+                            lambda: store.commit_wardrobe_operation(db, operation_id),
+                            lambda: store.replay_wardrobe_operation(db, record)):
+                        with self.assertRaisesRegex(ValueError, "route identity"):
+                            call()
+                    with self.assertRaisesRegex(ValueError, "route identity"):
+                        await operation.produce_wardrobe_operation(db, self.execution, review.request_id, character_root=self.library)
+                    self.assertFalse(db.in_transaction)
+                    self.assertEqual(db.execute("SELECT * FROM wardrobe_operations").fetchall(), before)
+            self.assertEqual(self.requests, [])
+
+    async def test_active_route_requires_frozen_settings_before_images_or_preparation(self):
+        operation, _ = self.modules()
+        with database.open_database(self.root) as db:
+            review, _, _ = self.fixture(db, selected=True, frozen_settings=False)
+            with self.transport(), patch("pathlib.Path.read_text", side_effect=AssertionError("Missing settings loaded prompt")), \
+                    patch.object(CharacterRepository, "read_image", side_effect=AssertionError("Missing settings loaded images")), \
+                    patch.object(adapter, "prepare_wardrobe_request", side_effect=AssertionError("Missing settings preparation")), \
+                    self.assertRaisesRegex(ValueError, "frozen.*settings"):
+                await operation.produce_wardrobe_operation(db, self.execution, review.request_id, character_root=self.library)
+            self.assertEqual(self.requests, [])
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM wardrobe_operations").fetchone(), (0,))
+
+    async def test_old_prepared_and_config_bodies_reject_on_current_graph_without_http(self):
+        operation, store = self.modules()
+        with database.open_database(self.root) as db:
+            review, _, _ = self.fixture(db)
+            with self.transport(lambda _: httpx.Response(503)), self.assertRaises(adapter.WardrobeOwnerUnavailable):
+                await operation.produce_wardrobe_operation(db, self.execution, review.request_id, character_root=self.library)
+            operation_id, pins_body, config_body = db.execute("SELECT operation_id,prepared_inputs,owner_config FROM wardrobe_operations").fetchone()
+            pins = json.loads(pins_body)
+            old_pins = {**pins, "schema_version": "1"}
+            self.requests.clear()
+            db.execute("UPDATE wardrobe_operations SET prepared_inputs=?,input_digest=?", (encode(old_pins), sha256_digest(encode(old_pins).encode())))
+            with self.transport(), patch.object(store, "read_wardrobe_config", side_effect=AssertionError("V1 pins read config")), self.assertRaises(ValueError):
+                await operation.produce_wardrobe_operation(db, self.execution, review.request_id, character_root=self.library)
+            old_config = json.loads(config_body)
+            old_config["adapter_version"] = "1"
+            old_config_body = encode(old_config)
+            pins["wardrobe_config_digest"] = sha256_digest(old_config_body.encode())
+            db.execute("UPDATE wardrobe_operations SET prepared_inputs=?,input_digest=?,owner_config=?",
+                       (encode(pins), sha256_digest(encode(pins).encode()), old_config_body))
+            with self.transport(), self.assertRaisesRegex(ValueError, "frozen"):
+                await operation.produce_wardrobe_operation(db, self.execution, review.request_id, character_root=self.library)
+            self.assertEqual(self.requests, [])
+            self.assertEqual(db.execute("SELECT owner_attempts FROM wardrobe_operations").fetchone(), (1,))
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM execution_bindings WHERE slot='wardrobe_plan'").fetchone(), (0,))
+
+    async def test_five_unit_v2_publication_reopens_exact_batch_bytes_and_transition_offline(self):
+        operation, store = self.modules()
+        draft = full_batch_draft()
+        for unit in draft["batch_prompt"]:
+            unit["subject_ids"] = [{"ada": "hero", "leo": "robot"}[subject] for subject in unit["subject_ids"]]
+        with database.open_database(self.root) as db:
+            review, story_ref, _ = self.fixture(db)
+            with self.transport(envelope({"status": "ready", "plan": draft, "explanation": None})):
+                ref, transition = await operation.produce_wardrobe_operation(db, self.execution, review.request_id, character_root=self.library)
+            record = store.read_wardrobe_operation(db, ref.operation_id)
+            frozen = db.execute("SELECT input_digest,prepared_inputs,owner_config,candidate_body,next_activation FROM wardrobe_operations").fetchone()
+            expected = {"schema_id": "visual_anchor_plan", "schema_version": "2", "narrative_ref": story_ref.model_dump(mode="json"), **draft}
+            self.assertEqual(json.loads(record["candidate_body"]), expected)
+            path = store._destination(db, self.project, ref.artifact_id, ref.digest)
+            saved = path.read_bytes()
+            self.assertEqual(saved, record["candidate_body"].encode())
+            self.assertEqual(sha256_digest(saved), ref.digest)
+            self.assertEqual(transition, _digest("kinodel.wardrobe-result.v2", ref.operation_id,
+                record["input_digest"], "plan", record["candidate_digest"]))
+            self.assertEqual(db.execute("SELECT schema_version FROM artifacts WHERE artifact_id=?", (ref.artifact_id,)).fetchone(), ("2",))
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM execution_outcomes").fetchone(), (0,))
+        self.requests.clear()
+        with database.open_database(self.root) as db, patch.dict(os.environ, {"LLM_MODEL": "", "OPENROUTER_API_KEY": ""}), \
+                patch("pathlib.Path.read_text", side_effect=AssertionError("Offline prompt read")), \
+                patch.object(adapter.provider, "http", side_effect=AssertionError("Offline provider call")):
+            actual_ref, plan = store.read_wardrobe_plan(db, self.execution, artifact_id=ref.artifact_id)
+            self.assertEqual(actual_ref, ref)
+            self.assertEqual(plan.model_dump(mode="json"), expected)
+            self.assertEqual(canonical_json(plan), saved)
+            self.assertEqual(await operation.produce_wardrobe_operation(db, self.execution, review.request_id, character_root=self.library), (ref, transition))
+            self.assertEqual(db.execute("SELECT input_digest,prepared_inputs,owner_config,candidate_body,next_activation FROM wardrobe_operations").fetchone(), frozen)
+            self.assertEqual(self.requests, [])
+
+    async def test_committed_v1_metadata_candidate_and_changed_source_or_start_fail_closed(self):
+        operation, store = self.modules()
+        with database.open_database(self.root) as db:
+            review, story_ref, _ = self.fixture(db)
+            with self.transport():
+                ref, _ = await operation.produce_wardrobe_operation(db, self.execution, review.request_id, character_root=self.library)
+            self.requests.clear()
+            db.execute("UPDATE artifacts SET schema_version='1' WHERE artifact_id=?", (ref.artifact_id,))
+            with patch.object(store, "_destination", side_effect=AssertionError("V1 artifact file read")), self.assertRaisesRegex(ValueError, "schema"):
+                store.read_wardrobe_plan(db, self.execution)
+            db.execute("UPDATE artifacts SET schema_version='2' WHERE artifact_id=?", (ref.artifact_id,))
+            candidate_body, candidate_digest = db.execute("SELECT candidate_body,candidate_digest FROM wardrobe_operations").fetchone()
+            old_candidate = json.loads(candidate_body)
+            old_candidate["schema_version"] = "1"
+            db.execute("UPDATE wardrobe_operations SET candidate_body=?,candidate_digest=?",
+                       (encode(old_candidate), sha256_digest(encode(old_candidate).encode())))
+            with patch.object(store, "_publish", side_effect=AssertionError("V1 candidate published")), self.assertRaises(ValueError):
+                store.commit_wardrobe_operation(db, ref.operation_id)
+            db.execute("UPDATE wardrobe_operations SET candidate_body=?,candidate_digest=?", (candidate_body, candidate_digest))
+            frozen_start = db.execute("SELECT owner_config FROM executions").fetchone()[0]
+            changed_start = json.loads(frozen_start)
+            changed_start["wardrobe_settings"]["repair_instruction"] = "Different repair"
+            db.execute("UPDATE executions SET owner_config=?", (encode(changed_start),))
+            with self.assertRaisesRegex(ValueError, "Start pins"):
+                store.read_wardrobe_plan(db, self.execution)
+            db.execute("UPDATE executions SET owner_config=?", (frozen_start,))
+            source = store._destination(db, self.project, story_ref.artifact_id, story_ref.digest)
+            original = source.read_bytes()
+            source.write_bytes(b"changed approved Story source")
+            with self.assertRaisesRegex(ValueError, "integrity"):
+                store.read_wardrobe_plan(db, self.execution)
+            source.write_bytes(original)
+            self.assertEqual(store.read_wardrobe_plan(db, self.execution)[0], ref)
+            self.assertEqual(self.requests, [])
+
+    async def test_fresh_preparation_uses_frozen_settings_not_changed_model_or_prompt(self):
+        operation, store = self.modules()
+        with database.open_database(self.root) as db:
+            review, _, _ = self.fixture(db)
+            with self.transport(), patch.dict(os.environ, {"LLM_MODEL": "changed/unsupported"}), \
+                    patch("pathlib.Path.read_text", side_effect=AssertionError("Frozen Start read current prompt")):
+                ref, _ = await operation.produce_wardrobe_operation(db, self.execution, review.request_id, character_root=self.library)
+            config = store.read_wardrobe_operation(db, ref.operation_id)["config"]
+            self.assertEqual(config.model, MODEL)
+            self.assertEqual(config.adapter_version, "2")
+            self.assertEqual([request.method for request in self.requests], ["GET", "POST"])
+
     async def test_commit_reopen_replay_and_original_images(self):
         operation, store = self.modules()
         with database.open_database(self.root) as db:
@@ -151,12 +325,18 @@ class WardrobeOperationTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIsNotNone(db.execute("SELECT repair_request FROM wardrobe_operations").fetchone()[0])
             with self.transport(before_post=reserved):
                 result, next_activation = await operation.produce_wardrobe_operation(db, self.execution, review.request_id, character_root=self.library)
-            self.assertEqual((result.schema_id, result.produced_by_stage), ("visual_anchor_plan", "wardrobe"))
-            self.assertEqual(store.read_wardrobe_plan(db, self.execution)[1].narrative_ref, story_ref)
+            self.assertEqual((result.schema_id, result.schema_version, result.produced_by_stage), ("visual_anchor_plan", "2", "wardrobe"))
+            saved_ref, saved_plan = store.read_wardrobe_plan(db, self.execution)
+            self.assertEqual(saved_ref, result)
+            self.assertEqual(saved_plan.narrative_ref, story_ref)
+            self.assertEqual([unit.unit_key for unit in saved_plan.batch_prompt], ["hero portrait"])
             self.assertEqual(db.execute("SELECT slot,binding_revision FROM execution_bindings ORDER BY slot").fetchall(),
                              [("story", 1), ("wardrobe_plan", 1)])
             config = adapter.read_wardrobe_config(db.execute("SELECT owner_config FROM wardrobe_operations").fetchone()[0])
             supplied = config.wardrobe_input
+            self.assertEqual((supplied.schema_version, supplied.capability_set), ("2", "anchor-basics.v2"))
+            pins = store.read_wardrobe_operation(db, result.operation_id)["pins"]
+            self.assertEqual((pins.schema_version, pins.capability_set), ("2", "anchor-basics.v2"))
             self.assertEqual(supplied.selected_characters, [item.ref for item in cards])
             self.assertEqual(supplied.narrative_input.model_dump(mode="json"),
                              json.loads(db.execute("SELECT owner_config FROM executions").fetchone()[0])["brief"])
@@ -669,7 +849,7 @@ class WardrobeMigrationTests(unittest.TestCase):
                 tables = ("executions", "artifacts", "execution_bindings", "execution_outcomes")
                 frozen = {table: old.execute(f"SELECT rowid,* FROM {table}").fetchall() for table in tables}
             with database.open_database(root) as db:
-                self.assertEqual(db.execute("PRAGMA user_version").fetchone(), (13,), "Wardrobe schema migration is absent")
+                self.assertEqual(db.execute("PRAGMA user_version").fetchone(), (14,), "Wardrobe V2 schema migration is absent")
                 for table in tables:
                     self.assertEqual(db.execute(f"SELECT rowid,* FROM {table}").fetchall(), frozen[table])
                 self.assertEqual(db.execute("SELECT COUNT(*) FROM wardrobe_operations").fetchone(), (0,))
@@ -688,7 +868,7 @@ class WardrobeMigrationTests(unittest.TestCase):
                 self.assertEqual(old.execute("PRAGMA user_version").fetchone(), (12,))
                 self.assertEqual(database._schema(old), before)
             with database.open_database(rollback) as db:
-                self.assertEqual(db.execute("PRAGMA user_version").fetchone(), (13,))
+                self.assertEqual(db.execute("PRAGMA user_version").fetchone(), (14,))
 
 
 if __name__ == "__main__":

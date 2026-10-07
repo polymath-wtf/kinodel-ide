@@ -15,21 +15,41 @@ from pydantic import Field, TypeAdapter, model_validator
 from backend.domain import (ArtifactRef, CanonicalUUID, DomainModel, MAX_JSON_BYTES,
                             OwnerResponseV1, Text, canonical_json, make_operation_id,
                             parse_json_model, sha256_digest, validate_story_for_text_input)
-from backend.openrouter import SelectedCharacter, StoryOwnerConfigV2, read_owner_config
+from backend.openrouter import SelectedCharacter, StoryWardrobeOwnerConfigV2, read_owner_config
 from backend.openrouter_client import TransportException, TransportPhase, encode
-from backend.openrouter_wardrobe import (WardrobeInvalidOutput, WardrobeOwnerConfigV1, WardrobeOwnerUnavailable, prepare_wardrobe_repair,
+from backend.openrouter_wardrobe import (WardrobeInvalidOutput, WardrobeOwnerConfigV2, WardrobeOwnerUnavailable, prepare_wardrobe_repair,
                                         read_wardrobe_config)
 from backend.review_store import _digest
 from backend.story_start import _payload_digest
 from backend.story_store import (_assert_writable, _check_file, _destination, _publish,
                                  _uuid, _validated_test_inputs, read_story)
-from backend.wardrobe import (ExactDigest, VisualAnchorPlanV1, WardrobeImageEvidenceV1,
-                              WardrobeInputV1, WardrobeTextProjectionV1, validate_wardrobe_plan)
+from backend.wardrobe import (ExactDigest, VisualAnchorPlanV2, WardrobeImageEvidenceV1,
+                              WardrobeInputV2, WardrobeTextProjectionV1, validate_wardrobe_plan)
 
 
 GRAPH_ID = "kinodel.story-wardrobe"
-GRAPH_VERSION = "1"
-GRAPH_DIGEST = sha256_digest(b"kinodel.story-wardrobe.v1:OpenRouter+frozen-storytell-v2+text-input+generated-cast>storytell>story_prepare_review>story_wait>story_apply>wardrobe>END|clarify+revise>storytell")
+GRAPH_VERSION = "2"
+GRAPH_DIGEST = sha256_digest(b"kinodel.story-wardrobe.v2:OpenRouter+frozen-storytell-v2+text-input+generated-cast+wardrobe-input-v2+anchor-basics.v2+visual-anchor-plan-v2(batch_prompt:unit_key+use_case+workflow+batch_unit)>storytell>story_prepare_review>story_wait>story_apply>wardrobe>END|clarify+revise>storytell")
+RETIRED_GRAPH_ID = "kinodel.story-wardrobe"
+RETIRED_GRAPH_VERSION = "1"
+RETIRED_GRAPH_DIGEST = sha256_digest(b"kinodel.story-wardrobe.v1:OpenRouter+frozen-storytell-v2+text-input+generated-cast>storytell>story_prepare_review>story_wait>story_apply>wardrobe>END|clarify+revise>storytell")
+
+
+def is_current_wardrobe_graph(identity: tuple[str | None, str | None, str | None]) -> bool:
+    return identity == (GRAPH_ID, GRAPH_VERSION, GRAPH_DIGEST)
+
+
+def is_retired_wardrobe_graph(identity: tuple[str | None, str | None, str | None]) -> bool:
+    return identity == (RETIRED_GRAPH_ID, RETIRED_GRAPH_VERSION, RETIRED_GRAPH_DIGEST)
+
+
+def _require_current_route(db: sqlite3.Connection, execution_id: str) -> None:
+    """Reject unsupported runs before loading any frozen config, artifact or authority."""
+    _uuid(execution_id)
+    identity = db.execute("SELECT graph_id,graph_version,graph_digest FROM executions WHERE execution_id=?",
+                          (execution_id,)).fetchone()
+    if identity is None or not is_current_wardrobe_graph(identity):
+        raise ValueError("Wardrobe requires its exact new frozen route identity")
 
 
 class WardrobeAttemptBudgetExhausted(ValueError):
@@ -48,8 +68,9 @@ class WardrobeAuthorityV1(DomainModel):
     story_owner_config_digest: ExactDigest
 
 
-class PreparedWardrobeInputsV1(WardrobeAuthorityV1):
-    schema_version: Literal["1"]
+class PreparedWardrobeInputsV2(WardrobeAuthorityV1):
+    schema_version: Literal["2"]
+    capability_set: Literal["anchor-basics.v2"]
     wardrobe_config_digest: ExactDigest
     repair_instruction: Text
     repair_request_digest: ExactDigest
@@ -87,18 +108,18 @@ WARDROBE_DIAGNOSTIC = TypeAdapter(WardrobeDiagnostic)
 
 
 def wardrobe_authority(db: sqlite3.Connection, execution_id: str, request_id: str
-                       ) -> tuple[WardrobeAuthorityV1, WardrobeInputV1, list[SelectedCharacter]]:
+                       ) -> tuple[WardrobeAuthorityV1, WardrobeInputV2, list[SelectedCharacter]]:
     """Rehydrate ONLY committed start/Story/approval authority, without image reads."""
-    _uuid(execution_id)
+    _require_current_route(db, execution_id)
     _assert_writable(db, execution_id)
     row = db.execute("SELECT project_id,input_message,shot_ids,client_key,start_digest,graph_id,"
                      "graph_version,graph_digest,owner_config FROM executions WHERE execution_id=?",
                      (execution_id,)).fetchone()
-    if row is None or row[5:8] != (GRAPH_ID, GRAPH_VERSION, GRAPH_DIGEST):
+    if row is None or not is_current_wardrobe_graph(row[5:8]):
         raise ValueError("Wardrobe requires its exact new frozen route identity")
     config = read_owner_config(row[8])
-    if not isinstance(config, StoryOwnerConfigV2):
-        raise ValueError("Wardrobe requires frozen Story owner configuration v2")
+    if not isinstance(config, StoryWardrobeOwnerConfigV2):
+        raise ValueError("Wardrobe requires frozen Start settings v2")
     shots = json.loads(row[2])
     _validated_test_inputs(row[0], row[1], shots)
     work = db.execute("SELECT source_id,payload_digest FROM execution_work WHERE execution_id=? AND kind='start'",
@@ -151,7 +172,7 @@ def wardrobe_authority(db: sqlite3.Connection, execution_id: str, request_id: st
             images.append(WardrobeImageEvidenceV1(alias=f"character-image-{index}-{image_index}", role="portrait",
                 subject_ids=[selected.ref.subject_id], ref={"source_id": f"{selected.ref.subject_id}-image-{image_index}",
                     "revision_id": str(selected.ref.revision), **image.model_dump(mode="json")}))
-    supplied = WardrobeInputV1(schema_version="1", capability_set="anchor-basics.v1", narrative_ref=ref,
+    supplied = WardrobeInputV2(schema_version="2", capability_set="anchor-basics.v2", narrative_ref=ref,
         story=story, narrative_input=config.brief, selected_characters=[selected.ref for selected in config.selected_characters],
         text_context=texts, image_evidence=images)
     canonical_json(supplied)
@@ -161,11 +182,11 @@ def wardrobe_authority(db: sqlite3.Connection, execution_id: str, request_id: st
     return authority, supplied, config.selected_characters
 
 
-def _candidate(kind: str, body: str, supplied: WardrobeInputV1):
-    result = parse_json_model(body.encode("utf-8"), VisualAnchorPlanV1 if kind == "plan" else OwnerResponseV1)
+def _candidate(kind: str, body: str, supplied: WardrobeInputV2):
+    result = parse_json_model(body.encode("utf-8"), VisualAnchorPlanV2 if kind == "plan" else OwnerResponseV1)
     if canonical_json(result).decode("utf-8") != body:
         raise ValueError("Wardrobe candidate is not canonical")
-    if isinstance(result, VisualAnchorPlanV1):
+    if isinstance(result, VisualAnchorPlanV2):
         return validate_wardrobe_plan(result, supplied)
     if result.status not in ("needs_input", "out_of_scope") or not result.explanation.strip():
         raise ValueError("Invalid Wardrobe non-ready result")
@@ -173,18 +194,22 @@ def _candidate(kind: str, body: str, supplied: WardrobeInputV1):
 
 
 def _transition(record: dict) -> str:
-    return _digest("kinodel.wardrobe-result.v1", record["operation_id"], record["input_digest"],
+    return _digest("kinodel.wardrobe-result.v2", record["operation_id"], record["input_digest"],
                    record["candidate_kind"], record["candidate_digest"])
 
 
 def read_wardrobe_operation(db: sqlite3.Connection, operation_id: str) -> dict:
     """Every persisted read revalidates canonical configuration/request/candidate pins."""
+    header = db.execute("SELECT execution_id FROM wardrobe_operations WHERE operation_id=?", (operation_id,)).fetchone()
+    if header is None:
+        raise ValueError("Unknown prepared Wardrobe operation")
+    _require_current_route(db, header[0])
     cursor = db.execute("SELECT * FROM wardrobe_operations WHERE operation_id=?", (operation_id,))
     row = cursor.fetchone()
     if row is None:
         raise ValueError("Unknown prepared Wardrobe operation")
     record = dict(zip((column[0] for column in cursor.description), row))
-    pins = parse_json_model(record["prepared_inputs"].encode("utf-8"), PreparedWardrobeInputsV1)
+    pins = parse_json_model(record["prepared_inputs"].encode("utf-8"), PreparedWardrobeInputsV2)
     if (canonical_json(pins).decode("utf-8") != record["prepared_inputs"]
             or sha256_digest(canonical_json(pins)) != record["input_digest"]
             or (pins.execution_id, pins.activation_id, pins.approval_request_id) !=
@@ -194,6 +219,11 @@ def read_wardrobe_operation(db: sqlite3.Connection, operation_id: str) -> dict:
             or sha256_digest(record["owner_config"].encode("utf-8")) != pins.wardrobe_config_digest):
         raise ValueError("Wardrobe prepared input pins mismatch")
     config = read_wardrobe_config(record["owner_config"])
+    start = db.execute("SELECT start_digest,owner_config FROM executions WHERE execution_id=?", (pins.execution_id,)).fetchone()
+    if (start[0] != pins.start_digest or type(start[1]) is not str
+            or sha256_digest(start[1].encode("utf-8")) != pins.story_owner_config_digest):
+        raise ValueError("Wardrobe frozen Start pins mismatch")
+    _check_start_settings(db, pins.execution_id, config, pins.repair_instruction)
     if (config.wardrobe_input.narrative_ref != pins.story_ref
             or sha256_digest(record["repair_request"].encode("utf-8")) != pins.repair_request_digest
             or prepare_wardrobe_repair(record["owner_config"], pins.repair_instruction) != record["repair_request"]):
@@ -224,24 +254,24 @@ def read_wardrobe_operation(db: sqlite3.Connection, operation_id: str) -> dict:
 
 
 def find_wardrobe_operation(db: sqlite3.Connection, execution_id: str, request_id: str) -> dict | None:
-    _uuid(execution_id)
+    _require_current_route(db, execution_id)
     row = db.execute("SELECT operation_id FROM wardrobe_operations WHERE execution_id=? AND approval_request_id=?",
                      (execution_id, request_id)).fetchone()
     return read_wardrobe_operation(db, row[0]) if row else None
 
 
-def _check_start_settings(db: sqlite3.Connection, execution_id: str, config: WardrobeOwnerConfigV1,
+def _check_start_settings(db: sqlite3.Connection, execution_id: str, config: WardrobeOwnerConfigV2,
                           repair_instruction: str) -> None:
-    from backend.openrouter import StoryWardrobeOwnerConfigV2
     start = read_owner_config(db.execute("SELECT owner_config FROM executions WHERE execution_id=?",
-                                        (execution_id,)).fetchone()[0])
-    if isinstance(start, StoryWardrobeOwnerConfigV2):
-        settings = start.wardrobe_settings
-        if (any(getattr(config, key) != getattr(settings, key) for key in
-                ("adapter_version", "model", "system_prompt", "prompt_digest", "result_schema",
-                 "timeout_seconds", "max_tokens", "reasoning_effort"))
-                or repair_instruction != settings.repair_instruction):
-            raise ValueError("Wardrobe configuration does not match frozen Start settings")
+                                         (execution_id,)).fetchone()[0])
+    if not isinstance(start, StoryWardrobeOwnerConfigV2):
+        raise ValueError("Wardrobe requires frozen Start settings v2")
+    settings = start.wardrobe_settings
+    if (any(getattr(config, key) != getattr(settings, key) for key in
+            ("adapter_version", "model", "system_prompt", "prompt_digest", "result_schema",
+             "timeout_seconds", "max_tokens", "reasoning_effort"))
+            or repair_instruction != settings.repair_instruction):
+        raise ValueError("Wardrobe configuration does not match frozen Start settings")
 
 
 def _check_authority(db: sqlite3.Connection, record: dict) -> None:
@@ -254,6 +284,7 @@ def _check_authority(db: sqlite3.Connection, record: dict) -> None:
 
 def prepare_wardrobe_operation(db: sqlite3.Connection, execution_id: str, request_id: str,
                               config_body: str, repair_instruction: str) -> dict:
+    _require_current_route(db, execution_id)
     config = read_wardrobe_config(config_body)
     repair = prepare_wardrobe_repair(config_body, repair_instruction)
     db.execute("BEGIN IMMEDIATE")
@@ -269,7 +300,7 @@ def prepare_wardrobe_operation(db: sqlite3.Connection, execution_id: str, reques
             if existing["owner_config"] != config_body or existing["pins"].repair_instruction != repair_instruction:
                 raise ValueError("Wardrobe operation preparation conflict")
         else:
-            pins = PreparedWardrobeInputsV1(**authority.model_dump(mode="python"), schema_version="1",
+            pins = PreparedWardrobeInputsV2(**authority.model_dump(mode="python"), schema_version="2", capability_set="anchor-basics.v2",
                 wardrobe_config_digest=sha256_digest(config_body.encode("utf-8")), repair_instruction=repair_instruction,
                 repair_request_digest=sha256_digest(repair.encode("utf-8")), planned_artifact_id=str(uuid4()))
             body = canonical_json(pins)
@@ -352,8 +383,8 @@ def record_wardrobe_invalid(db: sqlite3.Connection, operation_id: str, attempt: 
     return repair
 
 
-def pin_wardrobe_candidate(db: sqlite3.Connection, operation_id: str, result: VisualAnchorPlanV1 | OwnerResponseV1) -> None:
-    kind = "plan" if isinstance(result, VisualAnchorPlanV1) else "response"
+def pin_wardrobe_candidate(db: sqlite3.Connection, operation_id: str, result: VisualAnchorPlanV2 | OwnerResponseV1) -> None:
+    kind = "plan" if isinstance(result, VisualAnchorPlanV2) else "response"
     body = canonical_json(result).decode("utf-8")
     db.execute("BEGIN IMMEDIATE")
     try:
@@ -374,15 +405,15 @@ def pin_wardrobe_candidate(db: sqlite3.Connection, operation_id: str, result: Vi
         raise
 
 
-def read_wardrobe_plan(db: sqlite3.Connection, execution_id: str, *, artifact_id: str | None = None) -> tuple[ArtifactRef, VisualAnchorPlanV1]:
-    _uuid(execution_id)
+def read_wardrobe_plan(db: sqlite3.Connection, execution_id: str, *, artifact_id: str | None = None) -> tuple[ArtifactRef, VisualAnchorPlanV2]:
+    _require_current_route(db, execution_id)
     if artifact_id is not None:
         _uuid(artifact_id)
     row = db.execute("SELECT e.project_id,a.artifact_id,a.operation_id,a.digest,a.uri,a.schema_id,a.schema_version,a.produced_by_stage "
                      "FROM artifacts a JOIN executions e ON e.execution_id=a.execution_id "
                      "WHERE a.execution_id=? AND a.artifact_id=COALESCE(?, (SELECT artifact_id FROM execution_bindings "
                      "WHERE execution_id=? AND slot='wardrobe_plan'))", (execution_id, artifact_id, execution_id)).fetchone()
-    if row is None or row[5:] != ("visual_anchor_plan", "1", "wardrobe"):
+    if row is None or row[5:] != ("visual_anchor_plan", "2", "wardrobe"):
         raise ValueError("Wardrobe plan binding not committed or wrong schema/owner")
     ref = ArtifactRef(project_id=row[0], execution_id=execution_id, artifact_id=row[1], operation_id=row[2],
         digest=row[3], uri=row[4], schema_id=row[5], schema_version=row[6], produced_by_stage=row[7], media_type="application/json")
@@ -393,6 +424,9 @@ def read_wardrobe_plan(db: sqlite3.Connection, execution_id: str, *, artifact_id
     if sha256_digest(body) != ref.digest:
         raise ValueError("Committed Wardrobe plan bytes failed integrity check")
     record = read_wardrobe_operation(db, ref.operation_id)
+    story_ref, story = read_story(db, execution_id, artifact_id=record["pins"].story_ref.artifact_id)
+    if story_ref != record["pins"].story_ref or story != record["config"].wardrobe_input.story:
+        raise ValueError("Wardrobe saved Story source pins mismatch")
     if (record["execution_id"] != execution_id or record["artifact_id"] != ref.artifact_id
             or record["next_activation"] is None or record["candidate_digest"] != ref.digest
             or record["candidate_body"].encode("utf-8") != body):
@@ -401,6 +435,8 @@ def read_wardrobe_plan(db: sqlite3.Connection, execution_id: str, *, artifact_id
 
 
 def replay_wardrobe_operation(db: sqlite3.Connection, record: dict) -> tuple[ArtifactRef | OwnerResponseV1, str]:
+    _require_current_route(db, record["execution_id"])
+    record = read_wardrobe_operation(db, record["operation_id"])
     if record["next_activation"] is None:
         raise ValueError("Wardrobe operation is not committed")
     result = (read_wardrobe_plan(db, record["execution_id"], artifact_id=record["artifact_id"])[0]
@@ -430,7 +466,7 @@ def commit_wardrobe_operation(db: sqlite3.Connection, operation_id: str) -> tupl
             raise ValueError("Wardrobe publication finalization conflict")
         if artifact_id is not None:
             db.execute("INSERT INTO artifacts VALUES (?,?,?,?,?,?,?,?)", (artifact_id, record["execution_id"], operation_id,
-                record["candidate_digest"], uri, "visual_anchor_plan", "1", "wardrobe"))
+                record["candidate_digest"], uri, "visual_anchor_plan", "2", "wardrobe"))
             db.execute("INSERT INTO execution_bindings VALUES (?, 'wardrobe_plan', ?, 1)", (record["execution_id"], artifact_id))
         db.execute("UPDATE wardrobe_operations SET artifact_id=?,next_activation=? WHERE operation_id=? AND next_activation IS NULL",
                    (artifact_id, _transition(record), operation_id))

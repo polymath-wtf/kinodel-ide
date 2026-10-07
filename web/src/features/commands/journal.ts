@@ -27,7 +27,8 @@ const envelopeSchema = z.strictObject({ id: uuidSchema, kind: z.enum(['start', '
           return ids.length <= 16 && new Set(ids).size === ids.length;
         }) : z.strictObject(fields)).parse(body);
       // Route is part of the saved envelope, not inferred from an otherwise identical LiveStart.
-      endpoint = live && e.endpoint === '/api/executions/story-wardrobe' ? e.endpoint
+      // Retired envelopes still deliver unchanged; the backend's definitive 410 is journaled like other rejections.
+      endpoint = live && ['/api/executions/story-wardrobe', '/api/executions/story-wardrobe/v2'].includes(e.endpoint) ? e.endpoint
         : live ? '/api/executions/live-story' : '/api/executions/internal-story';
       if (e.execution_id !== null || e.target !== null || body.project_id !== e.project_id) throw Error();
     } else {
@@ -58,7 +59,7 @@ function validateReceipt(kind: Command['kind'], value: unknown) {
 }
 export function createCommand(kind: Command['kind'], project_id: string, execution_id: string | null,
   target: { request_id: string; base_ref: ArtifactRef } | null, body: unknown): Command {
-  const endpoint = kind === 'start' ? (isLiveStart(body) ? '/api/executions/story-wardrobe' : '/api/executions/internal-story') : kind === 'respond'
+  const endpoint = kind === 'start' ? (isLiveStart(body) ? '/api/executions/story-wardrobe/v2' : '/api/executions/internal-story') : kind === 'respond'
     ? `/api/executions/${execution_id}/reviews/${encodeURIComponent(target!.request_id)}/respond` : `/api/executions/${execution_id}/${kind}`;
   return envelopeSchema.parse({ id: crypto.randomUUID(), kind, project_id, execution_id, target, endpoint, payload: JSON.stringify(body) });
 }

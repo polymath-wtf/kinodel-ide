@@ -5,13 +5,26 @@ import sqlite3
 
 from backend.domain import OwnerResponseV1, canonical_json, make_operation_id, sha256_digest
 from backend.review_store import REVIEW_ACTION_LIMIT
-from backend.story_start import LIVE_GRAPH_ID, STORY_GRAPH_IDS
+from backend.story_start import LIVE_GRAPH_ID, STORY_GRAPH_IDS, reject_retired_wardrobe
 from backend import wardrobe_store
 
 
 def _rows(db: sqlite3.Connection, sql: str, params: tuple = ()) -> list[dict]:
     cursor = db.execute(sql, params)
     return [dict(zip((column[0] for column in cursor.description), row)) for row in cursor.fetchall()]
+
+
+def retired_wardrobe_counts(db: sqlite3.Connection) -> dict:
+    """SQL-only inventory under data ownership; never load obsolete bodies/checkpoints."""
+    retired = (wardrobe_store.RETIRED_GRAPH_ID, wardrobe_store.RETIRED_GRAPH_VERSION, wardrobe_store.RETIRED_GRAPH_DIGEST)
+    where = "e.graph_id=? AND e.graph_version=? AND e.graph_digest=?"
+    counts = {"executions": db.execute("SELECT COUNT(*) FROM executions e WHERE " + where, retired).fetchone()[0]}
+    counts["work_statuses"] = dict(db.execute("SELECT w.status,COUNT(*) FROM execution_work w "
+        "JOIN executions e ON e.execution_id=w.execution_id WHERE " + where + " GROUP BY w.status", retired).fetchall())
+    for table in ("story_operations", "wardrobe_operations", "artifacts", "review_requests", "execution_controls"):
+        counts[table] = db.execute(f"SELECT COUNT(*) FROM {table} r JOIN executions e ON e.execution_id=r.execution_id WHERE "
+                                   + where, retired).fetchone()[0]
+    return counts
 
 
 def _ref(artifact: dict, project_id: str, execution_id: str) -> dict:
@@ -62,7 +75,7 @@ def _wardrobe_projection(db: sqlite3.Connection, execution_id: str, project_id: 
     ref = None
     if plans:
         plan = plans[0]
-        if (plan["schema_id"], plan["schema_version"], plan["produced_by_stage"]) != ("visual_anchor_plan", "1", "wardrobe"):
+        if (plan["schema_id"], plan["schema_version"], plan["produced_by_stage"]) != ("visual_anchor_plan", "2", "wardrobe"):
             raise ValueError("Recorded Wardrobe plan schema/owner mismatch")
         ref = _ref(plan, project_id, execution_id)
     outcome = overview["outcome"]
@@ -101,6 +114,7 @@ def _wardrobe_projection(db: sqlite3.Connection, execution_id: str, project_id: 
 
 def story_projection(db: sqlite3.Connection, execution_id: str) -> dict | None:
     """Read only canonical business metadata; no checkpoint, graph or artifact-body access."""
+    reject_retired_wardrobe(db, execution_id)
     executions = _rows(db, "SELECT project_id,input_message,shot_ids,client_key,start_digest,"
                        "graph_id,graph_version,graph_digest,owner_config FROM executions "
                         "WHERE execution_id=? AND graph_id IN (?,?,?)", (execution_id, *STORY_GRAPH_IDS))
@@ -227,8 +241,10 @@ def story_projection(db: sqlite3.Connection, execution_id: str) -> dict | None:
 
 
 def recent_story_executions(db: sqlite3.Connection, limit: int) -> list[dict]:
+    retired = (wardrobe_store.RETIRED_GRAPH_ID, wardrobe_store.RETIRED_GRAPH_VERSION, wardrobe_store.RETIRED_GRAPH_DIGEST)
     ids = db.execute("SELECT execution_id,project_id,input_message FROM executions WHERE graph_id IN (?,?,?) "
-                     "ORDER BY rowid DESC LIMIT ?", (*STORY_GRAPH_IDS, limit)).fetchall()
+                      "AND NOT (graph_id IS ? AND graph_version IS ? AND graph_digest IS ?) "
+                      "ORDER BY rowid DESC LIMIT ?", (*STORY_GRAPH_IDS, *retired, limit)).fetchall()
     items = []
     for execution_id, project_id, message in ids:
         overview = _overview(db, execution_id)

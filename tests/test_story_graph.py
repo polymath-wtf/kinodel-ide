@@ -9,7 +9,8 @@ from backend.database import open_database
 from backend.domain import StoryV1
 from backend.review_store import accept_story_decision, bind_story_wait
 from backend.saver import open_saver
-from backend.story_store import create_test_execution, read_story
+from backend.story_store import read_story
+from backend.story_start import start_test_story
 from backend.story_graph import build_story_graph, initial_story_state
 
 
@@ -49,8 +50,9 @@ class StoryGraphTests(unittest.IsolatedAsyncioTestCase):
                 return request, decision
 
             with open_database(root) as db:
-                create_test_execution(db, project, execution, "An idea", ["s1"])
                 async with open_saver(root, db) as saver:
+                    execution = (await start_test_story(db, saver, project, "graph", "An idea", ["s1"])).execution_id
+                    config["configurable"]["thread_id"] = execution
                     graph = build_story_graph(db, saver, produce)
                     paused = await graph.ainvoke(initial_story_state(project, execution), config, durability="sync")
                     self.assertEqual(len(paused["__interrupt__"]), 1)
@@ -96,8 +98,9 @@ class StoryGraphTests(unittest.IsolatedAsyncioTestCase):
                                    subject_ids=[], state_before="Dark", state_after="Light")])
 
             with open_database(root) as db:
-                create_test_execution(db, project, execution, "Idea", ["s1"])
                 async with open_saver(root, db) as saver:
+                    execution = (await start_test_story(db, saver, project, "graph", "Idea", ["s1"])).execution_id
+                    config["configurable"]["thread_id"] = execution
                     graph = build_story_graph(db, saver, produce)
                     paused = await graph.ainvoke(initial_story_state(project, execution), config, durability="sync")
                     request = paused["__interrupt__"][0].value

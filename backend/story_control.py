@@ -10,7 +10,7 @@ from backend.database import open_database
 from backend.review_store import accept_story_decision
 from backend.saver import open_saver
 from backend.story_start import (DEFAULT_CHARACTER_ROOT, load_test_story_start, start_live_story,
-                                 start_story_wardrobe, start_test_story)
+                                 start_story_wardrobe, start_test_story, reject_retired_wardrobe)
 from backend.story_store import _uuid
 
 
@@ -28,6 +28,7 @@ def cancel_requested(db: sqlite3.Connection, execution_id: str) -> bool:
 
 def cancel_story(db: sqlite3.Connection, execution_id: str, command_key: str) -> str:
     """Accept exactly one cancellation, without waiting for an active invocation."""
+    reject_retired_wardrobe(db, execution_id)
     _uuid(execution_id)
     _key(command_key)
     db.execute("BEGIN IMMEDIATE")
@@ -63,6 +64,7 @@ def cancel_story(db: sqlite3.Connection, execution_id: str, command_key: str) ->
 def retry_story_work(db: sqlite3.Connection, execution_id: str, work_id: str,
                      command_key: str, expected_version: int) -> str:
     """Requeue only an explicitly retryable blocked segment, never replace its source."""
+    reject_retired_wardrobe(db, execution_id)
     _uuid(execution_id)
     _key(command_key)
     if type(expected_version) is not int or expected_version < 0:

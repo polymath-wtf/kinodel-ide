@@ -1,5 +1,6 @@
 """Real saver + durable work: no manual graph resume or wait binding."""
 
+import asyncio
 import tempfile
 import unittest
 from contextlib import closing
@@ -28,6 +29,123 @@ def produce_story(message, shots, prior, feedback):
 
 
 class StoryRunnerTests(unittest.IsolatedAsyncioTestCase):
+    async def _gated_writer(self, method, phase, control, *, repeat=False):
+        """Public invocation/saver seams reproduce an unshielded EXIT waiter deterministically."""
+        from langgraph.checkpoint.base import empty_checkpoint
+        from backend.story_control import open_story_runtime
+
+        entered, exit_entered, graph_finished, release, stopped = (asyncio.Event() for _ in range(5))
+        writers, exits, proxies = [], [], []
+        with tempfile.TemporaryDirectory(prefix="kinodel writer drain ") as directory:
+            root = Path(directory) / "data"
+            async with open_story_runtime(root, produce_story) as runtime:
+                receipt = await runtime.start(str(uuid4()), "start", "Fox", ["s1"])
+                raw_write = getattr(runtime.saver, method)
+                calls = []
+
+                async def gated(*args, **kwargs):
+                    calls.append(args)
+                    entered.set()
+                    try:
+                        await release.wait()
+                        return await raw_write(*args, **kwargs)
+                    finally:
+                        stopped.set()
+
+                def build(db, saver, *args, **kwargs):
+                    proxies.append(saver)
+
+                    class ExitGraph:
+                        checkpointer = saver
+
+                        async def ainvoke(self, state, config, **kwargs):
+                            asyncio.current_task().add_done_callback(lambda _: graph_finished.set())
+                            checkpoint = empty_checkpoint()
+                            config = {"configurable": {**config["configurable"], "checkpoint_ns": "",
+                                                       "checkpoint_id": checkpoint["id"]}}
+                            writer = asyncio.create_task(saver.aput(config, checkpoint, {"source": "input", "step": -1}, {})
+                                if method == "aput" else saver.aput_writes(config, [("story_activation", state["story_activation"])], "test-task"))
+                            writers.append(writer)
+                            await entered.wait()
+                            try:
+                                if phase == "execution":
+                                    await asyncio.Event().wait()
+                            finally:
+                                async def exit_cleanup():
+                                    exit_entered.set()
+                                    await asyncio.wait({writer})
+                                cleanup = asyncio.create_task(exit_cleanup())
+                                exits.append(cleanup)
+                                # Same failure shape as LG: cancellation of this await leaves the writer orphaned.
+                                await cleanup
+
+                    return ExitGraph()
+
+                with patch.object(runtime.saver, method, gated), patch("backend.story_runner.build_story_graph", build):
+                    running = asyncio.create_task(runtime.run())
+                    closing = None
+                    try:
+                        await asyncio.wait_for(entered.wait() if phase == "execution" else exit_entered.wait(), 5)
+                        if control == "cancel":
+                            runtime.cancel(receipt.execution_id, "cancel")
+                        elif control == "task":
+                            running.cancel()
+                        else:
+                            closing = asyncio.create_task(runtime.close())
+                        await asyncio.wait_for(exit_entered.wait(), 5)
+                        if phase == "exit":
+                            await asyncio.wait_for(graph_finished.wait(), 5)
+                            with self.assertRaisesRegex(RuntimeError, "closed"):
+                                await getattr(proxies[0], method)(*calls[0])
+                            self.assertEqual(len(calls), 1)
+                        # Repeated parent cancellation must not interrupt the final saver barrier.
+                        for _ in range(3 if repeat else 1):
+                            done, _ = await asyncio.wait({running}, timeout=0.1)
+                            self.assertFalse(done, "Runner returned with its invocation writer still held")
+                            self.assertFalse(stopped.is_set(), "Cancellation aborted instead of draining the saver write")
+                            self.assertEqual(runtime.db.execute("SELECT * FROM execution_outcomes").fetchall(), [])
+                            if repeat:
+                                running.cancel()
+                                if closing is not None:
+                                    closing.cancel()
+                        release.set()
+                        result = await asyncio.gather(running, return_exceptions=True)
+                        if control == "task" or repeat:
+                            self.assertIsInstance(result[0], asyncio.CancelledError)
+                        else:
+                            self.assertEqual(result, [1])
+                        if closing is not None:
+                            await asyncio.gather(closing, return_exceptions=True)
+                        self.assertTrue(stopped.is_set())
+                        self.assertTrue(all(task.done() for task in writers + exits))
+                        self.assertEqual(len(calls), 1)
+                        if not repeat and control == "cancel":
+                            self.assertEqual(runtime.db.execute("SELECT outcome FROM execution_outcomes").fetchone(), ("cancelled",))
+                        # An old framework task cannot write through its proxy after invocation settlement.
+                        with self.assertRaisesRegex(RuntimeError, "closed"):
+                            await getattr(proxies[0], method)(*calls[0])
+                        self.assertEqual(len(calls), 1)
+                    finally:
+                        release.set()
+                        await asyncio.gather(running, *writers, *exits, *([closing] if closing else []), return_exceptions=True)
+
+    async def test_cancel_during_exit_drains_checkpoint_and_pending_writes(self):
+        for method in ("aput", "aput_writes"):
+            with self.subTest(method=method):
+                await self._gated_writer(method, "exit", "cancel")
+
+    async def test_execution_cancel_and_repeated_exit_cancel_drain_writers(self):
+        for method in ("aput", "aput_writes"):
+            for phase in ("execution", "exit"):
+                with self.subTest(method=method, phase=phase):
+                    await self._gated_writer(method, phase, "task", repeat=True)
+
+    async def test_runtime_stop_and_repeated_shutdown_cancel_drain_writers(self):
+        for method in ("aput", "aput_writes"):
+            for repeat in (False, True):
+                with self.subTest(method=method, repeat=repeat):
+                    await self._gated_writer(method, "exit", "stop", repeat=repeat)
+
     async def test_sweep_does_not_enqueue_reconcile_when_decision_arrives_during_saver_read(self):
         with tempfile.TemporaryDirectory(prefix="kinodel sweep race ") as directory:
             root = Path(directory) / "data"

@@ -32,15 +32,15 @@ export function WardrobePlan({ projection, showStatus = true }: { projection: Pr
     {projection.wardrobe_plan_ref && query.isPending && <p role="status">Читаем exact Wardrobe plan…</p>}
     {query.error && <div className="error" role="alert"><p>Не удалось прочитать exact план. Prompts не показаны.</p><button onClick={() => void query.refetch()}>Перечитать план</button><details><summary>Подробности</summary><p>{query.error.message}</p></details></div>}
     {query.data && !query.error && <>
-      <h2>Image prompts · {query.data.plan.units.length}</h2>
+      <h2>Batch prompts · {query.data.plan.batch_prompt.length}</h2>
       <h3>Общее визуальное направление</h3><dl className="visual-direction">{Object.entries(query.data.plan.direction).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{Array.isArray(value) ? value.join('\n') || 'Нет' : value}</dd></div>)}</dl>
       {error && <p className="error" role="alert">{error}</p>}
-      <div className="anchor-units">{query.data.plan.units.map((unit, index) => <article className="anchor-unit" key={unit.unit_key} data-unit={unit.unit_key}>
-        <h3>{index + 1}. {unit.unit_key}</h3><p className="muted">{unit.role} · Subjects: {unit.subject_ids.join(', ') || 'Нет'}</p><p>{unit.purpose}</p>
+      <div className="anchor-units">{query.data.plan.batch_prompt.map((unit, index) => <article className="anchor-unit" key={unit.unit_key} data-unit={unit.unit_key}>
+        <h3>{index + 1}. {unit.unit_key}</h3><p className="muted">{unit.use_case} · {unit.workflow} · Subjects: {unit.subject_ids.join(', ') || 'Нет'}</p><p>{unit.purpose}</p>
         <p className="image-prompt" aria-label={`Image prompt · ${unit.unit_key}`}>{unit.image_prompt}</p>
         <button onClick={() => void copy(unit.unit_key, unit.image_prompt)} aria-label={`Скопировать prompt · ${unit.unit_key}`}>Скопировать prompt</button>
         {copied === unit.unit_key && <span className="approved" role="status">Скопирован полный prompt</span>}
-        <details><summary>{unit.references.length ? `Зависимости · ${unit.references.length} · в порядке передачи` : 'Независимый unit · без зависимостей'}</summary>
+        <details open={unit.references.length > 0}><summary>{unit.references.length ? `Зависимости · ${unit.references.length} · в порядке передачи` : 'Независимый unit · без зависимостей'}</summary>
         {unit.references.length ? <ol>{unit.references.map(ref => <li key={ref.source.unit_key}><code>{ref.role} → {ref.source.unit_key}</code>
           <p>Взять: {ref.take.join('; ') || 'Нет'} · Игнорировать: {ref.ignore.join('; ') || 'Нет'}</p></li>)}</ol> : <p className="muted">Нет</p>}</details>
         <details><summary>Framing и ограничения</summary><p>{unit.framing}</p><p>{unit.drawable_content}</p><p>Сохранить: {unit.preserve.join('; ') || 'Нет'}</p><p>Игнорировать: {unit.ignore.join('; ') || 'Нет'}</p></details>

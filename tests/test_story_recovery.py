@@ -14,7 +14,8 @@ from backend.review_store import accept_story_decision, bind_story_wait
 from backend.review_store import apply_story_decision
 from backend.saver import open_saver
 from backend.story_graph import build_story_graph, initial_story_state
-from backend.story_store import create_test_execution, read_story
+from backend.story_store import read_story
+from backend.story_start import start_test_story
 
 
 def produce_story(message, shots, prior, feedback):
@@ -34,6 +35,8 @@ class StoryRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.config = {"configurable": {"thread_id": self.execution}}
 
     async def start(self, db, saver):
+        self.execution = (await start_test_story(db, saver, self.project, "recovery", "A fox", ["s1"])).execution_id
+        self.config = {"configurable": {"thread_id": self.execution}}
         graph = build_story_graph(db, saver, produce_story)
         paused = await graph.ainvoke(initial_story_state(self.project, self.execution),
                                      self.config, durability="sync")
@@ -55,7 +58,6 @@ class StoryRecoveryTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_unanswered_interrupt_survives_reopen_and_none_does_not_answer(self):
         with open_database(self.root) as db:
-            create_test_execution(db, self.project, self.execution, "A fox", ["s1"])
             async with open_saver(self.root, db) as saver:
                 graph = await self.start(db, saver)
                 snapshot = await graph.aget_state(self.config)
@@ -83,7 +85,6 @@ class StoryRecoveryTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_persisted_resume_before_apply_continues_with_none_to_new_wait(self):
         with open_database(self.root) as db:
-            create_test_execution(db, self.project, self.execution, "A fox", ["s1"])
             async with open_saver(self.root, db) as saver:
                 graph = await self.start(db, saver)
                 first, request, decision = await self.bind_and_decide(db, graph, "revise", "edit-1")
@@ -150,7 +151,6 @@ class StoryRecoveryTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_committed_apply_before_next_wait_replays_same_transition(self):
         with open_database(self.root) as db:
-            create_test_execution(db, self.project, self.execution, "A fox", ["s1"])
             async with open_saver(self.root, db) as saver:
                 graph = await self.start(db, saver)
                 first, request, decision = await self.bind_and_decide(db, graph, "revise", "edit-1")

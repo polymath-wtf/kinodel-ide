@@ -3,7 +3,7 @@
 Обновлено: **7 октября 2026**.
 
 - Шаг 3 закрыт: Storytell и Wardrobe W1–W7 приняты, включая live-приёмку W6 и UI-приёмку W7 с mocked HTTP; сохранённый план и полные image prompts доступны до рендера.
-- Новые backend-расширения ещё pending: [Wardrobe W8 / batch_prompt V2](#wardrobe-batch-output), затем [Storyboard batch plan](#storyboard-batch-backend). Они не входят в уже принятую V1-приёмку шага 3.
+- [Wardrobe W8 / batch_prompt V2](#wardrobe-batch-output) реализован в pure/adapter, storage, runtime/API и frontend; финальная приёмка pending. Остались полный discovery и live V2 provider/offline acceptance. [Storyboard batch plan](#storyboard-batch-backend) ещё pending; историческая V1-приёмка шага 3 не подтверждает V2.
 - ComfyUI шаги 1–3 реализованы: preflight, image preparation и production settings/draft diagnostics. Cinematic Run/render/media ещё не подключены.
 
 Здесь ведём общий порядок сборки и задачи агентов: LLM, текстовые входы/результаты, версии, review, восстановление и подключение готового агента к существующему UI в его milestone. Подключение ComfyUI к сохранённым планам и render/media-задачи ведутся в [roadmap-comfyui.md](roadmap-comfyui.md). Статусы ниже — фактическая готовность, не обещание работающего приложения.
@@ -12,7 +12,7 @@
 
 ## Результат для пользователя
 
-Целевой последовательный [cinematic](pipelines/cinematic.md): brief → Storytell → HITL → Wardrobe → Batch generation (Anchors) → HITL → Storyboard → Batch generation (Storyboard) → HITL → Filmmaker → video-gen → HITL → Montage → final. [Batch-проект](tools/batch-generation.md) заменит anchor-gen/frames-gen только в новом versioned media route; текущий UI-каркас и сохранённые executions пока сохраняют прежние identities. Пользователь видит входы/результаты нод, пишет правки непосредственно владельцу, сравнивает v1/v2/v3 и утверждает конкретную версию.
+Целевой последовательный [cinematic](pipelines/cinematic.md): brief → Storytell → HITL → Wardrobe → Batch generation (Anchors) → HITL → Storyboard → Batch generation (Storyboard) → HITL → Filmmaker → video-gen → HITL → Montage → final. Текущий authored UI-каркас уже именует будущие image-tools `anchor-batch`/`frames-batch`, но они не подключены; [batch runtime](tools/batch-generation.md) ещё pending. Исторический `cinematic.v1.json` и frozen execution identities не переписываются. Пользователь видит входы/результаты нод, пишет правки непосредственно владельцу, сравнивает v1/v2/v3 и утверждает конкретную версию.
 
 Первый пилот выпускается для **Windows** и включает видео и сборку финального файла. Текстовый и image-only эксперименты — промежуточные инженерные проверки. Linux проверяется отдельным последним шагом после Windows-пилота. Critic, публикация памяти, свободный конструктор, произвольная исполняемая группировка нод, облачные аккаунты/кредиты и творческий монтаж не входят в этот выпуск. Фиксированные раскрываемые UI-матрёшки и виды Pipeline/Chat не меняют маршрут исполнения.
 
@@ -20,11 +20,11 @@
 
 ## Сейчас и следующий результат
 
-**Шаги 0–3 закрыты на Windows; live Storytell и Wardrobe подключены к OpenRouter.** `kinodel.live-story` v2 поддерживает авторские Characters и execution-local cast; fixture и live v1 сохраняют свои frozen contracts. Исторические Story routes завершаются после exact approval. Одна обычная кнопка «Начать историю» в «Новой истории» создаёт маршрут `kinodel.story-wardrobe` v1, передаёт утверждённую Story в Wardrobe и завершает execution с валидным сохранённым планом; библиотеку не публикует. Live mode использует настроенный OpenRouter; W7 проверен с mocked HTTP, не новым paid browser run. Активация обновлённого кода в ранее запущенном пользовательском backend ожидает его перезапуска пользователем. ComfyUI подготовлен read-only; cinematic render/media ещё не подключены.
+**Шаги 0–3 закрыты на Windows по исходной W1–W7 V1-приёмке; W8 реализован, но ещё не принят полностью.** Одна обычная «Начать историю» теперь создаёт `kinodel.story-wardrobe` v2 через `/api/executions/story-wardrobe/v2`: exact Story approval → Wardrobe → сохранённый `VisualAnchorPlanV2.batch_prompt`, без публикации библиотеки или рендера. Исторические internal/live Story routes и их approve→END не изменены. Старые Wardrobe v1 runs/configs сохранены, но изолированы и неподдержаны; unversioned Start возвращает 410, без conversion/reset. Live mode использует настроенный OpenRouter; V2 проверен с mocked HTTP, не paid calls. Ранее запущенный пользовательский backend ожидает перезапуска пользователем; миграция/инвентаризация его root этой приёмкой не подтверждены. ComfyUI подготовлен read-only; cinematic render/media ещё не подключены.
 
-**Story UI 6A–6E и Wardrobe UI W7 приняты; cinematic-каркас 6F визуально утверждён.** Один workspace по [существующему прототипу](../web/prototype/index.html) показывает семь внешних нод и вложенные production stages. Автор запускает Story → Wardrobe из UI, утверждает Story и получает сохранённый V1 план с полными копируемыми image prompts. Следующий результат — [W8: Wardrobe batch_prompt V2](#wardrobe-batch-output), затем [передача exact saved V2 plan в ComfyUI](roadmap-comfyui.md#wardrobe-comfyui); первые изображения, anchor review, кадры/видеошоты и монтаж ещё не подключены.
+**Story UI 6A–6E и исторический Wardrobe UI W7 приняты; cinematic-каркас 6F визуально утверждён.** В существующем workspace W8 frontend показывает exact saved V2 plan, полные копируемые prompts, use_case/mode и обе sheet dependencies в Pipeline/Chat; browser checks и desktop evidence готовы. Следующий результат — финальная [приёмка W8](#wardrobe-batch-output), затем [передача exact saved V2 plan в ComfyUI](roadmap-comfyui.md#wardrobe-comfyui). Первые изображения, anchor review, кадры/видеошоты и монтаж ещё не подключены.
 
-**Порядок ближайших работ: W8 V2 → ComfyUI saved-plan handoff (V2-only) → один portrait job → N batch/review → оставшиеся image/video/media этапы → montage и приёмка выпуска.** Исходный шаг 3/W1–W7 закрыт; новые batch backend milestones ниже остаются pending. Read-only ComfyUI preparation разрешена заранее, но первый live render потребляет только сохранённый validated Wardrobe V2 после W8 acceptance, без повторного Wardrobe call. Каждый готовый агент подключается к своему UI в собственном milestone; шаг 6 сохраняет оставшуюся cinematic/media integration и полный проход автора. Первый deploy — локальный Windows-пилот; «готово» означает проверку именно Kinodel.
+**Порядок ближайших работ: W8 final acceptance → ComfyUI saved-plan handoff (V2-only) → один portrait job → N batch/review → оставшиеся image/video/media этапы → montage и приёмка выпуска.** Для W8 остались две задачи: разобраться с незавершённым full discovery и обновить исторический live harness для V2/provider acceptance с offline reopen. Перезапуск пользовательского backend — отдельный существующий activation gate. Read-only ComfyUI preparation разрешена заранее, но первый live render потребляет только сохранённый validated Wardrobe V2 после W8 acceptance, без повторного Wardrobe call. Шаг 6 сохраняет cinematic/media integration и полный проход автора; первый deploy — локальный Windows-пилот.
 
 ## Repository And Dependencies
 
@@ -93,6 +93,9 @@ Internal Story foundation сохраняет v1 → вопрос/правка �
     Результат для автора: утверждённая история передаётся Wardrobe; визуальное направление и задания
     на изображения персонажей/локаций сохраняются как план. Здесь настраиваем LLM, передачу контекста,
     хранение результата и исполнение; генератор получает готовый план на следующем этапе.
+
+    **История принятого V1 milestone — W1–W7:** описания ниже фиксируют прежние contracts/endpoints,
+    не активный Wardrobe contract. Текущая V2-only реализация и незакрытая приёмка — [W8](#wardrobe-batch-output).
 
     **Готовые части — W1–W6:**
 
@@ -189,36 +192,41 @@ Internal Story foundation сохраняет v1 → вопрос/правка �
        code/browser acceptance W7 не означает, что старый работающий экземпляр уже обновлён.
 
      <a id="wardrobe-batch-output"></a>
-       - [ ] **W8 · Следующий structured output для Batch-generation.** Новое model-authored V2 расширение после
-         принятого W1–W7; их completion/status и evidence остаются историческими, не forward compatibility.
-         Новый Wardrobe/batch route — V2-only; до него V1 описания фиксируют **CURRENT before activation**.
-         [Проект контракта](tools/batch-generation.md#3-новый-creative-output-batch_prompt).
-        - [ ] Определить strict Wardrobe draft/result/plan V2: `batch_prompt` вместо `units`, стабильные
-          уникальные `unit_key`, `use_case=hero-face|location|hero-sheet`, `workflow=txt2img|img2img`, ordered tagged refs.
-          `ada_face`/`leo_face` могут иметь одинаковый `hero-face`; `batch_unit` refs и selective anchor repair
-          используют ключ, не позицию. `SelectedMedia` остаётся `{render_result_ref,unit_key}`.
-          Сохранить direction/subjects/framing/preserve/ignore и exact Story provenance; первый capability
-          остаётся zero-ref face/location и sheet из ordered portrait+background.
-        - [ ] Согласовать schema, authored system prompt и frozen guidance: агент знает назначение/режим,
-          пишет prompt для него и не выбирает provider JSON. Обновить validators, frozen owner config,
-          storage/schema, exact readers и versioned graph/start identity **одной clean activation**.
-          Не добавлять V1 consumption/replay, dual readers, mapping или V1 regression в эту activation.
-        - [ ] **Activation preflight / test-data decision.** До переключения определить затронутые старые
-          тестовые Wardrobe runs/configs, pending work/checkpoints и command envelopes; согласовать их
-          archive/isolation либо отдельно авторизованный bounded reset. После явной activation старые
-          Wardrobe TEST runs/configs неподдержаны, нужны свежие runs. Проверить отказ до effects, не
-          переинтерпретировать V1 и не перенаправлять старую команду в V2. Не затрагивать отдельные Story/
-          Brief/video contracts или авторскую библиотеку. Автоматического destructive reset нет; сейчас
-          ничего не удалять. Без согласованной безопасной границы activation блокируется.
-        - [ ] Подключить V2 exact reader к существующему Pipeline/Chat, сохранив full copyable prompts,
-          use cases/modes и обе sheet dependencies. Замену старого authored inspection specimen/projection
-          включить в ту же new-route activation; старый specimen не совместимый renderer.
-        - [ ] **Приёмка V2:** сначала mocked schema/output/invalid refs/N>3 и durable retry/offline reopen
-          с прежними pins; затем реальная модель возвращает `plan.batch_prompt`, сохранённый V2 plan/ref
-          читается после restart без provider. Только это позволяет заявить Wardrobe V2 provider readiness;
-          W6 live evidence остаётся V1. Проверку ComfyUI rendering readiness выполняем отдельно.
-        **Критерий:** новый LLM response реально содержит `plan.batch_prompt`, сохранённый V2 plan читается
-        после restart с прежними pins; schema/config/start/graph/storage/readers согласованно активированы.
+       - [ ] **W8 · Wardrobe batch_prompt V2 — реализован; финальная приёмка pending.** A pure/adapter,
+         B store, C activation/runtime/API и D frontend реализованы. W1–W7 остаются исторической V1-приёмкой,
+         не активным контрактом и не доказательством V2 provider readiness.
+         [Контракт](tools/batch-generation.md#3-новый-creative-output-batch_prompt).
+        - [x] **A · Strict DTO/schema/prompt/config.** `WardrobeInputV2` / `anchor-basics.v2`,
+          `WardrobeResultV2`, `VisualAnchorDraftV2` / `VisualAnchorPlanV2`: единственный массив `batch_prompt`,
+          unique `unit_key`, повторяемый `use_case=hero-face|location|hero-sheet`, semantic `workflow=txt2img|img2img`.
+          `batch_unit` refs именуют earlier keys; sheet требует ровно `[portrait,background]`, face/location — zero-ref.
+          Direction/creative constraints/exact Story/evidence V1 переиспользуются без изменения смысла.
+          `WardrobeStartSettingsV2` / `WardrobeOwnerConfigV2`, adapter 2: fresh 180 s / 8192 / low; старые configs не читаются.
+        - [x] **B · Frozen storage и retention.** `PreparedWardrobeInputsV2`, immutable plan/binding,
+          candidate recovery, exact reader и прежние attempt/repair budgets. DB v14 допускает старый artifact v1
+          и новый v2, сохраняя rows/files; это retention migration, не V1 conversion или поддержка V1 reader.
+        - [x] **C · Versioned activation и isolation choice.** Новая exact identity `kinodel.story-wardrobe` v2
+          с новым digest; `POST /api/executions/story-wardrobe/v2` принимает `LiveStart`.
+          Exact прежний graph triple сохранён, но исключён из runner/list; старые Wardrobe commands/reads отклоняются.
+          Unversioned Start даёт 410 до payload validation/preparation/effects. Fixture preflight/isolation проверены;
+          пользовательский root не инвентаризован/мигрирован этой приёмкой и ждёт пользовательского restart.
+          Нет reset, mapping, V1 consumption/replay или retarget; отдельные Story/Brief/video/library не изменены.
+        - [x] **D · V2 exact reader и UI.** Pipeline/Chat сохраняют full copyable prompts, use_case/mode,
+          direction и обе sheet dependencies. Старые pending envelopes сохраняют endpoint/bytes/key,
+          получают definitive 410 и никогда не перенаправляются в V2; Story envelopes не меняются.
+          Authored TS scopes — disconnected `anchor-batch`/`frames-batch`; исторический `cinematic.v1.json` не заменён.
+        - [x] **Mocked admission/recovery и UI-приёмка.** Strict output/invalid refs/N>3, retry/offline reopen,
+          process death, historical Story isolation, cancellation/late writes и browser acceptance проверены.
+          Invocation-scoped drain публичных saver writes предшествует terminal/lock release.
+          [Backend evidence](../test-results/README.md#wardrobe-w8-backend-and-final-status--7-october-2026),
+          [UI checks/screenshots](../test-results/README.md#wardrobe-w8-subtask-d--v2-frontend-evidence--7-october-2026).
+        - [ ] **Full discovery acceptance.** Два запуска завершились timeout (120 s / 360 s), не PASS;
+          изолированный последний observed recovery test прошёл, причина незавершённого discovery не установлена.
+        - [ ] **Live V2 provider + offline real-model acceptance.** Обновить исторический V1
+          `tests/live_wardrobe_check.py`, получить реальный `plan.batch_prompt` и после restart прочитать exact
+          сохранённый V2 plan/ref без provider. Paid V2 calls не выполнялись; W6 доказывает только V1.
+        **Критерий финальной приёмки:** полный discovery завершён и live V2/offline gate подтверждён;
+        implemented schema/config/start/graph/storage/readers сами по себе W8 не закрывают.
         Генерация изображений и technical **V2-only** saved-plan handoff принадлежат
        [ComfyUI шагу 4](roadmap-comfyui.md#wardrobe-comfyui), без второго checklist здесь.
 
@@ -232,7 +240,7 @@ Internal Story foundation сохраняет v1 → вопрос/правка �
     **Закрытие шага 3 и Wardrobe milestone:** W7 принят — автор проходит новый маршрут в существующем UI,
     видит exact inputs/config и сохранённый план, копирует полные prompts и открывает тот же результат после restart.
     [Контракт](agents/wardrobe.md#durable-operation), [evidence](../test-results/README.md#backend-evidence).
-      NEXT — [W8: V2-only Wardrobe activation](#wardrobe-batch-output), затем
+      NEXT — [W8: финальная V2-only приёмка](#wardrobe-batch-output), затем
       [подключение сохранённого V2 плана к ComfyUI](roadmap-comfyui.md#wardrobe-comfyui).
 
   <a id="storyboard-batch-backend"></a>
