@@ -86,7 +86,7 @@ type ExecutionBinding = {
 };
 ```
 
-Cinematic slots: `brief`, `story`, `wardrobe_plan`, `anchor_frames`, `storyboard_plan`, `story_frames`, `video_plan`, `shot_videos`, `final_video`. `anchor_frames` is Wardrobe's generated result, physically published by anchor-gen on approval. Plans are supporting results, not extra nodes/gates. Montage instructions are internal to montage; memory bindings are later.
+Cinematic slots: `brief`, `story`, `wardrobe_plan`, `anchor_frames`, `storyboard_plan`, `story_frames`, `video_plan`, `shot_videos`, `final_video`. `anchor_frames` is Wardrobe's generated result, physically published by its generation tool on approval (original `anchor-gen`, next versioned `anchor-batch` / [Batch-generation](../tools/batch-generation.md)). `batch_outputs` is an internal complete candidate manifest ref, not another selected slot or approval. Plans are supporting results, not extra nodes/gates. Montage instructions are internal to montage; memory bindings are later.
 
 An instance uses `stage_id`; capability identifies its type. Each artifact has one declared writer; another instance uses a separate slot. Candidate manifests and receipts use record refs rather than extra artifact slots. Reads resolve exact declared revisions, never latest-by-capability. Context/reviews remain instance-scoped; data wires are input bindings, not execution edges.
 
@@ -243,7 +243,12 @@ Implement and verify schemas in activation order. The wider catalog is design co
 - `initial_request.v1`;
 - `brief.v1`;
 - `story.v1`;
-- `VisualAnchorPlanV1`, `FramePlanV1`, candidate-set records and `RenderResultV1` for the image-only slice;
+- current pre-activation `VisualAnchorPlanV1` remains W1–W7 evidence; the new image-only slice uses saved
+  validated `VisualAnchorPlanV2`, the next batch FramePlan, candidate-set records and `RenderResultV1`.
+  [W8](../roadmap-mvp.md#wardrobe-batch-output) activates Wardrobe schema/config/start/graph/storage/readers
+  together, with bounded preflight/test-data decision and no V1 consumption bridge/dual reader/replay.
+  Old TEST Wardrobe runs/configs are unsupported after the clean switch; fresh runs are required, not an
+  automatic data reset. Stable keys, `SelectedMedia` and selected slots are unchanged;
 - mode-discriminated MotionPlan under the next `img2vid/ref2vid` contract, `MontagePlanV1` and `MontageResultV1` when video/montage is enabled; original i2v `MotionPlanV1` retains its meaning;
 - reusable chunk executable schemas when their pipeline is activated; their ownership/content contract is defined now.
 

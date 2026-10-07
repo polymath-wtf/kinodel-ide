@@ -1,13 +1,13 @@
 # Wardrobe
 
 Class: creative agent  
-Status: **W1–W7 complete: typed plan, frozen OpenRouter adapter, durable operation/storage, scoped Story approval → Wardrobe runtime/API, W6 live provider acceptance, explicit UI start and shared exact saved-plan reader with frozen inputs/config, full copyable prompts and offline reopen. W7 browser acceptance used mocked HTTP, not new paid generation. Step 3 is closed; next is ComfyUI saved-plan handoff. Anchor rendering/review remain pending.**
+Status: **CURRENT before W8 activation: W1–W7 complete for V1: typed plan, frozen OpenRouter adapter, durable operation/storage, scoped Story approval → Wardrobe runtime/API, W6 live provider acceptance, explicit UI start and shared exact saved-plan reader with frozen inputs/config, full copyable prompts and offline reopen. W7 browser acceptance used mocked HTTP, not new paid generation. Step 3 is closed; next is W8 V2-only activation, then ComfyUI saved V2-plan handoff. Anchor rendering/review remain pending.**
 
-Wardrobe owns anchor direction and prompts. Its `anchor-gen` tool creates the generated Wardrobe result `anchor_frames`, reviewed before Storyboard in the [cinematic route](../pipelines/cinematic.md).
+Wardrobe owns anchor direction and prompts. The planned image tool creates its generated result `anchor_frames`, reviewed before Storyboard in the [cinematic route](../pipelines/cinematic.md). The next media route uses **Batch-generation / `anchor-batch`** in place of the original `anchor-gen`; this change is a [preproduction design](../tools/batch-generation.md), not activated rendering.
 
 ## Responsibility
 
-Design approvable visual direction and provider-neutral anchor image prompts for stable named units: subject identity, silhouette, wardrobe, environment, palette, lighting, texture, and composition principles. A separate Render service generates anchor candidates; the human selects and approves the exact complete anchor set before Storyboard plans shots. Storyboard owns shot-specific composition, action depiction, and image prompts, not anchor design. The legacy name stays, but the capability is broader than costume.
+Design approvable visual direction and provider-neutral anchor image prompts for stable named units: subject identity, silhouette, wardrobe, environment, palette, lighting, texture, and composition principles. A planned separate Render service generates anchor candidates; the human selects and approves the exact complete anchor set before Storyboard plans shots. Storyboard owns shot-specific composition, action depiction, and image prompts, not anchor design. The legacy name stays, but the capability is broader than costume.
 
 ## Input
 
@@ -23,7 +23,32 @@ Anchor units are stable named visual references, not Story shots. For example, `
 
 ## Output
 
-A provider-neutral `VisualAnchorPlanV1` in `wardrobe_plan`, containing the exact `narrative_ref`, shared visual direction and an ordered list of anchor units: stable key, purpose/reference role, subject identity, framing, drawable content, image prompt, reference bindings, and preserve/ignore constraints. The model returns creative-only `VisualAnchorDraftV1`; the adapter injects the exact Story ref. A render binding names an earlier anchor unit whose generated image must be used. `anchor-gen` eventually consumes the saved plan; provider payload mapping belongs to its adapter. Physical fields are in [DTOs](../backend/dto.md#cinematic-extension).
+The V1 implementation descriptions below are **CURRENT before W8 activation**, not a promise to
+read/replay old test Wardrobe runs/configs after the V2-only switch. W1–W7 completion/evidence remains historical.
+
+A provider-neutral `VisualAnchorPlanV1` in `wardrobe_plan`, containing the exact `narrative_ref`, shared visual direction and an ordered list of anchor units: stable key, purpose/reference role, subject identity, framing, drawable content, image prompt, reference bindings, and preserve/ignore constraints. The model returns creative-only `VisualAnchorDraftV1`; the adapter injects the exact Story ref. A render binding names an earlier anchor unit whose generated image must be used. The original V1 declaration/authored scope names the planned consumer `anchor-gen`; the future versioned media route uses `anchor-batch`. Provider payload mapping belongs to its adapter. Physical fields are in [DTOs](../backend/dto.md#cinematic-extension).
+
+### Next Batch Output (Proposed V2)
+
+Current strict LLM response uses `plan.units[]`, already an ordered prompt batch. It has no
+`batch_prompt`, `use_case` or `workflow` fields. Next `VisualAnchorDraftV2`/`VisualAnchorPlanV2` uses
+`batch_prompt[]` as the sole task list; each entry keeps stable unit/subject/creative fields and adds
+`use_case` plus `workflow:"txt2img"|"img2img"`. `use_case` replaces V1 role with the stage vocabulary
+`hero-face`/`location`/`hero-sheet`; multiple subjects can share a use case but never a unit key.
+Ordered references remain explicit; hero-sheet consumes both earlier portrait and background outputs.
+
+The agent receives allowed modes/signatures and prompt guidance before completion; provider-neutral
+`workflow` is a mode, not a filename/model/provider choice. Actual registered workflows and exact
+candidate pins are adapter-owned. Activate new schema, authored prompt, frozen config/storage/readers
+and start/graph identity together under [W8](../roadmap-mvp.md#wardrobe-batch-output), including replacement
+of the old authored inspection specimen/projection. New Wardrobe/batch activation is **V2-only**: no V1
+consumption adapter, dual reader, replay or migration. After explicit clean activation old TEST Wardrobe
+runs/configs are unsupported; fresh runs are required. W8 preflight owns the bounded archive/isolation
+or separately authorized test-data reset decision; no automatic deletion/reset, and none in this docs task.
+Separate Story/Brief/video compatibility is unaffected. Mocked schema/offline recovery comes first,
+then real-model `plan.batch_prompt` and offline exact V2 reopen before claiming Wardrobe V2 provider readiness.
+ComfyUI then consumes only that saved validated V2 plan; initial render/technical Retry never repeats Wardrobe.
+[Full batch contract](../tools/batch-generation.md#3-новый-creative-output-batch_prompt).
 
 ### First Bounded Domain Behavior
 
@@ -63,11 +88,18 @@ The scoped runtime invokes this operation, holds resume work through a stable st
 
 One aggregate declares the required anchor units before rendering and preserves existing IDs on repair. In the minimal new route, the plan is validated supporting evidence, not a separate mandatory human gate. Render generates candidates from that exact validated plan; a human selects exactly one candidate for every required anchor unit and approves that exact complete set, bound to its supporting plan revision. This does not independently approve the plan. Only promoted approved assets, with the exact plan and selection provenance, pass to Storyboard. An optional separate plan gate would require an explicit template declaration.
 
-At `anchor-hitl`, the user writes directly to Wardrobe. It returns a complete replacement plan, preserving unchanged unit IDs/content; `anchor-gen` regenerates affected units and dependents. Unrelated unchanged attempts may remain under [anchor regeneration](../pipelines/cinematic.md#anchor-regeneration). Seed-only regeneration calls the tool without a prompt edit. Both require a new complete-set review. Submitted Brief and approved Story/canon remain outside repair scope; changing anchors after proceeding downstream requires a new execution.
+At `anchor-hitl`, the user writes directly to Wardrobe. It returns a complete replacement plan, preserving unchanged unit IDs/content; the anchor Batch-generation instance regenerates affected units and dependents. Unrelated unchanged attempts may remain under [anchor regeneration](../pipelines/cinematic.md#anchor-regeneration). Seed-only regeneration calls the tool without a prompt edit. Both require a new complete-set review. Submitted Brief and approved Story/canon remain outside repair scope; changing anchors after proceeding downstream requires a new execution.
 
 ## Dependent Generation
 
-Current example: `hero_face -> location -> hero_sheet` in execution order, without human pauses between images. `hero_sheet` depicts the character in the location and takes both exact generated parent images plus its own prompt; declare two `anchor_unit` reference bindings with portrait/background roles. `location` takes no character image and contains no characters; it and `hero_face` are independent, while sheet depends on both. Initially each unit produces one candidate per generation. Render freezes both parent candidate IDs/digests before child submission. This is an internal render input, not human approval. Only the final complete set is reviewed; changing either parent regenerates the dependent sheet. [Adaptive role mapping](../roadmap-comfyui.md#адаптивные-image-inputs-и-два-video-mode) remains an adapter activation requirement.
+V1 declared handoff/authored inspection example: `hero_face -> location -> hero_sheet` in execution order, without human pauses between images. `hero_sheet` depicts the character in the location and takes both exact generated parent images plus its own prompt; declare two `anchor_unit` reference bindings with portrait/background roles. `location` takes no character image and contains no characters; it and `hero_face` are independent, while sheet depends on both. Planned rendering initially produces one candidate per unit. Render must freeze both parent candidate IDs/digests before child submission. This is an internal render input, not human approval. Only the final complete set is reviewed; changing either parent regenerates the dependent sheet. [Adaptive role mapping](../roadmap-comfyui.md#адаптивные-image-inputs-и-два-video-mode) remains an adapter activation requirement.
+
+In the next Batch-generation this is `txt2img → txt2img → img2img`, with three separate `comfyui-gen`
+jobs inside one visible batch. Sheet receives two separate ordered image slots, not a collage.
+V2 calls its internal sources `batch_unit`; V1 `anchor_unit` describes only the pre-activation schema,
+not a renderer input or supported replay path in the new activation.
+List order schedules jobs; only reference bindings establish image dependencies. N comes from the
+plan, not from this three-image example. [Batch execution and UI](../tools/batch-generation.md).
 
 ## Content And Quality Contract
 
@@ -90,7 +122,7 @@ Acceptance example: a rainy-city palette can vary wet surfaces and local lightin
 
 ## Tools
 
-`anchor-gen`, dispatched after the complete plan is validated and saved. It returns a durable job ref, not an image within the model turn. The adapter supplies authorized image/character projections; visual-capable input is required where judging appearance matters. See [tool calls](../tools/tools.md).
+Planned `batch-generation`, instance `anchor-batch` (original inspection name `anchor-gen`), dispatched after the complete plan is validated and saved. It returns a durable batch ref, not an image within the model turn; `batch_outputs` later resolves to a complete candidate manifest. The adapter supplies authorized image/character projections; visual-capable input is required where judging appearance matters. See [tool calls](../tools/tools.md).
 
 ## Application Prompt And Guidance
 

@@ -6,13 +6,18 @@ Status: **Accepted MVP boundary; implementation pending.** Agents create typed c
 
 | Creative node | Following tool node | Saved selected media |
 |---|---|---|
-| Wardrobe | `anchor-gen` | `anchor_frames` |
-| Storyboard | `frames-gen` | `story_frames` |
+| Wardrobe | `anchor-batch` (`batch-generation`) | `anchor_frames` |
+| Storyboard | `frames-batch` (`batch-generation`) | `story_frames` |
 | Filmmaker | `video-gen` | `shot_videos` |
 
 These are uses of one provider-neutral [Render service](render.md), not three provider frameworks. Start with one concrete ComfyUI adapter; fal or another endpoint can implement the same validated operations when needed.
 
-MVP uses **plan-first tool dispatch**: the agent's complete response supplies prompts and references; its adapter validates and saves the plan, then the fixed `*-gen` node invokes the generation tool. This satisfies `Storyboard → frames-gen (tool) → HITL` without an open-ended agent loop. If a model adapter emits native `tool_calls`, accept only the declared generation call, validate its semantic arguments against the saved plan, and dispatch through the same path. Native model function-calling is not a second required implementation for MVP and does not authorize extra jobs or graph edges.
+Image stages above are the [Batch-generation preproduction target](batch-generation.md): one reusable
+capability with N sequential unit/jobs and one group wait. They activate in a new versioned media route;
+original V1 inspection declarations use `anchor-gen`/`frames-gen`. `batch_outputs` is the complete candidate
+manifest ref, not selected media; owning slots and mandatory full-set reviews remain as above.
+
+MVP uses **plan-first tool dispatch**: the agent's complete response supplies prompts and references; its adapter validates and saves the plan, then the fixed generation stage invokes the tool. This satisfies `Storyboard → Batch-generation (tool) → HITL` without an open-ended agent loop. If a model adapter emits native `tool_calls`, accept only the declared generation call, validate its semantic arguments against the saved plan, and dispatch through the same path. Native model function-calling is not a second required implementation for MVP and does not authorize extra jobs or graph edges.
 
 ## Nonblocking Contract
 
@@ -23,7 +28,7 @@ MVP uses **plan-first tool dispatch**: the agent's complete response supplies pr
 | `generation_cancel` | Owned group ref and accepted control | Best-effort provider cancellation; local promotion remains prohibited |
 | `save_selection` | Exact complete review set, accepted selection and expected binding revision | Managed assets, selected result ref and immutable receipt |
 
-Submission returns after local durable acceptance. A worker sends the provider request, records its ID, polls/reconciles and imports verified results. The graph persists its wait and releases the invocation until the group is ready; no LLM, HTTP browser request or sleeping agent holds the render open. A resumed `*-gen` finishes its result and exposes the human review. There is no second model call just to announce render completion.
+Submission returns after local durable acceptance. A worker sends the provider request, records its ID, polls/reconciles and imports verified results. The graph persists its wait and releases the invocation until the group is ready; no LLM, HTTP browser request or sleeping agent holds the render open. A resumed generation stage finishes its result and exposes the human review. There is no second model call just to announce render completion.
 
 The job-group ref means **queued**, not provider acceptance, completed generation or approval. Losing the provider response after submission is `reconciling/blocked`; never resend blindly. Recovery and fast/late results follow [runtime rendering](../backend/runtime.md#rendering-extension).
 

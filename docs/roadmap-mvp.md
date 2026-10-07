@@ -1,8 +1,9 @@
 # Local Cinematic MVP: Build Plan
 
-Обновлено: **6 октября 2026**.
+Обновлено: **7 октября 2026**.
 
 - Шаг 3 закрыт: Storytell и Wardrobe W1–W7 приняты, включая live-приёмку W6 и UI-приёмку W7 с mocked HTTP; сохранённый план и полные image prompts доступны до рендера.
+- Новые backend-расширения ещё pending: [Wardrobe W8 / batch_prompt V2](#wardrobe-batch-output), затем [Storyboard batch plan](#storyboard-batch-backend). Они не входят в уже принятую V1-приёмку шага 3.
 - ComfyUI шаги 1–3 реализованы: preflight, image preparation и production settings/draft diagnostics. Cinematic Run/render/media ещё не подключены.
 
 Здесь ведём общий порядок сборки и задачи агентов: LLM, текстовые входы/результаты, версии, review, восстановление и подключение готового агента к существующему UI в его milestone. Подключение ComfyUI к сохранённым планам и render/media-задачи ведутся в [roadmap-comfyui.md](roadmap-comfyui.md). Статусы ниже — фактическая готовность, не обещание работающего приложения.
@@ -11,7 +12,7 @@
 
 ## Результат для пользователя
 
-Фиксированный последовательный [cinematic](pipelines/cinematic.md): brief → Storytell → HITL → Wardrobe → anchor-gen → HITL → Storyboard → frames-gen → HITL → Filmmaker → video-gen → HITL → Montage → final. Пользователь видит входы/результаты нод, пишет правки непосредственно владельцу, сравнивает v1/v2/v3 и утверждает конкретную версию.
+Целевой последовательный [cinematic](pipelines/cinematic.md): brief → Storytell → HITL → Wardrobe → Batch generation (Anchors) → HITL → Storyboard → Batch generation (Storyboard) → HITL → Filmmaker → video-gen → HITL → Montage → final. [Batch-проект](tools/batch-generation.md) заменит anchor-gen/frames-gen только в новом versioned media route; текущий UI-каркас и сохранённые executions пока сохраняют прежние identities. Пользователь видит входы/результаты нод, пишет правки непосредственно владельцу, сравнивает v1/v2/v3 и утверждает конкретную версию.
 
 Первый пилот выпускается для **Windows** и включает видео и сборку финального файла. Текстовый и image-only эксперименты — промежуточные инженерные проверки. Linux проверяется отдельным последним шагом после Windows-пилота. Critic, публикация памяти, свободный конструктор, произвольная исполняемая группировка нод, облачные аккаунты/кредиты и творческий монтаж не входят в этот выпуск. Фиксированные раскрываемые UI-матрёшки и виды Pipeline/Chat не меняют маршрут исполнения.
 
@@ -21,9 +22,9 @@
 
 **Шаги 0–3 закрыты на Windows; live Storytell и Wardrobe подключены к OpenRouter.** `kinodel.live-story` v2 поддерживает авторские Characters и execution-local cast; fixture и live v1 сохраняют свои frozen contracts. Исторические Story routes завершаются после exact approval. Одна обычная кнопка «Начать историю» в «Новой истории» создаёт маршрут `kinodel.story-wardrobe` v1, передаёт утверждённую Story в Wardrobe и завершает execution с валидным сохранённым планом; библиотеку не публикует. Live mode использует настроенный OpenRouter; W7 проверен с mocked HTTP, не новым paid browser run. Активация обновлённого кода в ранее запущенном пользовательском backend ожидает его перезапуска пользователем. ComfyUI подготовлен read-only; cinematic render/media ещё не подключены.
 
-**Story UI 6A–6E и Wardrobe UI W7 приняты; cinematic-каркас 6F визуально утверждён.** Один workspace по [существующему прототипу](../web/prototype/index.html) показывает семь внешних нод и вложенные production stages. Автор запускает Story → Wardrobe из UI, утверждает Story и получает сохранённый план с полными копируемыми image prompts. Следующий результат — [передача saved plan в ComfyUI](roadmap-comfyui.md#wardrobe-comfyui); первые изображения, anchor review, кадры/видеошоты и монтаж ещё не подключены.
+**Story UI 6A–6E и Wardrobe UI W7 приняты; cinematic-каркас 6F визуально утверждён.** Один workspace по [существующему прототипу](../web/prototype/index.html) показывает семь внешних нод и вложенные production stages. Автор запускает Story → Wardrobe из UI, утверждает Story и получает сохранённый V1 план с полными копируемыми image prompts. Следующий результат — [W8: Wardrobe batch_prompt V2](#wardrobe-batch-output), затем [передача exact saved V2 plan в ComfyUI](roadmap-comfyui.md#wardrobe-comfyui); первые изображения, anchor review, кадры/видеошоты и монтаж ещё не подключены.
 
-**Порядок ближайших работ: 4 → 5 → завершение 6 → 7 → 8.** Шаг 3 и пользовательский Wardrobe milestone закрыты. Каждый готовый агент подключается к своему UI в собственном milestone; шаг 6 сохраняет оставшуюся cinematic/media integration и полный проход автора. Следующий срез — ComfyUI saved-plan handoff; первый live render — из сохранённого Wardrobe plan. Первый deploy — локальный Windows-пилот; «готово» означает проверку именно Kinodel.
+**Порядок ближайших работ: W8 V2 → ComfyUI saved-plan handoff (V2-only) → один portrait job → N batch/review → оставшиеся image/video/media этапы → montage и приёмка выпуска.** Исходный шаг 3/W1–W7 закрыт; новые batch backend milestones ниже остаются pending. Read-only ComfyUI preparation разрешена заранее, но первый live render потребляет только сохранённый validated Wardrobe V2 после W8 acceptance, без повторного Wardrobe call. Каждый готовый агент подключается к своему UI в собственном milestone; шаг 6 сохраняет оставшуюся cinematic/media integration и полный проход автора. Первый deploy — локальный Windows-пилот; «готово» означает проверку именно Kinodel.
 
 ## Repository And Dependencies
 
@@ -84,6 +85,7 @@ Internal Story foundation сохраняет v1 → вопрос/правка �
 <a id="remaining-steps"></a>
 
 - [x] **3. Генерация текста llm и доступ автора к результату.** Storytell → exact Story review → сохранённый Wardrobe plan через существующие OpenRouter/runtime/storage. Backend W1–W6 завершён: immutable план и offline reopen приняты в W6; restart/retry с прежними inputs/provenance — в W5. W7 принят: запуск, exact inputs/config и готовые копируемые промпты в существующем UI, browser acceptance с mocked HTTP. Рендер и полный публичный cinematic Start остаются следующими этапами.
+  Это completion исходного V1 milestone, не новых W8/Storyboard backend-расширений.
   - [x] **Storytell.** `backend/openrouter.py` использует `httpx`, authored prompt и strict schemas; model/prompt/schema/context/request закреплены до HTTP. Профиль: 60 s / 8192 completion tokens, две durable attempts и одна repair; manual transport Retry сохраняет inputs и авторизует новый allowance. Проверенный GLM требует `reasoning=low`. Malformed output не коммитится, repair ограничен бюджетом. Запуск — `python -m backend.launch --env-file .env`, без автоматического чтения `.env` API ([контракт](backend/local-startup.md#live-storytell-text-slice)). Новый narrative ввод требует нового execution; публичный Brief/profile contract ещё нужен для полного cinematic.
   **Characters:** authored `CharacterV1` хранится в immutable JSON/images [wiki/characters](../wiki/characters/README.md), без cloud/index/`CharacterChunkV1`. Start замораживает exact refs/card snapshots и Bio; изображения не уходят в Storytell. Пустой выбор разрешает execution-local generated cast `StoryV2`; approval не публикует библиотеку. Старые inputs и command journals сохраняются. Live text/restart проверен, текущая character route имеет отдельную backend/wire проверку, не paid visual acceptance.
    - [x] **Wardrobe — готовый backend и текстовый план в UI.** <a id="wardrobe-backend"></a>
@@ -186,6 +188,40 @@ Internal Story foundation сохраняет v1 → вопрос/правка �
        с текущим кодом; browser reload не обновляет Python-процесс. Перезапуск пока не выполнен;
        code/browser acceptance W7 не означает, что старый работающий экземпляр уже обновлён.
 
+     <a id="wardrobe-batch-output"></a>
+       - [ ] **W8 · Следующий structured output для Batch-generation.** Новое model-authored V2 расширение после
+         принятого W1–W7; их completion/status и evidence остаются историческими, не forward compatibility.
+         Новый Wardrobe/batch route — V2-only; до него V1 описания фиксируют **CURRENT before activation**.
+         [Проект контракта](tools/batch-generation.md#3-новый-creative-output-batch_prompt).
+        - [ ] Определить strict Wardrobe draft/result/plan V2: `batch_prompt` вместо `units`, стабильные
+          уникальные `unit_key`, `use_case=hero-face|location|hero-sheet`, `workflow=txt2img|img2img`, ordered tagged refs.
+          `ada_face`/`leo_face` могут иметь одинаковый `hero-face`; `batch_unit` refs и selective anchor repair
+          используют ключ, не позицию. `SelectedMedia` остаётся `{render_result_ref,unit_key}`.
+          Сохранить direction/subjects/framing/preserve/ignore и exact Story provenance; первый capability
+          остаётся zero-ref face/location и sheet из ordered portrait+background.
+        - [ ] Согласовать schema, authored system prompt и frozen guidance: агент знает назначение/режим,
+          пишет prompt для него и не выбирает provider JSON. Обновить validators, frozen owner config,
+          storage/schema, exact readers и versioned graph/start identity **одной clean activation**.
+          Не добавлять V1 consumption/replay, dual readers, mapping или V1 regression в эту activation.
+        - [ ] **Activation preflight / test-data decision.** До переключения определить затронутые старые
+          тестовые Wardrobe runs/configs, pending work/checkpoints и command envelopes; согласовать их
+          archive/isolation либо отдельно авторизованный bounded reset. После явной activation старые
+          Wardrobe TEST runs/configs неподдержаны, нужны свежие runs. Проверить отказ до effects, не
+          переинтерпретировать V1 и не перенаправлять старую команду в V2. Не затрагивать отдельные Story/
+          Brief/video contracts или авторскую библиотеку. Автоматического destructive reset нет; сейчас
+          ничего не удалять. Без согласованной безопасной границы activation блокируется.
+        - [ ] Подключить V2 exact reader к существующему Pipeline/Chat, сохранив full copyable prompts,
+          use cases/modes и обе sheet dependencies. Замену старого authored inspection specimen/projection
+          включить в ту же new-route activation; старый specimen не совместимый renderer.
+        - [ ] **Приёмка V2:** сначала mocked schema/output/invalid refs/N>3 и durable retry/offline reopen
+          с прежними pins; затем реальная модель возвращает `plan.batch_prompt`, сохранённый V2 plan/ref
+          читается после restart без provider. Только это позволяет заявить Wardrobe V2 provider readiness;
+          W6 live evidence остаётся V1. Проверку ComfyUI rendering readiness выполняем отдельно.
+        **Критерий:** новый LLM response реально содержит `plan.batch_prompt`, сохранённый V2 plan читается
+        после restart с прежними pins; schema/config/start/graph/storage/readers согласованно активированы.
+        Генерация изображений и technical **V2-only** saved-plan handoff принадлежат
+       [ComfyUI шагу 4](roadmap-comfyui.md#wardrobe-comfyui), без второго checklist здесь.
+
     **Границы backend-среза:** план — supporting output без отдельного обязательного approval.
     Полный cinematic Brief/video Start и завершённый media UI не блокируют W4–W6.
     Image evidence не является render binding; общий ACL/rights-withdrawal не активирован.
@@ -196,9 +232,24 @@ Internal Story foundation сохраняет v1 → вопрос/правка �
     **Закрытие шага 3 и Wardrobe milestone:** W7 принят — автор проходит новый маршрут в существующем UI,
     видит exact inputs/config и сохранённый план, копирует полные prompts и открывает тот же результат после restart.
     [Контракт](agents/wardrobe.md#durable-operation), [evidence](../test-results/README.md#backend-evidence).
-     NEXT — [подключение сохранённого плана к ComfyUI](roadmap-comfyui.md#wardrobe-comfyui).
+      NEXT — [W8: V2-only Wardrobe activation](#wardrobe-batch-output), затем
+      [подключение сохранённого V2 плана к ComfyUI](roadmap-comfyui.md#wardrobe-comfyui).
 
-- [ ] **4. Рендер.** Выполнить [ComfyUI Local roadmap](roadmap-comfyui.md): local HTTP/явный native HTTPS → pinned workflows/Brief settings → сохранённый Wardrobe plan → durable submit/reconcile/verified import → anchors (portrait + background → sheet) и exact selection → Canvas/attempt workflow inspection → adaptive 1/2/3-reference frames → оба проверенных Brief-selected modes `img2vid/ref2vid`. Img2vid использует настоящий first-frame port; ref2vid — storyboard frame + portrait + sheet, без отдельного background. Первый live render — после Wardrobe; неизвестный submit не повторять вслепую. Закрыть шаг только после всего image/video пути, затем передать выбранные clips в montage. Детальные чекбоксы и критерии срезов находятся в отдельном документе.
+  <a id="storyboard-batch-backend"></a>
+  - [ ] **Следующий агентный backend milestone · Storyboard batch plan.** После появления exact approved
+    anchor selection; контракт — [Storyboard](agents/storyboard.md#output). Работы выполняются bounded-срезами:
+    - [ ] Pure versioned FramePlan/draft/response schema, согласованный authored prompt и validators:
+      `batch_prompt`, `use_case=storyboard-frame`, mode/ordered refs, full Story shot coverage/order,
+      state-before composition, supplied approved-anchor aliases и declared earlier-frame sources.
+    - [ ] Frozen adapter/operation/storage для exact approved Story + complete anchor set/plan; bounded
+      model/repair budgets, immutable plan, retry/reopen с прежними pins, без image submission из LLM.
+    - [ ] Подключить сохранённый план и read/control path к scoped runtime/существующему UI; проверить
+      mocked full shot coverage, invalid/future refs, non-ready stops и offline recovery без повторного POST.
+    **Критерий:** exact сохранённый storyboard plan читается после restart и пригоден для technical handoff.
+    Workflow binding, earlier-frame candidate resolution, jobs/import/review и live delivery —
+    [ComfyUI шаг 11](roadmap-comfyui.md#11-multi-reference-frame-workflow--storyboard-batch).
+
+- [ ] **4. Рендер.** Выполнить [ComfyUI Local roadmap](roadmap-comfyui.md): local HTTP/явный native HTTPS → pinned workflows/Brief settings → сохранённый Wardrobe plan → общий Batch-generation с N последовательными restart-safe image jobs → anchors (portrait + background → sheet) и exact selection → Canvas/attempt workflow inspection → Storyboard batch с adaptive 1/2/3-reference и earlier-frame dependencies → оба проверенных Brief-selected modes `img2vid/ref2vid`. Img2vid использует настоящий first-frame port; ref2vid — storyboard frame + portrait + sheet, без отдельного background. Первый live render — после Wardrobe; неизвестный submit не повторять вслепую. Закрыть шаг только после всего image/video пути, затем передать выбранные clips в montage. Детальные чекбоксы и критерии срезов находятся в отдельном документе.
 
   **Подготовлено:** [ComfyUI шаги 1–2](roadmap-comfyui.md#1-подключение-и-read-only-preflight) — read-only config/API/CLI, единый pinned registry, txt2img/Qwen 1/2/3 inputs и offline replay. [Шаг 3](roadmap-comfyui.md#3-production-settings-и-профильные-ограничения) — V2 production/Motion contracts и draft diagnostics; настройки доступны в единой «Новой истории». Confirmed profiles, cinematic Run/submit/media отсутствуют; saved Story reopen не зависит от provider, старые inputs/drafts сохранены.
 - [ ] **5. Монтаж выбранных дублей.** Exact review/selection anchors → frames → videos выполняются внутри шага 4, перед каждым зависимым этапом. Здесь взять полный утверждённый набор видеошотов и собрать ffmpeg/ffprobe финал в порядке Story без аудио, проверить размеры/длительность/формат и сохранить final result.

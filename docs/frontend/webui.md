@@ -103,8 +103,8 @@ SSR у React Flow возможен, но требует размеров нод 
 |---|---|---|
 | Brief | `brief` | Submitted input |
 | Storytell | `storytell → story-hitl` | Story + её review |
-| Wardrobe | `wardrobe → anchor-gen → anchor-hitl` | План, генерация якорей, выбор полного набора |
-| Storyboard | `storyboard → frames-gen → frames-hitl` | Image prompts и начальный кадр каждого shot |
+| Wardrobe | Цель: `wardrobe → anchor-batch [Batch generation] → anchor-hitl` | План, N последовательных image jobs, выбор полного набора |
+| Storyboard | Цель: `storyboard → frames-batch [Batch generation] → frames-hitl` | Batch prompts и начальный кадр каждого shot с объявленными image dependencies |
 | Filmmaker | `filmmaker → video-gen → video-hitl` | Motion prompts, videos и review |
 | Montage | `montage` | Детерминированная сборка; внутри видны inputs и проверка файла |
 | Final | `final` — поверхность результата Montage | Player/download; не новый агент или финальный approval |
@@ -178,13 +178,24 @@ Summary берётся из активного вложенного этапа: 
 
 **Outputs / Plan:** общий с Pipeline/Chat exact reader показывает полное visual direction и все units: role/subjects/purpose, копируемый полный image prompt, ordered dependencies с take/ignore, framing/drawable content/preserve/ignore и exact plan/Story refs. Dependencies — ссылки на units плана, не уже созданные изображения. Уже заблокированный invalid Wardrobe требует Cancel и нового Run по существующей политике; новые caps и перезапуск не возобновляют его автоматически. Пользователь сам перезапустит backend; новый paid proof не заявлен.
 
-Wardrobe сохраняет `wardrobe_plan`; `anchor-gen` делает рендер и единолично записывает media binding. UI может собрать их под общей карточкой Wardrobe, но не превращает творческий агент в долгоживущий render worker.
+Wardrobe сохраняет `wardrobe_plan`; planned Batch-generation / `anchor-batch` делает рендер только из exact saved validated V2 и единолично записывает media binding через exact review selection. UI может собрать их под общей карточкой Wardrobe, но не превращает творческий агент в долгоживущий render worker. Текущий authored UI scope называется `anchor-gen`; новое имя и real job projection подключаются только с новым versioned media route. Старый authored inspection specimen не совместимый renderer; его замена и V2 exact reader входят в ту же [W8/new-route activation](../roadmap-mvp.md#wardrobe-batch-output), без dual V1 reader/replay. После явной clean activation прежние TEST Wardrobe runs/configs неподдержаны, нужны fresh runs; reset сейчас не выполняется. Эти правила не меняют отдельные Story/Brief/video compatibility contracts.
+
+**Batch-generation · минималистичная матрёшка (проект):** ориентир — [anchor minimalism](refs/zbs%20ref%20v1/anchor%20minimalism.png).
+Один общий image-tool shell для Anchors и Storyboard: заголовок, подпись назначения, один status,
+strip до 3 verified thumbnails, `готово X / N`, overflow и View in Canvas. Полный набор — в Canvas,
+полный review — в соседней HITL. Ready обозначает complete candidates, не approval. Pending/error
+slots не заменяются демонстрационными фотографиями. Внутри N compact `comfyui-gen` карточек из
+persisted units/jobs: label/use_case, txt2img/img2img, status, preview; далее attempt → frozen Workflow.
+Порядок исполнения и image dependencies различаются: location после face, но без image input от face;
+у sheet два image inputs. N/use cases не hardcoded, identity включает execution/stage/activation/unit/job/attempt.
+[Общий контракт и storyboard example](../tools/batch-generation.md); реализация/desktop acceptance —
+[ComfyUI шаги 9–10](../roadmap-comfyui.md#9-настоящий-canvas-и-media-reads).
 
 Contact sheet показывает, например, `hero_face`, `location`, `hero_sheet`. Это **пример**, не фиксированное число: keys/count приходят из плана. Целевой sheet хранит обе exact dependencies — face и background/location; несовместимый выбор объясняется рядом с parents/child. Генерация последовательная: face → location → sheet, хотя сами parents независимы. Новый face или использованная location требует нового sheet; неизменные parents сохраняются. Исторический standalone mock не является реализацией этого нового binding. Новый Brief выбирает `img2vid/ref2vid` с точными profile pins и показывает различие exact first frame / scene references; [контракт и приёмка](../roadmap-comfyui.md#адаптивные-image-inputs-и-два-video-mode).
 
 Все полные фото/слоты находятся в **Canvas → Anchors / Images / Video**; generation-ноды ведут туда через View in Canvas. S01/S02 остаются у отдельных assets, без shot-групп и ложных рёбер между independent takes. Слот показывает candidate image либо подписанное ожидание/spinner/ошибку. Click/Enter открывает справа один ресурс; Open in workflow в инспекторе ведёт в provider scope с возвратом в тот же Canvas. Отдельный review сверяет и подтверждает полный exact набор.
 
-ComfyUI — **Tool с раскрытием внутри `anchor-gen` / `frames-gen` / `video-gen`**, если закреплённый provider именно ComfyUI. Workflow scope относится к выбранному job/unit; разные роли могут использовать разные workflows. В L0 нет обязательной глобальной ноды ComfyUI.
+ComfyUI — **Tool с раскрытием внутри Batch-generation (`anchor-batch` / `frames-batch`) или `video-gen`**, если закреплённый provider именно ComfyUI. Workflow scope относится к выбранному job/unit; разные роли могут использовать разные workflows. В L0 нет обязательной глобальной ноды ComfyUI. Original inspection scopes `anchor-gen`/`frames-gen` пока не показывают real render jobs.
 
 Целевой drill-down: generation tool → несколько plan units/jobs → конкретный attempt → его Workflow; единственный attempt можно раскрыть напрямую. Здесь компактные status/preview, а полный media-набор находится в Canvas. Scope identity включает execution/stage/unit/job/attempt, а не только имя workflow. Исторический attempt показывает frozen graph/params, даже если registry уже изменился. Canvas строится из committed backend candidate/asset/selection records под managed data root, не из browser storage или сканирования ComfyUI output directory. [Хранение, reads и проверка навигации](../roadmap-comfyui.md#9-настоящий-canvas-и-media-reads).
 

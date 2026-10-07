@@ -3,7 +3,7 @@
 Class: creative agent  
 Status: **Accepted design; implementation and provider verification pending**
 
-Wardrobe designs anchors; `anchor-gen` generates them; the human approves `anchor_frames` before this agent runs. The [cinematic route](../pipelines/cinematic.md) owns this handoff.
+Wardrobe designs anchors; its planned Batch-generation instance `anchor-batch` generates them; the human approves `anchor_frames` before this agent runs. The [cinematic route](../pipelines/cinematic.md) owns this handoff. Original inspection names were `anchor-gen`/`frames-gen`; the [batch preproduction project](../tools/batch-generation.md) activates only with a new media route.
 
 ## Responsibility
 
@@ -11,7 +11,7 @@ Translate approved Story shots, visual direction, and approved anchor assets int
 
 ## Input
 
-- exact submitted Brief and validated Wardrobe plan bound to approved `anchor_frames`, including stable anchor keys and reference roles; the plan has no separate mandatory approval;
+- exact submitted Brief and validated Wardrobe V2 plan bound to approved `anchor_frames` in the new batch route, including stable anchor keys and reference roles; no V1 Wardrobe consumption bridge, and no separate mandatory plan approval;
 - exact approved cinematic `StoryV1` and its ordered shots, including `state_before`, `action` and `state_after`;
 - exact promoted approved assets for the complete required anchor set, with selection/approval provenance; generation completion or plan approval alone is insufficient;
 - hydrated appearance/continuity/reference projections and frozen prompt guidance, with the operation's context-selection reference;
@@ -28,9 +28,20 @@ The frozen provider profile must explicitly support the required multi-image inp
 
 `FramePlanV1` in `storyboard_plan`: one ordered shot-frame specification per declared unit, with exact selected-media references/roles, preserve/change constraints, semantic intent and image prompt from frozen guidance. These are creative units, not jobs. The following `frames-gen` tool consumes the saved plan; fields follow [physical DTOs](../backend/dto.md#cinematic-extension).
 
+**Next batch contract (proposed):** next FramePlan replaces `units` with ordered `batch_prompt`,
+preserves exact shot coverage/composition/state-before constraints and declares `use_case:"storyboard-frame"`,
+`workflow` and ordered tagged references. Initial capability uses `img2img` with approved anchor aliases;
+txt2img is not an automatic fallback. A `batch_unit` source can name any earlier planned frame output;
+`supplied_image` aliases resolve to exact approved anchors. For example frame 5 can use ordered
+frame 4 + character-sheet + face. The agent plans the dependency before those frame bytes exist;
+Render resolves exact candidate bytes before the dependent job. Reference count/order/role signatures
+must be supported by a separately pinned mapping. `frames-batch` reuses the Wardrobe image-batch
+runtime; no second renderer or individual frame HITL. Schema/prompt/validators activate together,
+not by widening FramePlanV1. [Detailed contract](../tools/batch-generation.md#4-порядок-зависимости-и-workflow-binding).
+
 This is one aggregate validated plan, not an independently approved result. Render reads it through a deterministic adapter without a second universal request artifact. MVP unit keys/order match Story shots exactly, one start frame per shot. Anchor units are separate from shot units: anchor existence never supplies or omits a shot frame implicitly. Future `flf2v` requires explicit endpoint mappings before activation.
 
-At `frames-hitl`, direct feedback invokes Storyboard with the previous plan, reviewed frames and relevant discussion. A validated new plan runs through `frames-gen` and returns for review. It cannot rewrite the Wardrobe plan, approved story or anchors; out-of-scope feedback explains the boundary without a hidden Wardrobe call. Changed ancestors require a new run. Technical retry belongs to the tool; selective shot repair is deferred.
+At `frames-hitl`, direct feedback invokes Storyboard with the previous plan, reviewed frames and relevant discussion. A validated new plan runs through the frame Batch-generation instance and returns for review. It cannot rewrite the Wardrobe plan, approved story or anchors; out-of-scope feedback explains the boundary without a hidden Wardrobe call. Changed ancestors require a new run. Technical retry belongs to the tool; selective shot repair is deferred.
 
 ## Content And Quality Contract
 
@@ -54,7 +65,7 @@ Acceptance example: for a hero opening a door, stage the hero poised to open it,
 
 ## Tools
 
-`frames-gen`, dispatched after the complete plan is saved; no LLM wait for rendered images. Authorized references are prepared by the adapter; no arbitrary provider, retrieval or filesystem access.
+Planned `batch-generation`, instance `frames-batch` (original inspection name `frames-gen`), dispatched after the complete plan is saved; no LLM wait for rendered images. Authorized references are prepared by the adapter; no arbitrary provider, retrieval or filesystem access.
 
 ## Application Prompt And Guidance
 

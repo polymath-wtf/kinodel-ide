@@ -22,12 +22,22 @@
 
 **Nested node / матрёшка** заменяет прежнее название `node-pack`. В текущем frontend-концепте это раскрытие деталей, а не новая единица runtime. Будущая исполняемая упаковка нескольких нод за общими typed inputs/outputs остаётся отдельной возможностью.
 
-- Внешняя Wardrobe-карточка представляет `wardrobe → anchor-gen → anchor-hitl`; Storytell — `storytell → story-hitl`, Storyboard и Filmmaker — соответствующие agent/gen/HITL. Внутри доступны точные этапы и их состояния.
+- В исходных authored UI scopes и V1-декларации Wardrobe-карточка представляет `wardrobe → anchor-gen → anchor-hitl`; Storytell — `storytell → story-hitl`, Storyboard и Filmmaker — соответствующие agent/gen/HITL. Это inspection исходного маршрута, не реализованный media runtime.
 - UI identity группы (например, `view:wardrobe`) — только адрес представления. Команды адресуются реальному execution/request/work, а не группе.
 - Агент создаёт план, соседний generation tool выполняет job. Визуальная вложенность не превращает tool в LLM loop, не переносит ownership и не создаёт subgraph/checkpointer.
 - ComfyUI раскрывается внутри соответствующего generation tool как provider workflow выбранного job. Его внутренние node IDs не являются `stage_id` Kinodel. Mapping/validation остаются в [adapter](comfyui.md).
 - Состояние матрёшки отражает текущий вложенный этап, включая block/review; завершение агента или наличие candidate не означает завершения всей группы. Required gate всегда виден снаружи.
 - Один canvas показывает один scope; breadcrumbs, inspector и Chat — представления того же запуска. Детали интерфейса и состав фиксированных групп принадлежат [Web UI](../frontend/webui.md#3-матрёшка-nested-node).
+
+**Следующий media route (проект):** общий тип `batch-generation` заменит image tools двумя экземплярами
+`anchor-batch`/`frames-batch`. Внутри каждый раскрывает N отдельных `comfyui-gen` unit/jobs, затем
+attempt и его frozen workflow. Снаружи один batch status/preview и complete-set review. Это проектируемые
+durable job identities под одним group wait; новые execution/approval/subgraph на каждую картинку
+не создаются. Текущие authored scopes сохраняют прежние имена до активации нового projection.
+Замена authored inspection specimen/projection входит в ту же new-route activation; старый specimen
+не совместимый renderer. Wardrobe source — только exact saved validated V2 после [W8](../roadmap-mvp.md#wardrobe-batch-output),
+без V1 bridge/read/replay; old TEST Wardrobe runs/configs после clean activation требуют fresh runs.
+[Batch-generation](../tools/batch-generation.md) определяет порядок и image-dependency ports.
 
 ## Типы
 
@@ -35,7 +45,7 @@
 |---|---|---|
 | Ввод | `brief` | Идея, контекст и настройки при Run |
 | Агент | `storytell`, `wardrobe`, `storyboard`, `filmmaker` | История или валидированный творческий план |
-| Generation tool | `anchor-gen`, `frames-gen`, `video-gen` | Сначала durable job ref, затем варианты медиа |
+| Generation tool | V1-декларация: `anchor-gen`/`frames-gen`; следующий image route: `anchor-batch`/`frames-batch` типа `batch-generation`; `video-gen` отдельно | Сначала durable batch/job ref, затем candidate manifest; selection после review |
 | Human-in-the-loop | `story-hitl`, `anchor-hitl`, `frames-hitl`, `video-hitl` | Утверждение, вопрос или прямая правка владельцу |
 | Montage tool | `montage` | Видео из утверждённых шотов |
 
@@ -45,8 +55,8 @@
 - Механизм `Model` общий; prompt, model, prepared inputs, output schema и budgets задают конкретный экземпляр. Общий OpenRouter вызов реализован для Storytell/Wardrobe; настройки известных нод в UI остаются следующим расширением. Typed validators и operation ownership принадлежат этапу, не provider transport.
 - Соединение передаёт точный именованный результат с назначением, типом и количеством: история не заменяет image prompt, переписка не становится downstream input; обязательный HITL нельзя обойти.
 - Character chunk, wiki style и другие sources — явный [контекст](../context/context.md) выбранной ноды, а не дополнительные исполняемые агенты; два экземпляра одного типа не делят входы/выходы неявно.
-- Агент сохраняет план до запуска `*-gen`; tools выполняют побочные эффекты, LangGraph один управляет маршрутом, UI не создаёт второй scheduler.
-- Внутренние prepare/wait/apply и submit/wait/collect доступны в диагностике, но не требуют отдельных видимых нод; большие планы, чат и медиа живут вне graph state.
+- Агент сохраняет план до объявленного generation stage; tools выполняют побочные эффекты, LangGraph один управляет маршрутом, UI не создаёт второй scheduler.
+- Внутренние prepare/wait/apply и целевые render submit/wait/join не требуют отдельных видимых нод; большие планы, чат и медиа живут вне graph state.
 - [HITL](../hilp/hilp.md) определяет действия и версии; правка brief, схемы или утверждённых предков не переписывает старый запуск. Будущий [Fork](../hilp/fork.md) создаёт дочерний запуск с выбранного этапа, сохраняя родителя.
 
 ## Развитие после фиксированного маршрута

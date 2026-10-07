@@ -33,7 +33,7 @@ Context injection.
 
 ## Source Of Truth
 
-Read in this order:
+Source stuff:
 
 1. `SOUL.md` for product taste.
 2. `docs/README.md` for documentation routing.
@@ -48,6 +48,11 @@ Verification reports belong only in `test-results/README.md`; update existing en
 `legacy/` is read-only research evidence. It may explain intent, but it is not current architecture. Never copy a legacy script or schema without reducing it to the smallest current requirement.
 
 ## Routing
+
+### Tool Call Arguments
+
+- Call `read` and `skill` directly with required arguments (`filePath`, `name`); do not wrap these tools in `multi_tool_use.parallel`.
+- On schema errors, fix the arguments and retry the affected tool directly; never repeat the invalid batch.
 
 ### Coding-Agent Context Budget
 
@@ -69,6 +74,7 @@ Context: relevant contracts, known entry points and accepted decisions.
 Invariants: behavior and boundaries that must remain valid.
 Acceptance: observable completion criteria.
 Verify: exact check commands, or ask the worker to identify applicable checks.
+Stop if: требуется менять shared-контракт или lifecycle runner.
 Return: changed files/findings, check results and unresolved issues.
 ```
 

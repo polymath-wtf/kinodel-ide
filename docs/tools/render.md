@@ -12,9 +12,18 @@ Render implements [generation_submit, generation_status, generation_cancel and s
 
 | Creative owner / saved plan | Tool node | Selected media binding |
 |---|---|---|
-| Wardrobe / `VisualAnchorPlanV1` | `anchor-gen` | `anchor_frames` |
-| Storyboard / `FramePlanV1` | `frames-gen` | `story_frames` |
+| Wardrobe / exact saved validated `VisualAnchorPlanV2` `batch_prompt` only | `anchor-batch` (`batch-generation`) | `anchor_frames` |
+| Storyboard / next versioned `FramePlan` | `frames-batch` (`batch-generation`) | `story_frames` |
 | Filmmaker / i2v `MotionPlanV1`; next mode-discriminated version for `img2vid/ref2vid` | `video-gen` | `shot_videos` |
+
+The [Batch-generation preproduction contract](batch-generation.md) defines the reusable image
+capability, ordered `batch_prompt`, explicit use cases/modes/reference dependencies and N separate
+durable jobs. These instance names activate only in a new versioned media route; original V1
+inspection uses `anchor-gen`/`frames-gen`. Domain plans remain canonical, with a typed technical
+handoff rather than another universal creative artifact. Wardrobe activation is V2-only after
+[W8](../roadmap-mvp.md#wardrobe-batch-output), without a creative V1 consumption bridge or another
+Wardrobe call at initial render/technical Retry. `batch_outputs` references the candidate
+manifest; approval saves the selected slot above.
 
 - Static preflight checks topology, unique slot owners, registered schemas/capabilities, mappings and approval barriers. Once a plan exists, validate concrete values, exact references, access/rights, cardinality and dependency closure **before every effect**, including upload. Reject unknown fields, missing mappings and unsupported types/counts/roles; never truncate references or execute user-supplied code. Future plan values cannot all be checked before the first model call. See [pipeline validation](../backend/pipeline.md#versioning).
 - Freeze provider payload, effective parameters/seeds and exact input digests in durable jobs. Declare output port/item mappings before submission; import validates their schemas without silently reinterpreting meaning. Named outputs retain keys and provenance.

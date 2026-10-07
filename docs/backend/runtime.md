@@ -87,7 +87,7 @@ derive operation identity from persisted activation
 -> return compact checkpoint delta
 ```
 
-Operation identity, artifact commit, and dependency semantics are specified in [artifacts.md](artifacts.md). Technical retry/recovery retains the activation and prepared input. Creative revision or authorized upstream recomputation gets a new activation derived from the durable triggering transition. Clock time, lease fence, and process attempt never identify creative work.
+Operation identity, artifact commit, and dependency semantics are specified in [artifacts.md](artifacts.md). Unfinished-operation technical retry/recovery retains the activation and prepared input. Creative revision or authorized upstream recomputation gets a new activation derived from the durable triggering transition. Clock time, lease fence, and process attempt never identify creative work.
 
 Model output lost before commit may require another model call and may differ or incur another charge. Only the committed result is canonical. Paid external generation instead persists a job intent before submission and reconciles ambiguous acceptance before retrying.
 
@@ -159,7 +159,7 @@ Late provider results may remain job audit but cannot bind output or resume term
 
 ## Rendering Extension
 
-The `*-gen` tool nodes submit durable generation groups and return job refs promptly. A worker invokes/reconciles the provider independently of the finished LLM call. Jobs retain ownership, request/unit identity, correlation keys, budgets and restricted audit. While the graph is paused, provider polling needs no live graph invocation; job workers cannot change selected output bindings.
+**Documented target boundary, not an implemented media subsystem.** Render submit/wait/join, jobs and media import remain pending. The design has generation tool nodes submit durable groups and return job refs promptly. The proposed image capability [Batch-generation](../tools/batch-generation.md) follows this boundary for `anchor-batch` and `frames-batch`: N sequential durable unit/jobs inside one group/wait, without a dynamic graph per image. A worker invokes/reconciles the provider independently of the finished LLM call. Jobs retain ownership, request/unit identity, correlation keys, budgets and restricted audit. While the graph is paused, provider polling needs no live graph invocation; job workers cannot change selected output bindings.
 
 ```text
 planner commits exact plan
@@ -170,7 +170,7 @@ planner commits exact plan
 -> graph validates/join manifests -> candidate review (apply saves approved selection)
 ```
 
-The wait token is `{wait_id, stage_id, activation_id, request_digest}`. It is not a mutable provider job version. A fast result before the wait checkpoint stays pending until recovery reaches that wait. Unfinished required units cannot publish a complete set. Technical retries preserve successful units. Anchor regeneration starts a new group activation for changed units and dependents, explicitly retaining unrelated unchanged candidates by their original request lineage; see [cinematic](../pipelines/cinematic.md#anchor-regeneration). Other creative aggregates initially rebuild in full.
+The wait token is `{wait_id, stage_id, activation_id, request_digest}`. It is not a mutable provider job version. A fast result before the wait checkpoint stays pending until recovery reaches that wait. Unfinished required units cannot publish a complete set. [Batch retry identity](../tools/batch-generation.md#retry-identity) distinguishes unresolved replay on the same group/wait from authorized technical Retry after terminal group failure on a new group/wait, preserving terminal results/wakes and unchanged creative work/successful lineage without reopening terminal executions. Anchor regeneration starts a new group activation for changed units and dependents, explicitly retaining unrelated unchanged candidates by their original request lineage; see [cinematic](../pipelines/cinematic.md#anchor-regeneration). Other creative aggregates initially rebuild in full.
 
 For dependent anchors, persist both portrait and background completion plus the child's exact candidate inputs/digests/seed before sheet submission; recovery reuses completed parents without intermediate human pauses. Queue order is not dependency: portrait/background are independent, but the location-conditioned sheet depends on both. Saving the approved selection (called promotion in older storage terminology) is an idempotent service operation in gate apply, not a separate user-visible stage.
 

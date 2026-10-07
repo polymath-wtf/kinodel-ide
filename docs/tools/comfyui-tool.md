@@ -27,10 +27,16 @@
 
 | Этап | Привязка к кандидатам | Условие включения |
 |---|---|---|
-| `anchor-gen` | Portrait и character-free background через txt2img, затем Qwen multi template с `[portrait, background]` для sheet в локации | Sheet зависит от обоих exact parent candidates. Изменение любого родителя требует нового sheet. Число units — из плана. |
-| `frames-gen` | Qwen multi template с `[portrait, character_sheet, background]` для полного character shot; declared 1/2-ref variants адаптируются тем же mapping | Static capacity найдена; нужны installed schemas и live role/geometry checks. Missing required roles блокируются; не склеивать/выкидывать refs. |
+| `anchor-batch` / Batch-generation | Portrait и character-free background через txt2img, затем Qwen multi template с `[portrait, background]` для sheet в локации | Sheet зависит от обоих exact parent candidates. Изменение любого родителя требует нового sheet. Число units — из плана. |
+| `frames-batch` / Batch-generation | Qwen multi template с `[portrait, character_sheet, background]` для полного character shot; declared 1/2-ref variants адаптируются тем же mapping | Static capacity найдена; нужны installed schemas и live role/geometry checks. Missing required roles блокируются; не склеивать/выкидывать refs. |
 | `video-gen`, `img2vid` | `162` `MiniMaxH3ImageToVideo.first_frame` с selected storyboard frame данного shot | Закрепить обновлённые workflow/mapping digests и проверить first-frame delivery/model/timing на сервере. |
 | `video-gen`, `ref2vid` | `minimax-h3-ref2vid`, ordered `[storyboard_frame, portrait, character_sheet]`; отдельный background не передаётся | Самостоятельный Brief-selected mode, не экспериментальная подмена img2vid. Проверить references/continuity/timing; точный frame 0 этим mode не обещается. |
+
+Image stage names — [новый batch-проект](batch-generation.md), не активированный runtime;
+original inspection/V1 names `anchor-gen`/`frames-gen` сохраняются в исторических declarations.
+`workflow=txt2img|img2img` в creative output обозначает режим; actual template выбирается exact pinned
+mapping. Frame signature `[previous_frame,character_sheet,portrait]` для earlier-frame + anchors
+потребует отдельной регистрации/проверки, не подменяет нынешний mapping под тем же pin.
 
 Выбор video mode `img2vid/ref2vid` происходит в новом Brief; соответствующий profile pin — по [правилу отбора](../backend/comfyui.md#profile-selection), после проверки. Профиль связывает role-specific workflows с portrait/sheet/background/shot, но неподдержанная роль или несовместимые размеры/длительность блокируют submit. Agent/recovery не переключает mode/profile. Попытки не утверждаются автоматически, и отсутствие multi-reference capability нельзя исправить промптом.
 

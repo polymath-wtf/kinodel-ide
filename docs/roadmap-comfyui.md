@@ -1,9 +1,9 @@
 # ComfyUI Local: поэтапная интеграция
 
-Обновлено: **6 октября 2026**.
+Обновлено: **7 октября 2026**.
 
 - Шаги 1–3 реализованы: read-only подключение, image preparation и production settings/draft diagnostics.
-- Вход генерации — сохранённый Wardrobe plan из [backend-этапа MVP](roadmap-mvp.md#wardrobe-backend). Подключение этого плана к ComfyUI ещё предстоит.
+- Вход новой генерации — только exact сохранённый validated Wardrobe V2 `batch_prompt` после [W8](roadmap-mvp.md#wardrobe-batch-output). Текущий V1 plan принят до этой activation; его consumption bridge не строим.
 - Cinematic Run, render jobs и media-путь ещё не реализованы.
 
 Это детализация генерации через ComfyUI из [Local MVP, шаг 4](roadmap-mvp.md#remaining-steps):
@@ -11,9 +11,11 @@
 LLM, текстовые результаты, их версии и backend Wardrobe ведём в [Local MVP](roadmap-mvp.md#wardrobe-backend);
 подключение Wardrobe к существующему UI до рендера принято в [W7](roadmap-mvp.md#wardrobe-ui).
 Здесь ведём workflow/media-задачи, связанный UI (6) и передачу в montage (5); общий статус выпуска
-и итоговая приёмка остаются в Local MVP. Read-only подготовка допустима заранее, первый live render —
-после W7 и сохранённого плана. Срезы проверяем по готовности потребителя: первый job не ждёт group/review,
-frames-gen — полного workflow viewer; итоговые требования выпуска сохраняются.
+и итоговая приёмка остаются в Local MVP. Read-only подготовка допустима заранее. Порядок:
+W8 V2 → V2-only saved-plan handoff → один portrait job → N batch/review; первый live render —
+только после W8 acceptance, из exact сохранённого V2 плана без повторного Wardrobe call.
+Срезы проверяем по готовности потребителя: первый job не ждёт group/review,
+Storyboard batch — полного workflow viewer; итоговые требования выпуска сохраняются.
 
 [Результаты проверок](../test-results/README.md).
 
@@ -21,7 +23,7 @@ frames-gen — полного workflow viewer; итоговые требован
 
 | Область | Фактическое состояние |
 |---|---|
-| Текст/runtime | Live Storytell и Wardrobe W1–W7 приняты. Явный UI Start `kinodel.story-wardrobe` v1 передаёт exact approved Story в Wardrobe; live mode использует настроенный OpenRouter, W7 browser acceptance — mocked HTTP, live-приёмка W6 сохраняется. Исторические text routes сохраняют approve→END. NEXT — [saved-plan handoff](#wardrobe-comfyui). |
+| Текст/runtime | CURRENT before W8: Live Storytell и Wardrobe W1–W7 приняты. Явный UI Start `kinodel.story-wardrobe` v1 передаёт exact approved Story в Wardrobe; live mode использует настроенный OpenRouter, W7 browser acceptance — mocked HTTP, live-приёмка W6 сохраняется как V1 evidence. Исторические text routes сохраняют approve→END. NEXT — [W8 V2 activation](roadmap-mvp.md#wardrobe-batch-output), затем [V2-only saved-plan handoff](#wardrobe-comfyui). |
 | Подключение | Backend config, явный env-file allowlist launcher и `backend/comfyui.py` подключены. Guarded API/CLI preflight проверяет выбранный workflow; оба настроенных соединения прочитаны без генерации. |
 | Workflow | Единый SHA-pinned registry в `backend/comfyui_workflows.py`: preparation включена для portrait/background txt2img и Qwen 1/2/3 inputs; остальные кандидаты inspection-only. `backend/production.py` даёт preparation-only bundle/diagnostics, не cinematic profiles/defaults. [Mappings](tools/comfyui-tool.md#текущие-файлы-и-порты). |
 | Хранение | SQLite, OS lock, immutable Story и Wardrobe plan, operation recovery/replay работают; Wardrobe принят в scoped графе, включая live provider и offline reopen. Render jobs, candidates, assets, selection и media import ещё нужны. |
@@ -93,7 +95,7 @@ def bind_image_slots(template, consumer_id, slots, uploaded_names):
 
 Для shots без персонажа/с другим явно заявленным набором profile может разрешить 1/2 refs; compact order сохраняет объявленные роли. Это не разрешение выкинуть отсутствующий required portrait/sheet. В полном character ref2vid обязательны все три перечисленные роли. Prompt guidance использует тот же порядок: в MiniMax reference upstream labels — `<Picture 1>`, `<Picture 2>`, `<Picture 3>`, несмотря на zero-based socket suffixes.
 
-Новый anchor порядок: **portrait → background → sheet**, где portrait и background независимы друг от друга, но оба — родители sheet. Wardrobe сохраняет две `anchor_unit` reference bindings; worker фиксирует оба candidate IDs/digests перед sheet submit. Изменение portrait **или background** инвалидирует зависимый sheet; изменение sheet не пересоздаёт родителей. Complete-set review проверяет обе lineage, включая retained candidates.
+Новый anchor порядок: **portrait → background → sheet**, где portrait и background независимы друг от друга, но оба — родители sheet. Новый Wardrobe V2 использует `batch_unit` со стабильным `unit_key`; нынешние V1 `anchor_unit` описывают только контракт до activation, не input нового renderer. Worker фиксирует оба candidate IDs/digests перед sheet submit. Изменение portrait **или background** инвалидирует зависимый sheet; изменение sheet не пересоздаёт родителей. Complete-set review проверяет обе lineage, включая retained candidates.
 
 Все нынешние resize используют Lanczos, center `crop`, `divisible_by=2`. Значит, adapter не только меняет links: должен объявить и закрепить эту preprocessing policy по роли. Crop может потерять края лица/одежды; совместимость/preview проверяется до effects, а изменение crop/pad требует новой workflow/profile version. Для Qwen `resolution` задаёт pixel budget, не независимый output width: latent следует aspect ratio первого reference с rounding к 32. Произвольные output W×H пока не обещаем. Для `img2vid` storyboard preprocessing должен сохранять утверждённую композицию, без скрытого crop/stretch.
 
@@ -205,27 +207,42 @@ Report содержит workflow/registry pins, `preparation_enabled` и `graph_
 <a id="wardrobe-comfyui"></a>
 ### 4. Подключение Wardrobe plan к ComfyUI
 
-**Зависимость:** [backend Wardrobe, W1–W6](roadmap-mvp.md#wardrobe-backend) сохраняет текстовый
-`VisualAnchorPlanV1`. Здесь превращаем его задания в workflow inputs для `anchor-gen`;
-реальные jobs, изображения и их review подключаются шагами 5–8.
+**Зависимость:** [W8](roadmap-mvp.md#wardrobe-batch-output) активирует Wardrobe V2 `batch_prompt` с `unit_key`/`use_case`/`workflow` и exact saved-plan reader. LLM/schema/config/storage/start/graph и bounded activation preflight/test-data decision остаются в MVP. W1–W7 и их V1 evidence приняты исторически; после clean activation старые тестовые Wardrobe runs/configs неподдержаны, нужны свежие runs. Здесь подключаем общий image-tool **Batch-generation**, экземпляр `anchor-batch`, только к V2, вместо нового anchor-specific renderer.
+Реальные jobs, изображения и их review подключаются шагами 5–8.
+
+**Проект архитектуры:** [Batch-generation](tools/batch-generation.md). Порядок массива задаёт очередь,
+ordered references — data dependencies. Внутри N отдельных `comfyui-gen` jobs, снаружи один batch output
+и полный review. Для первого примера: `hero_face txt2img → location txt2img → hero_sheet img2img`;
+sheet получает оба parent images отдельными slots. Число 3 не hardcoded.
 
 - [ ] **Вход генератора.** Определить versioned handoff exact утверждённой Story и сохранённого
-  `wardrobe_plan` в новый scoped image-only маршрут с frozen image settings/profile.
+  validated `VisualAnchorPlanV2` (`wardrobe_plan`) в новый scoped image-only маршрут с frozen image
+  settings/profile/connection и `BatchGenerationInputV1`. Его V1 — независимая первая версия technical
+  schema, не поддержка creative V1. Source V2 ref/digest и stage mapping pin сохраняются;
+  V1 plans/configs отклоняются до effects, без adapter/dual readers/consumption replay.
+  Initial rendering не вызывает LLM и не создаёт второй creative artifact/миграцию.
   `ImageOnlyInputV1` пока diagnostics; прежние terminal text executions не переоткрывать.
+  Handoff и первый live render идут после W8 V2 acceptance; ComfyUI readiness не следует из LLM evidence.
 - [ ] **Проверка плана перед effects.** Проверить exact plan/ref/digest, `narrative_ref`, subjects,
-  units/order/roles и declared parent dependencies. Missing/stale/corrupt plan или unsupported mapping
-  блокирует до upload/submit. План — supporting output без отдельного обязательного approval.
+  unique unit keys/order, `use_case`/mode/reference signatures и earlier-only dependencies. Режим
+  `txt2img` требует ноль refs, `img2img` — минимум один; references не заменяются очередью или auto-sort.
+  Missing/stale/corrupt plan или unsupported mapping блокирует до upload/submit. План — supporting
+  output без отдельного обязательного approval; approved Story и права на sources проверяет resolver.
 - [ ] **Plan → workflow preparation.** Передать image prompts из плана в registry шага 2:
-  portrait/background → txt2img, sheet → Qwen с ordered `[portrait, background]` generated parents.
+  `hero-face`/`location` → portrait/background txt2img, `hero-sheet` → Qwen с ordered
+  `[portrait, background]` generated parents. `workflow` — режим, actual workflow выбирает pinned
+  stage mapping, не LLM. Required signature/capacity проверяется до effects.
   Required render refs берутся из declared earlier units; image evidence модели не становится
-  автоматическим render binding. Количество units приходит из плана, не hardcoded 3.
+  автоматическим render binding. N приходит из плана; один unit → один job → один первоначальный candidate.
 - [ ] **Закреплённые входы jobs.** Связать подготовку со storage/submit шагов 5–6:
   сохранить plan pin, exact parent candidates/digests, profile/workflow pins и resolved size/crop/seed
   до соответствующего submit. Повтор использует прежние подготовленные входы;
   UI и worker не сочиняют prompts заново и не вызывают LLM для технического retry.
 
-**Приёмка:** offline handoff передаёт prompts, unit order и обе sheet dependencies из exact сохранённого
-плана в объявленные workflow roles. Неверный план блокируется до provider effects;
+**Приёмка:** offline handoff передаёт prompts, use cases/modes, stable unit keys/order и обе sheet dependencies
+из exact сохранённого validated V2 плана в объявленные workflow roles; проверены 3 и N>3 units, включая
+`ada_face`/`leo_face` с одним `hero-face`, без повторного LLM call. Creative V1 блокируется до effects.
+Self/future/missing refs, mode/role mismatch и unsupported mapping блокируются до provider effects;
 отсутствующий required reference — до соответствующего child submit.
 Первый настоящий portrait проверяется на шаге 6, полный набор portrait/background → sheet — на шагах 7–8.
 [Контракт Wardrobe](agents/wardrobe.md#dependent-generation), [render adapter](tools/comfyui-tool.md).
@@ -249,11 +266,25 @@ Report содержит workflow/registry pins, `preparation_enabled` и `graph_
 
 **Приёмка:** один настоящий portrait импортирован и читается после выключения ComfyUI. Mock/fault-injection проверяет lost submit response, intent до HTTP, response до DB, history eviction/server restart и candidate publication до commit; recovery не отправляет второй prompt вслепую. Live smoke фиксирует submitted/returned size, seed, declared output и bytes/digest.
 
-### 7. Anchor group и один graph wait
+### 7. Batch-generation: последовательные jobs и один graph wait
 
-- [ ] На новом scoped image-only graph подключить `saved wardrobe_plan → anchor-gen → anchor-hitl` через versioned handoff шага 4: initial rendering потребляет exact сохранённый план и его утверждённую Story, не вызывает Wardrobe повторно и не переоткрывает terminal text execution. Wardrobe вызывается для нового плана только при принятом creative Revise (шаг 8). Group intent/wait identity сохраняются до submission; terminal group result и unique wake work коммитятся вместе через существующий runner protocol.
-- [ ] Генерировать units последовательно в validated dependency order: portrait → background → sheet с **обоими exact parent candidates**. Child input/seed/digests фиксируются до его submit. Один первоначальный candidate на unit; количество units приходит из плана, не hardcoded 3.
-- [ ] Join создаёт immutable complete-set manifest с supporting plan и parent lineage. Fast completion до checkpoint ждёт своего wait; partial/failed group имеет диагностируемый retry/cancel, не вечный `waiting_job`.
+- [ ] На новом scoped image-only graph подключить `saved wardrobe_plan V2 → anchor-batch [batch-generation] → anchor-hitl` через V2-only handoff шага 4: initial rendering потребляет exact сохранённый validated V2 план и его утверждённую Story, не вызывает Wardrobe повторно и не переоткрывает terminal text execution. Wardrobe вызывается для нового V2 плана только при принятом creative Revise (шаг 8). Group intent/wait identity сохраняются до submission; terminal group result и unique wake work коммитятся вместе по документированной целевой [submit/wait/join boundary](backend/runtime.md#rendering-extension), media-реализация которой ещё pending; новый runner protocol не нужен.
+- [ ] Генерировать units последовательно **строго в порядке массива**, например portrait → background → sheet с **обоими exact parent candidates**. Earlier-only validation не сортирует задания; self/future/missing refs отклоняются. Child input/seed/digests фиксируются до его submit. Один первоначальный candidate на unit; количество units приходит из плана, не hardcoded 3.
+- [ ] Каждый unit имеет отдельные job/attempt records и scope `comfyui-gen`; один provider job одновременно,
+  следующий — после verified import предыдущего. Persisted group/units переиспользуются для Storyboard;
+  динамический graph compiler, новый scheduler и отдельный LangGraph subgraph на image не нужны.
+- [ ] Join выдаёт `batch_outputs` — ref на immutable complete-set manifest с supporting plan и parent lineage,
+  не approved binding. Fast completion до checkpoint ждёт своего wait; partial/failed group имеет
+  диагностируемый retry/cancel, не вечный `waiting_job`.
+- [ ] **Fault-check retry identity:** по [batch-контракту](tools/batch-generation.md#retry-identity)
+  проверить unresolved acceptance без blind resubmit и crash после terminal failed result/wake до checkpoint.
+  Reopen сохраняет старый result/wake; authorized Retry создаёт новые group activation/handoff identity/digest
+  и wait с идентичными source plan/mapping/settings pins. Successful candidates сохраняют lineage;
+  successful units никогда не resubmit. Failed jobs получают новые attempts, not-yet-started required jobs — первые, в исходном
+  порядке массива. Проверить portrait failure до старта location/sheet и sheet failure после обоих parents:
+  уже prepared per-job payload/inputs/seeds неизменны, unprepared inputs фиксируются один раз при наличии
+  exact parents до submit. Не предполагать, что весь batch уже prepared.
+  Duplicate/late старый wake не отвечает новому group wait или следующему human review.
 
 **Приёмка:** restart после любого parent и перед sheet не пересоздаёт готовые parents; sheet действительно получил portrait и background bytes в объявленные slots. Неполный набор не становится review. Group wake не отвечает следующему human wait; checkpoint содержит refs, не media.
 
@@ -270,23 +301,31 @@ Report содержит workflow/registry pins, `preparation_enabled` и `graph_
 - [ ] Добавить typed backend reads для stage/units/jobs/attempts, manifests, candidate/selected media и lineage; originals/previews отдавать через guarded local API по exact ref, не filesystem path или ComfyUI URL. Video delivery при включении clips поддерживает bounded streaming/Range.
 - [ ] Подключить существующий Canvas: Anchors / Images / Video, thumbnails по мере verified import, отдельные pending/error slots, подписи shot/unit/take и candidate/selected/approved. История attempts доступна, но не выдаётся за текущий набор. Свободное размещение контента не требуется для первого прохода.
 - [ ] Один query cache связывает Pipeline/Chat/Canvas. Inspector показывает prompt, фактические size/seed/profile и lineage; viewport/selection — только UI state. На старте ограниченная/постраничная загрузка records, lazy originals и восстановимые previews.
+- [ ] Карточка **Batch generation · Anchors/Storyboard** следует [минималистичному reference](frontend/refs/zbs%20ref%20v1/anchor%20minimalism.png): один status, bounded strip до 3 previews, `готово X / N`, overflow и View in Canvas. Verified candidate preview не означает approval; отдельный Full set review сохраняется. Внутри N compact `comfyui-gen` карточек из persisted jobs, не hardcoded три.
 
 **Приёмка:** Canvas воспроизводится из backend после потери browser storage и restart, даже при выключенном provider. Navigation не создаёт jobs. Media preview не означает approval; старый candidate не переназначает current review. Desktop capture изменённых страниц снят/просмотрен и добавлен в screenshot index.
 
 ### 10. Генерации внутри tool → настоящий workflow
 
-- [ ] Drill-down: `Wardrobe → anchor-gen / ComfyUI → unit → attempt → Workflow`; те же identity-bearing scopes для `frames-gen`/`video-gen`. Если attempt один, допускается прямой вход в его workflow. Несколько units/attempts видны как jobs с компактным preview/status; полная галерея остаётся в Canvas.
+- [ ] Drill-down: `Wardrobe → Batch generation [anchor-batch] → comfyui-gen / unit → attempt → Workflow`; тот же путь у Storyboard `frames-batch`, у video-gen — собственная capability. Если attempt один, допускается прямой вход в его workflow. Несколько units/attempts видны как jobs с компактным preview/status; полная галерея остаётся в Canvas.
+- [ ] Различать execution-order edges и image-dependency ports/edges: location идёт после face, но не
+  получает его image. У sheet два реальных parent inputs. Scope identity включает batch activation и
+  unit/job/attempt; одинаковый `use_case` не сливает разные генерации.
 - [ ] Read-only projection строится из **frozen resolved graph конкретного attempt**, проверенных node schemas и original string IDs/links. Prompt/seed/size — literal values, не выдуманные wires; unsupported schemas явно недоступны. Не использовать последовательные edges Pipeline как граф ComfyUI.
 - [ ] Для исходной композиции сохранять versioned editor/layout snapshot отдельно от API graph; его correspondence проверяется при регистрации. Для имеющихся API-only файлов — небольшой проверенный display layout или честно подписанная derived layout, без восстановления координат «из воздуха» и без нового generic editor.
 - [ ] Один React Flow на scope, breadcrumb/Back/keyboard и сохранение viewport. Config/Inputs/Outputs раскрываются по выбору; no secrets/private paths/raw responses. Save — provider output, **Verified import** — отдельная Kinodel boundary, не fake ComfyUI node. Progress внутренних нод только по фактическим provider observations.
 
 **Приёмка:** [ComfyUI reference](frontend/refs/zbs%20ref%20v1/comfyui%20zbs.png) воспроизведён по смыслу: читаемые реальные nodes/ports, frozen params, verified candidate и lineage. После изменения registry/перезапуска старый attempt показывает прежний workflow. Canvas → workflow → Back возвращает тот же media/viewport; inspection делает только GET. Desktop screenshot просмотрен.
 
-### 11. Multi-reference frame workflow → Storyboard/frames-gen
+### 11. Multi-reference frame workflow → Storyboard batch
 
 - [ ] Использовать зарегистрированный Qwen 3-slot template с отдельными ordered mappings portrait/sheet/background; для declared 1/2-image variants удалять unused slots/pairs. Single-image JSON не использовать как замену full role set; не склеивать refs и не выбрасывать их молча.
-- [ ] Выполнить один live role-delivery check с различимыми refs; подтвердить output geometry и сохранение identity/clothing/environment. Затем подключить authored Storyboard/strict `FramePlan`, approved anchors и сохранённую shot order.
-- [ ] `frames-gen` использует тот же job/import/wait/review/Canvas/workflow путь. Frame каждого shot изображает `state_before`, а не завершённый action; один selected frame на каждый Story shot.
+- [ ] Выполнить один live role-delivery check с различимыми refs; подтвердить output geometry и сохранение identity/clothing/environment. Затем подключить authored Storyboard/следующий versioned `FramePlan` с `batch_prompt`/use cases/modes, approved anchors и сохранённую shot order. Backend/schema/prompt-задачи — в [Storyboard backend milestone](roadmap-mvp.md#storyboard-batch-backend); здесь их media consumer.
+- [ ] Поддержать declared earlier frame outputs + frozen approved image aliases. Для примера frame 5 ←
+  `[frame 4, character_sheet, portrait]` зарегистрировать отдельную ordered role signature
+  `[previous_frame,character_sheet,portrait]`; существующий `[portrait,character_sheet,background]`
+  mapping не менять под тем же pin. Offline bind/replay и live delivery проверяются до активации.
+- [ ] `frames-batch` — второй экземпляр общего `batch-generation`, с тем же job/import/wait/review/Canvas/workflow путём, без отдельного renderer. Frame каждого shot изображает `state_before`, а не завершённый action; один selected frame на каждый Story shot. Внутренний earlier-frame candidate допустим только в объявленной batch dependency, не как approved downstream media.
 
 **Приёмка:** все required refs материализованы/привязаны; shot coverage/order полные. Unsupported capacity блокирует до upload. Frame review/revise/reopen не меняет approved Story/anchors; человеческая визуальная проверка отличает role delivery от качества.
 

@@ -152,7 +152,7 @@ These are minimum physical handoff fields, implemented with their stages and com
 | Body / record | Minimum fields and validator |
 |---|---|
 | `VisualAnchorPlanV1` | exact narrative ref, shared `direction:{appearance,wardrobe,environment,lighting,palette:string[],must_preserve:string[],prohibited_drift:string[]}`, ordered non-empty `units:[{unit_key,subject_ids,role,purpose,framing,drawable_content,image_prompt,references:AnchorReference[],preserve:string[],ignore:string[]}]`; no fixed count or `visual`/`main` key |
-| `AnchorReference` | `{source:{kind:"input",ref:<exact supplied reference>} or {kind:"anchor_unit",unit_key:UnitKey},role,take:string[],ignore:string[]}`; tagged source, required role; same-plan source names an earlier unit. Validate unique keys, acyclic dependencies and workflow capabilities before jobs |
+| `AnchorReference` (implemented V1) | `{source:{kind:"anchor_unit",unit_key:UnitKey},role,take:string[],ignore:string[]}`; required role; same-plan source names an earlier unit. First capability requires sheet refs in portrait/background order; input-sourced render bindings are unsupported, not accepted V1 fields |
 | `FramePlanV1` | exact `story_ref`, ordered `units:[{unit_key,source_shot_id,representative_moment,composition,image_prompt,negative_prompt:string or null,references:[{source:SelectedMedia,role,take:string[],ignore:string[]}],preserve:string[],change:string[]}]`; exact declared Story shot coverage/order, no anchor-design `main` mode or singular anchor field |
 | `SelectedMedia` | `{render_result_ref:ArtifactRef,unit_key:UnitKey}`; resolve to the one promoted asset with required approval |
 | `MotionPlanV1` | Exact `story_ref`, `units:[{unit_key,start_frame:SelectedMedia,end_frame:SelectedMedia or null,duration_ms,action,motion,camera,video_prompt,preserve:string[]}]`; first i2v start key equals shot, end null, duration equals Brief |
@@ -163,7 +163,25 @@ These are minimum physical handoff fields, implemented with their stages and com
 
 Agent refs are input aliases resolved by adapters; media identities/measurements are tool-owned. Body-to-slot mapping: VisualAnchorPlanV1 → `wardrobe_plan`, FramePlanV1 → `storyboard_plan`, MotionPlanV1 → `video_plan`; no extra nodes. For first `i2v`, FramePlan's `representative_moment` depicts the action's opening consistent with Story's `state_before`, leaving development for the video; Krea-derived guidance uses `negative_prompt:null`. MontagePlan is an internal tool record. Revisions preserve corresponding shot keys, but changed Story invalidates descendants. `flf2v`, audio, serial/chunk and reuse extensions activate separately.
 
-Implemented Wardrobe agent layer: `backend/wardrobe.py` defines `WardrobeInputV1`, creative-only `VisualAnchorDraftV1`/`WardrobeResultV1`, and resolved `VisualAnchorPlanV1` with `narrative_ref`. First `anchor-basics.v1` permits zero-ref portrait/background and ordered earlier-unit portrait/background refs for sheets; supplied-image render refs remain unsupported. [Durable operation](../agents/wardrobe.md#durable-operation) validates authoritative frozen inputs/applied approval and saves immutable plans under schema v13; exact Story approval handoff and scoped `kinodel.story-wardrobe` activation are implemented; valid saved-plan completion remains terminal without rendering. ComfyUI consumption of the saved plan is pending.
+CURRENT before W8 activation: `backend/wardrobe.py` defines `WardrobeInputV1`, creative-only `VisualAnchorDraftV1`/`WardrobeResultV1`, and resolved `VisualAnchorPlanV1` with `narrative_ref`. First `anchor-basics.v1` permits zero-ref portrait/background and ordered earlier-unit portrait/background refs for sheets; supplied-image render refs remain unsupported. [Durable operation](../agents/wardrobe.md#durable-operation) validates authoritative frozen inputs/applied approval and saves immutable plans under schema v13; exact Story approval handoff and scoped `kinodel.story-wardrobe` activation are implemented; valid saved-plan completion remains terminal without rendering. New ComfyUI consumption waits for saved V2 below; no V1 render handoff is planned.
+
+**Proposed image-batch activation:** next `VisualAnchorDraftV2={direction,batch_prompt}` and
+`VisualAnchorPlanV2={schema_id:"visual_anchor_plan",schema_version:"2",narrative_ref,direction,batch_prompt}`.
+Each entry retains stable unique `unit_key` and creative/subject fields, replaces anchor `role` with `use_case` and declares
+`workflow:"txt2img"|"img2img"`, `image_prompt` and ordered references. Reference sources are
+`{kind:"batch_unit",unit_key}` or `{kind:"supplied_image",alias}`; stage capability decides permitted
+signatures and resolves aliases, not the model. Next FramePlan uses the same batch fields with its
+own shot/composition constraints; V1 shape is not silently widened. Internal `BatchGenerationInputV1`
+pins source plan, stage/activation, profiles/connection/mapping, ordered jobs and supplied alias bindings.
+Its V1 numbering is independent: first technical schema version, **not creative V1 support**. The new
+Wardrobe source is only exact saved validated `VisualAnchorPlanV2`; no V1 bridge, dual readers or replay.
+Activate schema/prompt/config/start/graph/storage/readers together after the W8 preflight/test-data decision;
+old TEST Wardrobe runs/configs become unsupported at explicit clean activation, requiring fresh runs.
+Current V1 descriptions/evidence stay factual before activation; no reset/deletion is performed here.
+`ada_face` and `leo_face` share `use_case:"hero-face"` but never a key; refs/selection/anchor repair use
+stable keys. `SelectedMedia={render_result_ref,unit_key}` is unchanged. `batch_outputs` is a complete
+manifest ref, not RenderResult or approval. [Field semantics, ordering and boundaries](../tools/batch-generation.md);
+[backend W8](../roadmap-mvp.md#wardrobe-batch-output).
 
 Implemented V2 preparation: `MotionPlanV2` and `FilmmakerInputV2` are strict mode-discriminated unions in `backend/domain.py`. `backend/production.validate_motion_plan` matches mode, exact Story, ordered keys/durations and supplied media selectors. Full ref2vid roles are mandatory; no reduced profile is confirmed. Structural selector equality does not certify approval/authorization/lineage: future stage resolution owns those checks. The single `.agents/filmmaker/system.md` matches these shapes but has no runtime activation.
 
