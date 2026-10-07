@@ -284,7 +284,7 @@ class WardrobeOpenRouterTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(request["stream"])
         self.assertEqual(request["max_tokens"], 8192)
         self.assertEqual(request["messages"][1]["content"], [{"type": "text", "text": json.dumps(
-            supplied, ensure_ascii=False, sort_keys=True, separators=(",", ":"))}])
+            adapter.wardrobe_model_input(supplied), ensure_ascii=False, sort_keys=True, separators=(",", ":"))}])
         self.assertEqual(request["response_format"]["json_schema"]["schema"], config.result_schema)
         self.assertEqual(config.base_request_digest, sha256_digest(config.base_request.encode()))
         self.assertNotIn("test-secret", frozen)
@@ -302,11 +302,11 @@ class WardrobeOpenRouterTests(unittest.IsolatedAsyncioTestCase):
             config = adapter.read_wardrobe_config(frozen)
             result = await adapter.complete_wardrobe(frozen)
         content = json.loads(config.base_request)["messages"][1]["content"]
-        self.assertEqual(json.loads(content[0]["text"]), supplied)
+        self.assertEqual(json.loads(content[0]["text"]), adapter.wardrobe_model_input(supplied))
         self.assertEqual(len(content), 1 + 2 * len(bodies))
         for index, image in enumerate(supplied["image_evidence"]):
             label, picture = content[1 + 2 * index:3 + 2 * index]
-            self.assertEqual(label, {"type": "text", "text": encoded(image)})
+            self.assertEqual(label, {"type": "text", "text": encoded({key: image[key] for key in ("alias", "role", "subject_ids")})})
             self.assertEqual(picture, {"type": "image_url", "image_url": {"url":
                 f'data:{image["ref"]["mime_type"]};base64,' + base64.b64encode(bodies[image["alias"]]).decode("ascii")}})
         self.assertEqual((supplied, bodies), before)
@@ -523,7 +523,7 @@ class WardrobeOpenRouterTests(unittest.IsolatedAsyncioTestCase):
         invalid_ref["batch_prompt"][2]["references"][0]["source"] = {"kind": "supplied_image", "alias": private}
         wrong_mode = draft_data()
         wrong_mode["batch_prompt"][2]["workflow"] = "txt2img"
-        v1_draft = {"direction": draft_data()["direction"], "units": [
+        v1_draft = {"direction": {}, "units": [
             {"unit_key": "hero_face", "subject_ids": ["hero"], "role": "portrait",
              "purpose": "Identity", "framing": "Close-up", "drawable_content": "Traveler",
              "image_prompt": "Watercolor traveler in a red coat.", "preserve": [], "ignore": [], "references": []}]}
@@ -715,9 +715,9 @@ class WardrobeOpenRouterTests(unittest.IsolatedAsyncioTestCase):
         for image in supplied["image_evidence"]:
             image["ref"].update(width=2100, height=1800, byte_length=len(raw), digest=sha256_digest(raw))
             bodies[image["alias"]] = raw
-        expected: list[dict] = [{"type": "text", "text": encoded(supplied)}]
+        expected: list[dict] = [{"type": "text", "text": encoded(adapter.wardrobe_model_input(supplied))}]
         for image in supplied["image_evidence"]:
-            expected.extend([{"type": "text", "text": encoded(image)},
+            expected.extend([{"type": "text", "text": encoded({key: image[key] for key in ("alias", "role", "subject_ids")})},
                 {"type": "image_url", "image_url": {"url": "data:image/png;base64," + base64.b64encode(raw).decode()}}])
         with self.transport(), patch.object(adapter, "_image_bytes", side_effect=AssertionError("Over-budget images decoded")), \
                 patch.object(adapter.base64, "b64encode", side_effect=AssertionError("Over-budget base64 allocated")), \

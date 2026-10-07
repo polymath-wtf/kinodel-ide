@@ -27,7 +27,7 @@ export function ExecutionDetails({ projection, stage, close, opener, read, graph
     {!request && !wardrobeRequest && <nav className="details-tabs" aria-label="Раздел деталей">{(['Inputs', 'Outputs', 'Config'] as const).map(t => <button key={t} aria-pressed={tab === t} onClick={() => setTab(t)}>{{ Inputs: 'Ввод', Outputs: 'Результат', Config: 'Настройки' }[t]}</button>)}</nav>}
     {(stage?.id === 'wardrobe' || wardrobeRequest) && projection && <WardrobeStatus projection={projection} compactDiagnostic={false} />}
     {(stage?.id === 'wardrobe' || wardrobeRequest) && (projection?.graph.id === 'kinodel.story-wardrobe' || wardrobeRequest) ? <><WardrobeInspection projection={projection} tab={tab} boundary={stage?.id === 'wardrobe:end' ? 'end' : undefined} read={read} />
-      {wardrobeRequest && <details><summary>Контракт границы запроса</summary><p>{stage.config}</p><p className="technical">{stage.id} · {stage.source} · не execution trace</p></details>}</> : request ? requestContent : stage ? <div className="inspection-content">
+      {wardrobeRequest && !['wardrobe:start', 'wardrobe:output'].includes(stage.id) && <details><summary>Контракт границы запроса</summary><p>{stage.config}</p><p className="technical">{stage.id} · {stage.source} · не execution trace</p></details>}</> : request ? requestContent : stage ? <div className="inspection-content">
       <p className="muted">Объявленный контракт · только чтение</p>
       {tab === 'Config' ? <>
         <p>{stage.config}</p>

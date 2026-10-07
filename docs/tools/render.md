@@ -12,7 +12,7 @@ Render implements [generation_submit, generation_status, generation_cancel and s
 
 | Creative owner / saved plan | Tool node | Selected media binding |
 |---|---|---|
-| Wardrobe / exact saved validated `VisualAnchorPlanV2` `batch_prompt` only | `anchor-batch` (`batch-generation`) | `anchor_frames` |
+| Wardrobe / exact saved validated compact `VisualAnchorPlanV2` `batch_prompt` only | `anchor-batch` (`batch-generation`) | `anchor_frames` |
 | Storyboard / next versioned `FramePlan` | `frames-batch` (`batch-generation`) | `story_frames` |
 | Filmmaker / i2v `MotionPlanV1`; next mode-discriminated version for `img2vid/ref2vid` | `video-gen` | `shot_videos` |
 
@@ -20,7 +20,7 @@ The [Batch-generation preproduction contract](batch-generation.md) defines the r
 capability, ordered `batch_prompt`, explicit use cases/modes/reference dependencies and N separate
 durable jobs. These instance names activate only in a new versioned media route; original V1
 inspection uses `anchor-gen`/`frames-gen`. Domain plans remain canonical, with a typed technical
-handoff rather than another universal creative artifact. Wardrobe activation is V2-only after
+handoff rather than another universal creative artifact. Wardrobe activation is compact V2-only after
 [W8](../roadmap-mvp.md#wardrobe-batch-output), without a creative V1 consumption bridge or another
 Wardrobe call at initial render/technical Retry. `batch_outputs` references the candidate
 manifest; approval saves the selected slot above.
@@ -39,7 +39,7 @@ The current anchor example generates one candidate per unit: portrait, then char
 
 - **Technical retry:** same prepared request, seed and exact inputs; retain successful units and reconcile uncertain acceptance before retry. Replay never picks a new seed.
 - **Regenerate:** explicit creator command at anchor review; same prompts, new frozen seed where supported and new generation identity. Regenerate requested units and transitive dependents, then review the complete set.
-- **Creative revise:** feedback goes directly to Wardrobe, Storyboard or Filmmaker for a validated replacement plan. For anchors compare effective inputs, including shared direction; replace changed units and dependents, retaining unrelated candidates only with unchanged inputs and exact source lineage.
+- **Creative revise:** feedback goes directly to Wardrobe, Storyboard or Filmmaker for a validated replacement plan. For anchors compare effective inputs, including full prompts and reference bindings; replace changed units and dependents, retaining unrelated candidates only with unchanged inputs and exact source lineage.
 
 New `hero_face` or a background used by the sheet requires new `hero_sheet`; changing sheet does not replace either parent. An unchanged parent can be retained with exact lineage, not inherited approval. Bounded anchor reuse is required; generic cross-execution reuse and selective frame/video repair are later. See [anchor regeneration](../pipelines/cinematic.md#anchor-regeneration).
 

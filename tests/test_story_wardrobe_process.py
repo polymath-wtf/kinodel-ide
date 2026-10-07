@@ -21,7 +21,7 @@ from backend.domain import StoryTextInputV1, sha256_digest
 from backend.story_control import open_story_runtime
 from tests.test_story_cast import draft
 from tests.test_wardrobe_openrouter import capability, envelope
-from tests.test_story_wardrobe_runtime import five_unit_plan
+from tests.test_wardrobe_compact_v2 import compact_draft
 
 
 async def child(root, mode, action=None):
@@ -43,7 +43,7 @@ async def child(root, mode, action=None):
             await asyncio.Event().wait()
         if mode == "repair":
             return httpx.Response(200, json={"choices": []})
-        result = {"status": "ready", "plan": five_unit_plan(), "explanation": None}
+        result = {"status": "ready", "plan": compact_draft(["comedian"]), "explanation": None}
         return httpx.Response(200, json=envelope(result))
 
     async def setup_response(request):
@@ -215,7 +215,7 @@ class StoryWardrobeProcessTests(ProcessStoryTest):
                 self.assertEqual(posts[0], expected)
         ref = recovered["plan"]["ref"]
         self.assertEqual(ref["schema_version"], "2")
-        self.assertEqual(len(recovered["plan"]["body"]["batch_prompt"]), 5)
+        self.assertEqual(len(recovered["plan"]["body"]["batch_prompt"]), 3)
         self.assertEqual(recovered["plan"]["body"]["narrative_ref"], before["current_ref"])
         self.assertEqual(recovered["plan_binding"], [ref["artifact_id"], 1])
         self.assertEqual(recovered["outcome"], ["completed", ref["operation_id"], ref["artifact_id"]])

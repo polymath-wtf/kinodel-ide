@@ -26,8 +26,9 @@ from backend.story_reads import story_projection
 from backend.story_store import _destination
 from tests.test_characters import image_input
 from tests.test_story_cast import draft
+from tests.test_wardrobe import draft_data
 from tests.test_wardrobe_openrouter import capability, envelope
-from tests.test_story_wardrobe_runtime import five_unit_plan, seed_retired, retained_inventory
+from tests.test_story_wardrobe_runtime import compact_plan, seed_retired, retained_inventory
 
 
 class WardrobeFixtures:
@@ -53,10 +54,11 @@ class WardrobeFixtures:
                 return httpx.Response(200, json=envelope({"status": "ready", "story": draft(), "explanation": None}))
             if callable(wardrobe_output):
                 return wardrobe_output(request)
-            result = wardrobe_output or {"status": "ready", "plan": five_unit_plan(), "explanation": None}
-            if result.get("plan"):
-                for unit in result["plan"]["batch_prompt"]:
-                    unit["subject_ids"] = ["comedian"] if unit["use_case"] != "location" else []
+            if wardrobe_output is None:
+                targets = json.loads(payload["messages"][1]["content"][0]["text"])["target_subjects"]
+                result = {"status": "ready", "plan": draft_data(targets[0]["subject_id"]), "explanation": None}
+            else:
+                result = wardrobe_output
             return httpx.Response(200, json=envelope(result))
         return patch("backend.openrouter_client.httpx.AsyncClient",
                      partial(httpx.AsyncClient, transport=httpx.MockTransport(respond)))
@@ -252,7 +254,7 @@ class WardrobeCommandTests(WardrobeFixtures, unittest.IsolatedAsyncioTestCase):
                             await asyncio.Event().wait()
                         except asyncio.CancelledError:
                             # A provider response can arrive despite task cancellation; never bind it.
-                            result = {"status": "ready", "plan": five_unit_plan(), "explanation": None}
+                            result = {"status": "ready", "plan": compact_plan(), "explanation": None}
                             return httpx.Response(200, json=envelope(result))
                         finally:
                             stopped.set()
@@ -367,7 +369,7 @@ class WardrobeAPITests(WardrobeFixtures, unittest.TestCase):
             self.assertEqual(plan.status_code, 200, plan.text)
             saved = plan.json()
             self.assertEqual((saved["ref"]["schema_version"], saved["plan"]["schema_version"]), ("2", "2"))
-            self.assertEqual(len(saved["plan"]["batch_prompt"]), 5)
+            self.assertEqual(len(saved["plan"]["batch_prompt"]), 3)
             self.assertEqual(saved["ref"], ref)
             self.assertEqual(saved["plan"]["narrative_ref"], final["stories"][0]["ref"])
             self.assertEqual(client.get(f"/api/executions/{execution}").status_code, 200)
@@ -377,15 +379,18 @@ class WardrobeAPITests(WardrobeFixtures, unittest.TestCase):
             self.assertIn(execution, [item["execution_id"] for item in client.get("/api/executions").json()["items"]])
             for private in ("owner_config", "repair_request", "image_url", "data_base64", "test-secret"):
                 self.assertNotIn(private, json.dumps(final) + plan.text)
+            authority = client.get(f"/api/executions/{execution}/wardrobe-activity").json()["input"]
         wardrobe_request = next(json.loads(r.content) for r in self.requests if r.method == "POST" and b'wardrobe_result' in r.content)
         supplied = json.loads(wardrobe_request["messages"][1]["content"][0]["text"])
-        self.assertEqual(supplied["selected_characters"], [selected.model_dump(mode="json")])
-        self.assertEqual(supplied["narrative_ref"], saved["plan"]["narrative_ref"])
-        self.assertEqual(supplied["story"]["generated_characters"], draft()["generated_characters"])
-        self.assertEqual(supplied["text_context"][0]["source_ref"]["digest"], selected.digest)
-        self.assertIn("Lea", supplied["text_context"][0]["content"])
-        self.assertEqual(supplied["image_evidence"][0]["subject_ids"], [selected.subject_id])
-        self.assertEqual(supplied["image_evidence"][0]["ref"]["digest"], stored_image.digest)
+        self.assertEqual(supplied["target_subjects"], authority["narrative_input"]["subjects"])
+        self.assertEqual(supplied["text_context"], [])  # Character canon is already in the target description.
+        self.assertEqual(authority["selected_characters"], [selected.model_dump(mode="json")])
+        self.assertEqual(authority["narrative_ref"], saved["plan"]["narrative_ref"])
+        self.assertEqual(authority["story"]["generated_characters"], draft()["generated_characters"])
+        self.assertEqual(authority["text_context"][0]["source_ref"]["digest"], selected.digest)
+        self.assertIn("Lea", authority["text_context"][0]["content"])
+        self.assertEqual(authority["image_evidence"][0]["subject_ids"], [selected.subject_id])
+        self.assertEqual(authority["image_evidence"][0]["ref"]["digest"], stored_image.digest)
         self.assertIn("data:image/png;base64," + base64.b64encode(original).decode(), json.dumps(wardrobe_request))
         self.library.rename(self.library.with_name("parked"))
         with patch.dict(os.environ, {"OPENROUTER_API_KEY": "", "LLM_MODEL": ""}), \

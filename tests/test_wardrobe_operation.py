@@ -32,7 +32,7 @@ from backend.review_store import (_digest, accept_story_decision, bind_story_wai
 from backend.story_start import _payload_digest
 from backend.story_store import commit_story_operation, prepare_story_operation, read_story
 from tests.test_characters import image_input
-from tests.test_wardrobe import full_batch_draft
+from tests.test_wardrobe import draft_data
 from tests.test_wardrobe_openrouter import MODEL, capability, envelope, supplied_input, large_png
 
 
@@ -70,15 +70,9 @@ class WardrobeOperationTests(unittest.IsolatedAsyncioTestCase):
             if output is not None:
                 return httpx.Response(200, json=output)
             task = json.loads(json.loads(request.content)["messages"][1]["content"][0]["text"])
-            subject = task["narrative_input"]["subjects"][0]["subject_id"]
+            subject = task["target_subjects"][0]["subject_id"]
             return httpx.Response(200, json=envelope({"status": "ready", "explanation": None,
-                "plan": {"direction": {"appearance": "Warm silhouette", "wardrobe": "Blue coat",
-                    "environment": "Rainy street", "lighting": "Soft daylight", "palette": ["blue"],
-                    "must_preserve": [], "prohibited_drift": []},
-                    "batch_prompt": [{"unit_key": "hero portrait", "subject_ids": [subject], "use_case": "hero-face", "workflow": "txt2img",
-                        "purpose": "Identity", "framing": "Close-up", "drawable_content": "Person in blue coat",
-                        "image_prompt": "A person in a blue coat under soft daylight.",
-                        "preserve": [], "ignore": [], "references": []}]}}))
+                "plan": draft_data(subject)}))
         return patch("backend.openrouter_client.httpx.AsyncClient",
                      partial(httpx.AsyncClient, transport=httpx.MockTransport(respond)))
 
@@ -235,11 +229,9 @@ class WardrobeOperationTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(db.execute("SELECT owner_attempts FROM wardrobe_operations").fetchone(), (1,))
             self.assertEqual(db.execute("SELECT COUNT(*) FROM execution_bindings WHERE slot='wardrobe_plan'").fetchone(), (0,))
 
-    async def test_five_unit_v2_publication_reopens_exact_batch_bytes_and_transition_offline(self):
+    async def test_compact_v2_publication_reopens_exact_batch_bytes_and_transition_offline(self):
         operation, store = self.modules()
-        draft = full_batch_draft()
-        for unit in draft["batch_prompt"]:
-            unit["subject_ids"] = [{"ada": "hero", "leo": "robot"}[subject] for subject in unit["subject_ids"]]
+        draft = draft_data("robot")
         with database.open_database(self.root) as db:
             review, story_ref, _ = self.fixture(db)
             with self.transport(envelope({"status": "ready", "plan": draft, "explanation": None})):
@@ -329,7 +321,7 @@ class WardrobeOperationTests(unittest.IsolatedAsyncioTestCase):
             saved_ref, saved_plan = store.read_wardrobe_plan(db, self.execution)
             self.assertEqual(saved_ref, result)
             self.assertEqual(saved_plan.narrative_ref, story_ref)
-            self.assertEqual([unit.unit_key for unit in saved_plan.batch_prompt], ["hero portrait"])
+            self.assertEqual([unit.unit_key for unit in saved_plan.batch_prompt], ["hero_face", "location", "hero_sheet"])
             self.assertEqual(db.execute("SELECT slot,binding_revision FROM execution_bindings ORDER BY slot").fetchall(),
                              [("story", 1), ("wardrobe_plan", 1)])
             config = adapter.read_wardrobe_config(db.execute("SELECT owner_config FROM wardrobe_operations").fetchone()[0])
@@ -715,7 +707,8 @@ class WardrobeOperationTests(unittest.IsolatedAsyncioTestCase):
         def oversized_then_valid(_):
             nonlocal count
             count += 1
-            return httpx.Response(200, content=b"x" * (1024 * 1024 + 1)) if count == 1 else httpx.Response(200, json=envelope())
+            return httpx.Response(200, content=b"x" * (1024 * 1024 + 1)) if count == 1 else httpx.Response(200, json=envelope(
+                {"status": "ready", "plan": draft_data("robot"), "explanation": None}))
         with database.open_database(self.root) as db:
             review, _, _ = self.fixture(db)
             with self.transport(oversized_then_valid):

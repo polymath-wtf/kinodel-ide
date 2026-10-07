@@ -8,25 +8,42 @@ const digest = `sha256:${'a'.repeat(64)}`;
 const storyRef = { artifact_id: id, project_id: id, execution_id: id, operation_id: digest, schema_id: 'story', schema_version: '2',
   produced_by_stage: 'storytell', digest, uri: `kinodel://projects/${id}/artifacts/${id}`, media_type: 'application/json' };
 const ref = { ...storyRef, artifact_id: other, schema_id: 'visual_anchor_plan', schema_version: '2', produced_by_stage: 'wardrobe', uri: `kinodel://projects/${id}/artifacts/${other}` };
-const unit = { unit_key: 'face', subject_ids: ['fox'], use_case: 'hero-face', workflow: 'txt2img', purpose: 'Identity', framing: 'Close', drawable_content: 'Fox',
-  image_prompt: '  Full prompt.\nNo truncation. 🦊  ', preserve: [], ignore: [], references: [] };
+const unit = { unit_key: 'face', subject_ids: ['fox'], use_case: 'hero-face', workflow: 'txt2img',
+  image_prompt: '  Full prompt.\nNo truncation. 🦊  ', references: [] };
 const plan = { schema_id: 'visual_anchor_plan', schema_version: '2', narrative_ref: storyRef,
-  direction: { appearance: 'Fox', wardrobe: 'Coat', environment: 'City', lighting: 'Dusk', palette: [], must_preserve: [], prohibited_drift: [] },
   batch_prompt: [unit, { ...unit, unit_key: 'city', use_case: 'location', subject_ids: [] }, { ...unit, unit_key: 'sheet', use_case: 'hero-sheet', workflow: 'img2img', references: [
-    { source: { kind: 'batch_unit', unit_key: 'face' }, role: 'portrait', take: ['Identity'], ignore: [] },
-    { source: { kind: 'batch_unit', unit_key: 'city' }, role: 'background', take: ['City'], ignore: [] },
+    { source: { kind: 'batch_unit', unit_key: 'face' }, role: 'portrait' },
+    { source: { kind: 'batch_unit', unit_key: 'city' }, role: 'background' },
   ] }] };
 assert.deepEqual(wire.validateWardrobeBody({ ref, plan }, ref, storyRef), { ref, plan });
+assert.throws(() => wire.wardrobePlanSchema.parse({ ...plan,
+  direction: { appearance: 'Fox', wardrobe: 'Coat', environment: 'City', lighting: 'Dusk', palette: [], must_preserve: [], prohibited_drift: [] },
+  batch_prompt: plan.batch_prompt.map(u => ({ ...u, purpose: 'Identity', framing: 'Close', drawable_content: 'Fox', preserve: [], ignore: [],
+    references: u.references.map(r => ({ ...r, take: ['Identity'], ignore: [] })) })),
+}), 'rich V2 is unsupported, not converted');
+for (const field of ['direction', 'purpose', 'framing', 'drawable_content', 'preserve', 'ignore']) {
+  const invalid = field === 'direction' ? { ...plan, direction: {} }
+    : { ...plan, batch_prompt: [{ ...unit, [field]: field === 'preserve' || field === 'ignore' ? [] : 'Removed' }, ...plan.batch_prompt.slice(1)] };
+  assert.throws(() => wire.wardrobePlanSchema.parse(invalid), `removed ${field} rejected`);
+}
+for (const field of ['take', 'ignore']) assert.throws(() => wire.wardrobePlanSchema.parse({ ...plan,
+  batch_prompt: [unit, plan.batch_prompt[1], { ...plan.batch_prompt[2], references: plan.batch_prompt[2].references.map(r => ({ ...r, [field]: [] })) }],
+}), `removed reference ${field} rejected`);
+assert.throws(() => wire.wardrobePlanSchema.parse({ ...plan, batch_prompt: [{ ...unit, subject_ids: ['fox', 'owl'] }] }), 'one target per face/sheet');
 for (const change of [{ ref: { ...ref, operation_id: `sha256:${'b'.repeat(64)}` } }, { plan: { ...plan, narrative_ref: { ...storyRef, digest: `sha256:${'b'.repeat(64)}` } } }])
   assert.throws(() => wire.validateWardrobeBody({ ref, plan, ...change }, ref, storyRef));
-for (const batch_prompt of [[unit, unit], [{ ...unit, image_prompt: ' ' }], [{ ...plan.batch_prompt[2], references: [...plan.batch_prompt[2].references].reverse() }],
+for (const batch_prompt of [[unit, unit], [{ ...unit, image_prompt: ' ' }], [plan.batch_prompt[2], ...plan.batch_prompt.slice(0, 2)],
+  [{ ...plan.batch_prompt[2], references: [...plan.batch_prompt[2].references].reverse() }],
   [unit, plan.batch_prompt[1], { ...plan.batch_prompt[2], references: [{ ...plan.batch_prompt[2].references[0], source: { kind: 'batch_unit', unit_key: 'latest' } }, plan.batch_prompt[2].references[1]] }],
+  [unit, plan.batch_prompt[1], { ...plan.batch_prompt[2], references: [{ ...plan.batch_prompt[2].references[0], source: { kind: 'batch_unit', unit_key: 'sheet' } }, plan.batch_prompt[2].references[1]] }],
   [{ ...unit, workflow: 'img2img' }], [{ ...unit, workflow: 'portrait.json' }], [{ ...unit, use_case: 'portrait' }], [{ ...unit, role: 'portrait' }],
   [unit, plan.batch_prompt[1], { ...plan.batch_prompt[2], workflow: 'txt2img' }],
   [unit, plan.batch_prompt[1], { ...plan.batch_prompt[2], subject_ids: ['owl'] }],
   [unit, plan.batch_prompt[1], { ...plan.batch_prompt[2], references: plan.batch_prompt[2].references.map(r => ({ ...r, source: { ...r.source, kind: 'anchor_unit' } })) }]])
   assert.throws(() => wire.validateWardrobeBody({ ref, plan: { ...plan, batch_prompt } }, ref, storyRef));
 assert.throws(() => wire.wardrobeBodySchema.parse({ ref: { ...ref, schema_version: '1' }, plan: { ...plan, schema_version: '1' } }), 'no V1 dual reader');
+assert.throws(() => wire.wardrobeBodySchema.parse({ ref: { ...ref, schema_version: 'unsupported' }, plan }), 'only current plan reference version accepted');
+assert.throws(() => wire.wardrobePlanSchema.parse({ ...plan, schema_version: 'unsupported' }), 'only current plan version accepted');
 assert.throws(() => wire.wardrobePlanSchema.parse({ ...plan, units: plan.batch_prompt }), 'old units field rejected');
 assert.equal(wire.validateWardrobeBody({ ref, plan: { ...plan, batch_prompt: Array.from({ length: 17 }, (_, i) => ({ ...unit, unit_key: `face-${i}` })) } }, ref, storyRef).plan.batch_prompt.length, 17);
 const five = [unit, { ...unit, unit_key: 'owl-face', subject_ids: ['owl'] }, plan.batch_prompt[1], plan.batch_prompt[2],
@@ -44,6 +61,7 @@ wire.projectionSchema.parse({ ...projection, status: 'completed', wardrobe_plan_
 assert.throws(() => wire.projectionSchema.parse({ ...projection, status: 'completed', outcome: { outcome: 'completed', source_id: digest, subject_artifact_id: id } }));
 assert.throws(() => wire.projectionSchema.parse({ ...projection, graph: { ...projection.graph, id: 'kinodel.live-story' } }));
 assert.throws(() => wire.projectionSchema.parse({ ...projection, graph: { ...projection.graph, version: '1' } }), 'retired Wardrobe projection rejected locally');
+assert.throws(() => wire.projectionSchema.parse({ ...projection, graph: { ...projection.graph, version: 'unsupported' } }), 'only current Wardrobe graph accepted');
 const { storyNodeState } = load('src/widgets/pipeline/contracts.ts');
 assert.deepEqual(storyNodeState('wardrobe'), { state: 'idle', status: 'После approval Story' }, 'available unrun agent is not an unconnected stage');
 assert.deepEqual(storyNodeState('wardrobe', { ...projection, reviews: [] }), { state: 'idle', status: 'После approval Story' });
@@ -62,7 +80,8 @@ const prepared = { operation_id: digest, approval_request_id: digest, input_dige
 const diagnostic = { basis: 'frozen_input_size', stage: 'input', code: 'evidence_size_limit', serialized_evidence_bytes: 17000000, limit_bytes: 16 * 1024 * 1024 };
 const failure = { operation_id: null, approval_request_id: digest, input_digest: digest, validation_diagnostic: diagnostic };
 for (const data of [null, prepared, failure]) assert.deepEqual(wire.wardrobeActivitySchema.parse(data), data, 'strict prepared/failure/null activity');
-for (const change of [{ config: { ...prepared.config, adapter_version: '1' } }, { input: { ...prepared.input, schema_version: '1' } },
+for (const change of [{ config: { ...prepared.config, adapter_version: '1' } }, { config: { ...prepared.config, adapter_version: 'unsupported' } },
+  { input: { ...prepared.input, schema_version: '1' } },
   { input: { ...prepared.input, capability_set: 'anchor-basics.v1' } }]) assert.throws(() => wire.wardrobeActivitySchema.parse({ ...prepared, ...change }), 'inactive config/input rejected');
 const rejected = { attempt: 1, code: 'invalid_result' };
 const provider = { attempt: 2, stage: 'transport', status_code: null, exception_type: 'ReadTimeout', previous_validation: null };

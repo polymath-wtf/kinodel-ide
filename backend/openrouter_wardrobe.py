@@ -19,7 +19,7 @@ from backend.domain import (DomainModel, MAX_JSON_BYTES, Narrative, OwnerRespons
                             _reject_float, _unique_object, canonical_json, parse_json_model, sha256_digest)
 from backend.openrouter_client import OpenRouterModelMetadataV1 as WardrobeModelMetadataV1, credential as _credential, encode
 from backend.wardrobe import (ExactDigest, VisualAnchorPlanV2, WardrobeImageEvidenceV1,
-                              WardrobeInputV2, WardrobeResultV2, resolve_wardrobe_draft)
+                              WardrobeInputV2, WardrobeResultV2, resolve_wardrobe_draft, wardrobe_target_subjects)
 
 
 PROMPT = Path(__file__).resolve().parent.parent / ".agents" / "wardrobe" / "system.md"
@@ -27,11 +27,12 @@ _IMAGE_FORMATS = {"image/png": "PNG", "image/jpeg": "JPEG", "image/webp": "WEBP"
 MAX_WARDROBE_REQUEST_BYTES = 16 * 1024 * 1024
 MAX_WARDROBE_CONFIG_BYTES = 20 * 1024 * 1024
 REPAIR_INSTRUCTION = (
-    "The previous response was invalid. Return complete JSON matching the supplied schema. "
-    "Use only the frozen declared/generated subjects. A ready plan must contain complete direction and unique ordered "
-    "batch_prompt units. hero-face/location use txt2img with no render references; hero-sheet uses img2img with "
-    "exactly two earlier batch_unit references in portrait/background order with matching subjects/roles. "
-    "workflow is a semantic mode, never a provider filename. Evidence is not a render binding. "
+    "The previous response was invalid. Return complete JSON matching the supplied compact schema. "
+    "A ready plan contains only batch_prompt: exactly one hero-face and hero-sheet per target_subjects entry "
+    "and exactly one shared character-free location. Face/sheet units each name one target subject, no extra targets. "
+    "Put all creative detail in image_prompt. hero-face/location use txt2img with no render references; "
+    "hero-sheet uses img2img with exactly two earlier batch_unit references in portrait/background order, "
+    "matching subjects/roles. References contain source and role only. workflow is a semantic mode, never a filename. "
     "For needs_input/out_of_scope return plan=null and a nonempty explanation; do not invent missing canon."
 )
 
@@ -72,11 +73,32 @@ class WardrobeInputSizeLimit(ValueError):
                          f"limit is {diagnostic.limit_bytes} bytes")
 
 
+def wardrobe_model_input(supplied: WardrobeInputV2 | dict) -> dict:
+    """Deterministic creative projection; the original input remains the config authority."""
+    prepared = WardrobeInputV2.model_validate(supplied)
+    canonical_json(prepared)  # Authority metadata retains the existing one-MiB bound.
+    targets = wardrobe_target_subjects(prepared)
+    descriptions = {subject.description for subject in targets}
+    story = prepared.story.model_dump(mode="json")
+    return {
+        "story": {key: story[key] for key in ("hook", "story", "shots")},
+        "user_vibe": prepared.narrative_input.user_vibe,
+        "target_subjects": [subject.model_dump(mode="json") for subject in targets],
+        "text_context": [{"alias": item.alias, "role": item.role, "content": item.content}
+                         for item in prepared.text_context
+                         if not (item.role == "canon" and item.content in descriptions)],
+    }
+
+
+def _image_label(image: WardrobeImageEvidenceV1) -> str:
+    return encode({"alias": image.alias, "role": image.role, "subject_ids": image.subject_ids})
+
+
 def wardrobe_input_size_diagnostic(supplied: WardrobeInputV2) -> WardrobeInputSizeDiagnostic | None:
     """Exact content JSON size from frozen pins, without reading images or encoding base64."""
-    size = len(encode([{"type": "text", "text": canonical_json(supplied).decode("utf-8")}]).encode("utf-8"))
+    size = len(encode([{"type": "text", "text": encode(wardrobe_model_input(supplied))}]).encode("utf-8"))
     for image in supplied.image_evidence:
-        label = {"type": "text", "text": canonical_json(image).decode("utf-8")}
+        label = {"type": "text", "text": _image_label(image)}
         picture = {"type": "image_url", "image_url": {"url": f"data:{image.ref.mime_type};base64,"}}
         size += len(encode(label).encode("utf-8")) + len(encode(picture).encode("utf-8")) + 4 * ((image.ref.byte_length + 2) // 3) + 2
     return WardrobeInputSizeDiagnostic(serialized_evidence_bytes=size) if size > MAX_WARDROBE_REQUEST_BYTES else None
@@ -113,10 +135,10 @@ def _content(supplied: WardrobeInputV2, images: dict[str, bytes]) -> list[dict]:
         raise WardrobeInputSizeLimit(diagnostic)
     for image in supplied.image_evidence:
         _image_bytes(image, images[image.alias])
-    content: list[dict] = [{"type": "text", "text": canonical_json(supplied).decode("utf-8")}]
+    content: list[dict] = [{"type": "text", "text": encode(wardrobe_model_input(supplied))}]
     for image in supplied.image_evidence:
         body = images[image.alias]
-        label = {"type": "text", "text": canonical_json(image).decode("utf-8")}
+        label = {"type": "text", "text": _image_label(image)}
         prefix = f"data:{image.ref.mime_type};base64,"
         picture = {"type": "image_url", "image_url": {"url": prefix}}
         picture["image_url"]["url"] += base64.b64encode(body).decode("ascii")

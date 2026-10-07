@@ -33,10 +33,10 @@
 `anchor-batch`/`frames-batch`. Внутри каждый раскрывает N отдельных `comfyui-gen` unit/jobs, затем
 attempt и его frozen workflow. Снаружи один batch status/preview и complete-set review. Это проектируемые
 durable job identities под одним group wait; новые execution/approval/subgraph на каждую картинку
-не создаются. Текущие authored scopes сохраняют прежние имена до активации нового projection.
-Замена authored inspection specimen/projection входит в ту же new-route activation; старый specimen
-не совместимый renderer. Wardrobe source — только exact saved validated V2 после [W8](../roadmap-mvp.md#wardrobe-batch-output),
-без V1 bridge/read/replay; old TEST Wardrobe runs/configs после clean activation требуют fresh runs.
+не создаются. Authored TS scopes уже именуют disconnected batch tools; media projection ещё pending.
+Исторический inspection specimen сохранён и не является совместимым renderer. Wardrobe media source —
+только exact saved validated compact V2 после [W8](../roadmap-mvp.md#wardrobe-batch-output),
+без V1 bridge/read/replay или rich-shape compatibility/conversion.
 [Batch-generation](../tools/batch-generation.md) определяет порядок и image-dependency ports.
 
 ## Типы

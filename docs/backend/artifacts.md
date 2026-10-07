@@ -243,10 +243,12 @@ Implement and verify schemas in activation order. The wider catalog is design co
 - `initial_request.v1`;
 - `brief.v1`;
 - `story.v1`;
-- historical `VisualAnchorPlanV1` remains W1–W7 evidence; active Wardrobe stores validated `VisualAnchorPlanV2`.
+- historical `VisualAnchorPlanV1` remains W1–W7 evidence; active Wardrobe stores compact `VisualAnchorPlanV2`.
   [W8](../roadmap-mvp.md#wardrobe-batch-output) schema/config/start/graph/storage/readers are implemented,
-  with retained old rows/files isolated and unsupported, no V1 consumption bridge/dual reader/replay or reset.
-  DB v14 permits old artifact v1/new v2 without converting them; final W8 acceptance remains pending.
+  with retained V1 rows/files isolated and unsupported, no V1 consumption bridge/dual reader/replay or reset.
+  Compact V2 is a patch in place, not a new artifact version; removed rich fields reject without conversion.
+  DB stays v14 with existing artifact v1/v2 retention; no new migration or rewrite of old rows/files.
+  Final W8 full-discovery/live V2 acceptance remains pending.
   Future batch FramePlan, candidate-set records and `RenderResultV1` belong to the pending media slice.
   Stable keys, `SelectedMedia` and selected slots are unchanged;
 - mode-discriminated MotionPlan under the next `img2vid/ref2vid` contract, `MontagePlanV1` and `MontageResultV1` when video/montage is enabled; original i2v `MotionPlanV1` retains its meaning;

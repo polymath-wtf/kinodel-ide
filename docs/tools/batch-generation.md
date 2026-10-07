@@ -1,29 +1,36 @@
 # Batch-generation: препродакшн image-ноды
 
-Статус: **7 октября 2026: Wardrobe V2 DTO/adapter/storage/runtime/API и exact frontend reader реализованы; финальная W8-приёмка pending. Batch/media runtime и media UI ещё не реализованы**.
+Статус: **7 октября 2026: компактный Wardrobe V2 DTO/adapter/storage/runtime/API и exact frontend reader реализованы как patch in place текущего V2; финальная W8-приёмка pending. Исходные graph identity/digest, adapter 2, Start route и DB v14 не меняются. Batch/media runtime и media UI ещё не реализованы**.
 Первый потребитель — Wardrobe, следующий — Storyboard. Общие side-effect/review правила остаются в
 [Render](render.md); backend/LLM-задачи — в [Local MVP](../roadmap-mvp.md#wardrobe-batch-output),
 workflow/job/media/UI-задачи — в [ComfyUI roadmap](../roadmap-comfyui.md#wardrobe-comfyui).
 
 ## 1. Что есть сейчас
 
-**Реализованный Wardrobe V2:** единственный массив заданий — `plan.batch_prompt`:
+**Текущий компактный Wardrobe V2:** единственный creative output — `plan.batch_prompt`:
 
 ```text
-LLM → WardrobeResultV2 {status, plan:{direction, batch_prompt:[...]}, explanation}
-adapter → VisualAnchorPlanV2 {schema_id, schema_version:"2", narrative_ref, direction, batch_prompt:[...]}
+LLM → WardrobeResultV2 {status, plan:{batch_prompt:[...]}, explanation}
+adapter → VisualAnchorPlanV2 {schema_id, schema_version:"2", narrative_ref, batch_prompt:[...]}
 store → exact wardrobe_plan
 ```
 
-`WardrobeInputV2` использует `anchor-basics.v2`; каждый `AnchorBatchUnitV2` содержит unique `unit_key`,
-`use_case`, semantic `workflow`, полный `image_prompt`, creative constraints и ordered `references`.
-1–256 заданий: hero-face/location — zero-ref txt2img, hero-sheet — img2img с ровно двумя earlier
+Authority input остаётся `WardrobeInputV2` / `anchor-basics.v2`; adapter 2 передаёт модели compact
+creative projection: Story hook/story/shots, user_vibe, target_subjects с descriptions, extra text_context
+без дублирующего canon и image labels alias/role/subject_ids. Persistent refs/digests остаются в config.
+Каждый `AnchorBatchUnitV2` содержит только `unit_key,use_case,workflow,subject_ids,image_prompt,references`;
+refs — только source/role. Все creative constraints находятся в полном `image_prompt`.
+Targets: selected Characters only, иначе generated cast, иначе declared subjects, иначе location-only.
+Ровно face+sheet на каждый target и одна общая location (2N+1, ceiling 256):
+hero-face/location — zero-ref txt2img, hero-sheet — img2img с ровно двумя earlier
 `batch_unit` refs в порядке `[portrait,background]`. Image evidence, показанная LLM, не становится входом рендера.
-Versioned Start `/api/executions/story-wardrobe/v2` создаёт `kinodel.story-wardrobe` v2; старые V1
-runs/configs сохранены, но изолированы и неподдержаны, без reset/conversion. W1–W7 —
+Обычный Start `/api/executions/story-wardrobe/v2` сохраняет исходный `kinodel.story-wardrobe` v2/digest.
+Compact schema заменяет rich shape в текущем V2: удалённые поля строго отклоняются, без compatibility
+reader/conversion. V1 сохранён, но изолирован и неподдержан, без reset/conversion. W1–W7 —
 [историческая приёмка](../roadmap-mvp.md#wardrobe-backend), не active contract.
-ComfyUI умеет pure preparation/replay, но ещё не upload/submit/import. Pipeline/Chat читают V2 план;
-mocked/offline/browser проверки выполнены, full discovery и live V2 provider acceptance остаются pending.
+ComfyUI умеет pure preparation/replay, но ещё не upload/submit/import. Pipeline/Chat читают compact V2 планы
+компактно: полные prompts и короткие refs; читаемый input один раз, technical details свёрнуты.
+Focused mocked/offline/browser проверки выполнены, full discovery и live V2 acceptance pending.
 
 ## 2. Один тип, несколько экземпляров
 
@@ -65,10 +72,11 @@ UI-вложенность не требует динамически компи�
 
 ## 3. Новый creative output: `batch_prompt`
 
-Реализованный Wardrobe schema: `VisualAnchorDraftV2={direction,batch_prompt}`,
-`VisualAnchorPlanV2={schema_id,schema_version:"2",narrative_ref,direction,batch_prompt}`.
+Текущий Wardrobe schema: `VisualAnchorDraftV2={batch_prompt}`,
+`VisualAnchorPlanV2={schema_id,schema_version:"2",narrative_ref,batch_prompt}`.
 Ready/non-ready envelope сохраняет смысл `{status,plan,explanation}`; ref/schema identity добавляет
-adapter, не модель. `batch_prompt` — единственный массив заданий в V2, без дублирующего `units`.
+adapter, не модель. `batch_prompt` — единственный массив заданий, без дублирующего `units`.
+Отдельные rich поля строго отклоняются; их reader/conversion не поддерживается. Старые записи не переписываются.
 
 Общие поля одного задания:
 
@@ -77,15 +85,16 @@ adapter, не модель. `batch_prompt` — единственный масс
 | `unit_key` | Уникальная стабильная identity; например `ada_face`, не имя workflow |
 | `use_case` | Назначение из разрешённого stage vocabulary: `hero-face`, `location`, `hero-sheet`, позднее `storyboard-frame` |
 | `workflow` | Требуемый режим `txt2img` или `img2img`; не provider, JSON filename или ComfyUI node ID |
+| `subject_ids` | Wardrobe: один target у face/sheet, пустой список у location |
 | `image_prompt` | Полный prompt конкретной генерации |
-| `references` | Ordered image bindings: `{source,role,take,ignore}` |
+| `references` | Ordered image bindings: `{source,role}`; take/ignore intent внутри image_prompt |
 
 `unit_key` и `use_case` нужны **оба**: `ada_face` и `leo_face` — разные identity для разных персонажей,
 хотя назначение обоих — `hero-face`. References, selection и selective anchor repair адресуют стабильный
 ключ, не позицию массива; `SelectedMedia={render_result_ref,unit_key}` не меняется.
 
-Wardrobe сохраняет `subject_ids,purpose,framing,drawable_content,preserve,ignore` и shared direction.
-`use_case` заменяет его V1 `role`: stage mapping даёт `hero-face → portrait`, `location → background`,
+Wardrobe V2 не сохраняет отдельные direction/purpose/framing/drawable_content/preserve/ignore/take:
+их смысл включается в `image_prompt`. `use_case` заменяет V1 `role`: stage mapping даёт `hero-face → portrait`, `location → background`,
 `hero-sheet → character_sheet`. `hero-face` обозначает назначение portrait reference, не ограничение
 на главного/единственного героя. Несколько лиц или sheets могут иметь одинаковый `use_case`,
 но разные `unit_key`/subjects. Storyboard сохраняет свои shot/composition/state-before поля в
@@ -111,26 +120,26 @@ Wardrobe first capability остаётся узкой: первые два use c
 hero-sheet — img2img с `[portrait,background]` из batch. Supplied-image conditioning подключается
 по отдельной stage capability; нынешние Character evidence не получают render bindings автоматически.
 
-**Сокращённая проекция batch-полей, не полный creative DTO:**
+**Creative V2 draft для двух targets (schema identity/Story pin добавляет adapter):**
 
 ```json
 {
   "batch_prompt": [
-     {"unit_key":"ada_face","use_case":"hero-face","workflow":"txt2img",
+    {"unit_key":"ada_face","use_case":"hero-face","workflow":"txt2img","subject_ids":["ada"],
       "image_prompt":"Ada identity portrait...","references":[]},
-     {"unit_key":"leo_face","use_case":"hero-face","workflow":"txt2img",
+    {"unit_key":"leo_face","use_case":"hero-face","workflow":"txt2img","subject_ids":["leo"],
       "image_prompt":"Leo identity portrait...","references":[]},
-    {"unit_key":"location","use_case":"location","workflow":"txt2img",
+    {"unit_key":"location","use_case":"location","workflow":"txt2img","subject_ids":[],
      "image_prompt":"Character-free location...","references":[]},
-     {"unit_key":"ada_sheet","use_case":"hero-sheet","workflow":"img2img",
-      "image_prompt":"Full-body Ada in the supplied location...","references":[
-        {"source":{"kind":"batch_unit","unit_key":"ada_face"},"role":"portrait","take":["identity"],"ignore":["portrait framing"]},
-        {"source":{"kind":"batch_unit","unit_key":"location"},"role":"background","take":["environment"],"ignore":[]}
-      ]},
-     {"unit_key":"leo_sheet","use_case":"hero-sheet","workflow":"img2img",
-      "image_prompt":"Full-body Leo in the supplied location...","references":[
-        {"source":{"kind":"batch_unit","unit_key":"leo_face"},"role":"portrait","take":["identity"],"ignore":["portrait framing"]},
-       {"source":{"kind":"batch_unit","unit_key":"location"},"role":"background","take":["environment"],"ignore":[]}
+    {"unit_key":"ada_sheet","use_case":"hero-sheet","workflow":"img2img","subject_ids":["ada"],
+     "image_prompt":"Full-body Ada in the supplied location; borrow portrait identity, not portrait framing...","references":[
+       {"source":{"kind":"batch_unit","unit_key":"ada_face"},"role":"portrait"},
+       {"source":{"kind":"batch_unit","unit_key":"location"},"role":"background"}
+     ]},
+    {"unit_key":"leo_sheet","use_case":"hero-sheet","workflow":"img2img","subject_ids":["leo"],
+     "image_prompt":"Full-body Leo in the supplied location; borrow portrait identity, not portrait framing...","references":[
+       {"source":{"kind":"batch_unit","unit_key":"leo_face"},"role":"portrait"},
+       {"source":{"kind":"batch_unit","unit_key":"location"},"role":"background"}
      ]}
   ]
 }
@@ -140,22 +149,23 @@ hero-sheet — img2img с `[portrait,background]` из batch. Supplied-image con
 замена общей `location` пересоздаёт оба sheets. Неизменные keys и candidate lineage сохраняются.
 
 Модель получает frozen allowed use cases/modes/reference signatures и guidance **до** написания
-prompt. Schema, authored prompt, validators, `WardrobeStartSettingsV2` / `WardrobeOwnerConfigV2`,
-`PreparedWardrobeInputsV2`, storage/readers и новые start/graph identities реализованы согласованно
-в [W8](../roadmap-mvp.md#wardrobe-batch-output). Adapter 2 принимает только V2 configs с 180 s / 8192 / low.
-Mocked/schema/offline recovery и UI проверены; full discovery и реальный model-authored
-`plan.batch_prompt` с offline exact V2 reopen ещё не приняты. W6 live-приёмка доказывает только V1.
+prompt. Compact schema, authored prompt и validators реализованы согласованно
+в [W8](../roadmap-mvp.md#wardrobe-batch-output) с существующими `WardrobeStartSettingsV2` /
+`WardrobeOwnerConfigV2`, `PreparedWardrobeInputsV2`, storage/readers и исходной start/graph identity.
+Adapter 2 использует 180 s / 8192 / low; exact authority input/evidence остаются в frozen storage.
+Focused mocked/schema/offline recovery и UI проверены; full discovery и реальный model-authored
+compact `plan.batch_prompt` с offline exact V2 reopen ещё не приняты. W6 live-приёмка доказывает только V1.
 
-**Новый Wardrobe/batch route — V2-only.** ComfyUI получает только exact сохранённый validated
-`VisualAnchorPlanV2`, без V1 consumption adapter, dual reader, replay или `units → batch_prompt` bridge.
-Прежние **тестовые Wardrobe** runs/configs неподдержаны; нужны свежие runs. Exact старый graph triple
-сохранён, но исключён из runner/list, commands/reads отклоняются. Unversioned Start возвращает 410
-до payload work; сохранённые browser envelopes не перенаправляются. DB v14 сохраняет old artifact v1
-и new v2 rows/files; это retention, не V1 reader/conversion. Fixture isolation/preflight реализованы;
-пользовательский backend ожидает его собственного restart, его root/counts здесь не проверены.
+**Wardrobe/batch route — compact V2-only.** ComfyUI получает exact сохранённый validated
+`VisualAnchorPlanV2`, без V1 consumption adapter или `units → batch_prompt` bridge.
+Rich shape не получает compatibility reader или conversion. Exact V1 graph triple исключён из
+runner/list, commands/reads отклоняются.
+Unversioned Start возвращает 410 до payload work; сохранённые browser envelopes не перенаправляются.
+DB остаётся v14; patch не добавляет migration/schema version/route. Пользовательский backend ожидает его restart;
+его prior run не мигрирован, не переписан и не регенерирован.
 W1–W7 остаются историческими; reset/deletion нет, Story/Brief/video compatibility не меняется.
 
-Порядок: W8 V2 → ComfyUI V2-only saved-plan handoff → один portrait job → N jobs / полный review.
+Порядок: W8 V2 acceptance → ComfyUI saved V2-plan handoff → один portrait job → N jobs / полный review.
 Read-only preparation разрешена заранее; initial render и technical Retry не вызывают Wardrobe повторно.
 
 ## 4. Порядок, зависимости и workflow binding
@@ -205,7 +215,7 @@ exact source plan pin, stage/activation, image profile/connection pins, mapping 
 ordered задания и frozen supplied-image alias bindings. Поддерживающие plan/approved Story/selection
 сохраняют authority и lineage. После подготовки handoff его identity/digest неизменны.
 `V1` здесь — первая версия **технического** schema с независимой нумерацией, не поддержка creative
-`VisualAnchorPlanV1`; Wardrobe source в новой activation — только V2.
+`VisualAnchorPlanV1`; Wardrobe source в новой media activation — compact V2.
 
 - До provider effects сохраняются batch/group intent, required unit keys и wait identity.
 - Один provider job одновременно; следующий начинается после verified immutable import предыдущего.

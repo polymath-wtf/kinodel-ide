@@ -1,8 +1,8 @@
 # Cinematic Pipeline
 
-Status: **Accepted MVP boundaries; full media route pending. Batch-generation preproduction updates the target image stages on 2026-10-07.** This page owns cinematic node names, handoffs and repair destinations. [JSON](cinematic.v1.json) mirrors the original V1 route (`anchor-gen`/`frames-gen`) for inspection; it is not a graph compiler, runnable configuration or compatible batch renderer. New Wardrobe/batch activation is V2-only; old TEST Wardrobe runs/configs become unsupported after the explicit clean switch, requiring fresh runs. Separate Story/Brief/video contracts are unaffected. [Batch contract](../tools/batch-generation.md).
+Status: **Accepted MVP boundaries; full media route pending. Batch-generation preproduction updates the target image stages on 2026-10-07.** This page owns cinematic node names, handoffs and repair destinations. [JSON](cinematic.v1.json) mirrors the original V1 route (`anchor-gen`/`frames-gen`) for inspection; it is not a graph compiler, runnable configuration or compatible batch renderer. Current Wardrobe saves compact V2 as a patch in place; next batch handoff consumes only saved validated V2. V1 runs/configs remain isolated and unsupported, without conversion/reset. Separate Story/Brief/video contracts are unaffected. [Batch contract](../tools/batch-generation.md).
 
-The JSON is the first machine-readable inspection specimen, not the new route's handoff. Its authored UI specimen/projection replacement belongs to the same new-route activation; no JSON/UI code changes now. Wardrobe V2 schema/prompt/config/start/graph/storage/readers activate together under [W8](../roadmap-mvp.md#wardrobe-batch-output), after the bounded test-data preflight/decision, without a V1 adapter or replay requirement. MVP execution is an authored Python `StateGraph` factory registered by version/digest. Loading arbitrary pipeline JSON into a runtime compiler is a later decision; a saved JSON description does not itself execute a graph.
+The JSON is the original inspection specimen, not the new route's handoff; it remains untouched. Authored TS scopes already name disconnected `anchor-batch`/`frames-batch`. Compact Wardrobe V2 schema/prompt and exact reader are implemented under [W8](../roadmap-mvp.md#wardrobe-batch-output), retaining the original Start route, graph identity/digest, adapter 2 and DB v14; final discovery/live V2 acceptance is pending. MVP execution is an authored Python `StateGraph` factory registered by version/digest. Loading arbitrary pipeline JSON into a runtime compiler is a later decision; a saved JSON description does not itself execute a graph.
 
 ## Route
 
@@ -15,7 +15,7 @@ brief (user input)
 → montage → final
 ```
 
-`HITL` means human-in-the-loop: inspect, approve, or ask the producing agent for changes. Batch-generation and `video-gen` invoke generation tools; they are not LLM agents. `anchor-batch` and `frames-batch` are separate instances of one image capability, with N sequential `comfyui-gen` jobs inside each. The graph waits once per durable batch, not per image or open model call. `final` is the output of `montage`, not another agent. Current UI scopes keep their original names until the new projection is activated.
+`HITL` means human-in-the-loop: inspect, approve, or ask the producing agent for changes. Batch-generation and `video-gen` invoke generation tools; they are not LLM agents. `anchor-batch` and `frames-batch` are separate instances of one image capability, with N sequential `comfyui-gen` jobs inside each. The graph waits once per durable batch, not per image or open model call. `final` is the output of `montage`, not another agent. Current authored batch UI scopes are disconnected, not a media execution projection.
 
 The creator submits the brief and visible production settings before Run. Validation freezes that input; there is no mandatory Producer or Brief approval node. Missing required settings are resolved before starting. The MVP ends with an assembled video from approved shots; no automatic claim of final human approval, extra final gate, Critic or memory publication.
 
@@ -29,8 +29,8 @@ The creator submits the brief and visible production settings before Run. Valida
 | `brief` | User idea, explicit references and visible settings | Submitted immutable `brief` |
 | `storytell` | Submitted brief, selected narrative context | `story`: ordered shot actions |
 | `story-hitl` | Current story | Same story with exact approval |
-| `wardrobe` | Brief, approved story, character/style references | `wardrobe_plan`: visual direction, anchor prompts and dependencies |
-| `anchor-batch` | Exact saved validated Wardrobe V2 `batch_prompt` only, exact dependencies, image profile | `batch_outputs`: complete anchor candidate manifest; saves selected `anchor_frames` when approved |
+| `wardrobe` | Brief, approved story, character/style references | `wardrobe_plan` V2: compact batch tasks/full prompts and source/role dependencies; visual direction inside prompts |
+| `anchor-batch` | Exact saved validated compact Wardrobe V2 `batch_prompt` only, exact dependencies, image profile | `batch_outputs`: complete anchor candidate manifest; saves selected `anchor_frames` when approved |
 | `anchor-hitl` | Complete current anchor set and its plan | Approved `anchor_frames`, then unlocks Storyboard |
 | `storyboard` | Brief, approved story, Wardrobe plan, approved anchor frames | `storyboard_plan`: one start-frame image prompt and reference bindings per shot |
 | `frames-batch` | Storyboard batch plan, exact approved anchors and declared earlier-frame refs, image profile | `batch_outputs`: complete frame candidate manifest; saves selected `story_frames` when approved |

@@ -11,7 +11,7 @@ Translate approved Story shots, visual direction, and approved anchor assets int
 
 ## Input
 
-- exact submitted Brief and validated Wardrobe V2 plan bound to approved `anchor_frames` in the new batch route, including stable anchor keys and reference roles; no V1 Wardrobe consumption bridge, and no separate mandatory plan approval;
+- exact submitted Brief and validated compact Wardrobe V2 plan bound to approved `anchor_frames` in the new batch route, including full image prompts, stable anchor keys and source/role refs; visual direction is inside prompts, not a separate field. No V1 Wardrobe consumption bridge or separate mandatory plan approval;
 - exact approved cinematic `StoryV1` and its ordered shots, including `state_before`, `action` and `state_after`;
 - exact promoted approved assets for the complete required anchor set, with selection/approval provenance; generation completion or plan approval alone is insufficient;
 - hydrated appearance/continuity/reference projections and frozen prompt guidance, with the operation's context-selection reference;

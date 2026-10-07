@@ -9,7 +9,7 @@ from pydantic import AfterValidator, Field, model_validator
 
 from backend.domain import (
     ArtifactRef, ContextSourceRefV1, DomainModel, MAX_LIST_ITEMS, MAX_SUBJECTS,
-    MediaSize, Narrative, SelectedCharacterRefs, Story, StoryTextInputV1, StoryV2,
+    MediaSize, Narrative, SelectedCharacterRefs, Story, StoryTextInputV1, StoryTextSubjectV1, StoryV2,
     Text, UnitKey, _exact_artifact_ref, artifact_digest, canonical_json,
     sha256_digest, validate_story_for_text_input,
 )
@@ -22,7 +22,6 @@ def _nonblank(value: str) -> str:
 
 
 AnchorText = Annotated[Text, AfterValidator(_nonblank)]
-AnchorTexts = Annotated[list[AnchorText], Field(max_length=MAX_LIST_ITEMS)]
 AnchorKey = Annotated[UnitKey, AfterValidator(_nonblank)]
 ExactDigest = Annotated[str, Field(strict=True, pattern=r"^sha256:[0-9a-f]{64}$")]
 AnchorRole = Literal["portrait", "background", "character_sheet"]
@@ -159,14 +158,15 @@ def _input_subjects(supplied: WardrobeInputV2) -> set[str]:
     return subjects
 
 
-class AnchorDirectionV1(DomainModel):
-    appearance: AnchorText
-    wardrobe: AnchorText
-    environment: AnchorText
-    lighting: AnchorText
-    palette: AnchorTexts
-    must_preserve: AnchorTexts
-    prohibited_drift: AnchorTexts
+def wardrobe_target_subjects(supplied: WardrobeInputV2 | dict) -> list[StoryTextSubjectV1]:
+    """Selected only, otherwise generated cast, otherwise frozen declared fallback."""
+    prepared = WardrobeInputV2.model_validate(supplied)
+    if prepared.selected_characters:
+        selected = {ref.subject_id for ref in prepared.selected_characters}
+        return [subject for subject in prepared.narrative_input.subjects if subject.subject_id in selected]
+    if isinstance(prepared.story, StoryV2) and prepared.story.generated_characters:
+        return list(prepared.story.generated_characters)
+    return list(prepared.narrative_input.subjects)
 
 
 class BatchUnitSourceV2(DomainModel):
@@ -177,8 +177,6 @@ class BatchUnitSourceV2(DomainModel):
 class AnchorReferenceV2(DomainModel):
     source: BatchUnitSourceV2
     role: AnchorRole
-    take: AnchorTexts
-    ignore: AnchorTexts
 
 
 class AnchorBatchUnitV2(DomainModel):
@@ -186,17 +184,13 @@ class AnchorBatchUnitV2(DomainModel):
     subject_ids: AnchorSubjects
     use_case: AnchorUseCase
     workflow: AnchorWorkflow
-    purpose: AnchorText
-    framing: AnchorText
-    drawable_content: AnchorText
     image_prompt: AnchorText
-    preserve: AnchorTexts
-    ignore: AnchorTexts
     references: Annotated[list[AnchorReferenceV2], Field(max_length=MAX_LIST_ITEMS)]
 
     @model_validator(mode="after")
     def capability_and_ownership(self):
-        _role_subjects(_use_case_role(self.use_case), self.subject_ids)
+        if len(self.subject_ids) != (0 if self.use_case == "location" else 1):
+            raise ValueError("Wardrobe face/sheet must name exactly one subject; location must name none")
         if self.use_case == "hero-sheet":
             valid = self.workflow == "img2img" and [ref.role for ref in self.references] == ["portrait", "background"]
         else:
@@ -234,9 +228,8 @@ def _reference_ownership(unit: AnchorBatchUnitV2, role: AnchorRole, source: Anch
 
 
 class VisualAnchorDraftV2(DomainModel):
-    """Model-authored creative fields only; no story pin or persistent image identity."""
+    """Compact creative fields; all visual detail belongs in each full image_prompt."""
 
-    direction: AnchorDirectionV1
     batch_prompt: Annotated[list[AnchorBatchUnitV2], Field(min_length=1, max_length=MAX_LIST_ITEMS),
                             AfterValidator(_batch_units)]
 
@@ -245,7 +238,6 @@ class VisualAnchorPlanV2(DomainModel):
     schema_id: Literal["visual_anchor_plan"]
     schema_version: Literal["2"]
     narrative_ref: NarrativeRef
-    direction: AnchorDirectionV1
     batch_prompt: Annotated[list[AnchorBatchUnitV2], Field(min_length=1, max_length=MAX_LIST_ITEMS),
                             AfterValidator(_batch_units)]
 
@@ -265,7 +257,7 @@ class WardrobeResultV2(DomainModel):
 
 def validate_wardrobe_plan(plan: VisualAnchorPlanV2 | dict,
                            supplied: WardrobeInputV2 | dict) -> VisualAnchorPlanV2:
-    """Recheck exact inputs and first role contract; does not certify provider capability/approval."""
+    """Recheck exact Story authority, supported references and complete target coverage."""
     prepared: WardrobeInputV2 = WardrobeInputV2.model_validate(supplied)
     canonical_json(prepared)
     validated: VisualAnchorPlanV2 = VisualAnchorPlanV2.model_validate(plan)
@@ -275,6 +267,13 @@ def validate_wardrobe_plan(plan: VisualAnchorPlanV2 | dict,
     for unit in validated.batch_prompt:
         if not set(unit.subject_ids).issubset(subjects):
             raise ValueError("Wardrobe batch unit has unknown subjects")
+    targets = {subject.subject_id for subject in wardrobe_target_subjects(prepared)}
+    for use_case in ("hero-face", "hero-sheet"):
+        actual = [unit.subject_ids[0] for unit in validated.batch_prompt if unit.use_case == use_case]
+        if len(actual) != len(targets) or set(actual) != targets:
+            raise ValueError("Wardrobe requires exactly one face and sheet per target subject, with no extra targets")
+    if sum(unit.use_case == "location" for unit in validated.batch_prompt) != 1:
+        raise ValueError("Wardrobe requires exactly one shared location")
     canonical_json(validated)
     return validated
 
@@ -285,5 +284,5 @@ def resolve_wardrobe_draft(draft: VisualAnchorDraftV2 | dict,
     prepared: WardrobeInputV2 = WardrobeInputV2.model_validate(supplied)
     validated: VisualAnchorDraftV2 = VisualAnchorDraftV2.model_validate(draft)
     return validate_wardrobe_plan({"schema_id": "visual_anchor_plan", "schema_version": "2",
-                                  "narrative_ref": prepared.narrative_ref, "direction": validated.direction,
+                                  "narrative_ref": prepared.narrative_ref,
                                   "batch_prompt": validated.batch_prompt}, prepared)

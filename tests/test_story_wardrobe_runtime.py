@@ -26,14 +26,11 @@ from backend.story_store import read_story
 from tests.test_story_cast import draft
 from tests.test_story_runner import produce_story
 from tests.test_wardrobe_openrouter import capability, envelope
-from tests.test_wardrobe import full_batch_draft
+from tests.test_wardrobe import draft_data
 
 
-def five_unit_plan():
-    plan = full_batch_draft()
-    for unit in plan["batch_prompt"]:
-        unit["subject_ids"] = ["comedian"] if unit["use_case"] != "location" else []
-    return plan
+def compact_plan():
+    return draft_data("comedian")
 
 
 def seed_retired(db, project, *, status="pending", key=None):
@@ -112,7 +109,7 @@ class StoryWardrobeRuntimeTests(unittest.IsolatedAsyncioTestCase):
             if callable(wardrobe_output):
                 return wardrobe_output(request)
             # A reusable fixture draft, with its subject changed to this execution's generated cast.
-            result = wardrobe_output or {"status": "ready", "plan": five_unit_plan(), "explanation": None}
+            result = wardrobe_output or {"status": "ready", "plan": compact_plan(), "explanation": None}
             if result.get("plan"):
                 for unit in result["plan"]["batch_prompt"]:
                     unit["subject_ids"] = ["comedian"] if unit["use_case"] != "location" else []
@@ -170,7 +167,7 @@ class StoryWardrobeRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 with self.transport(before_wardrobe=check_claim):
                     self.assertEqual(await self.drain(db, saver), 1)
                 ref, plan = wardrobe_store.read_wardrobe_plan(db, self.execution)
-                self.assertEqual((ref.schema_version, plan.schema_version, len(plan.batch_prompt)), ("2", "2", 5))
+                self.assertEqual((ref.schema_version, plan.schema_version, len(plan.batch_prompt)), ("2", "2", 3))
                 self.assertEqual(plan.narrative_ref, read_story(db, self.execution)[0])
                 self.assertEqual(db.execute("SELECT outcome,source_id,subject_artifact_id FROM execution_outcomes").fetchone(),
                                  ("completed", ref.operation_id, ref.artifact_id))

@@ -38,26 +38,23 @@ export function validateBody(value: unknown, expected: ArtifactRef) {
 }
 const anchorText = text.refine(s => !!s.trim(), 'Blank Wardrobe text');
 const anchorKey = unit.refine(s => !!s.trim(), 'Blank unit key');
-const anchorTexts = z.array(anchorText).max(256);
 const anchorSubjects = z.array(anchorKey).max(128).refine(unique);
 const anchorRole = z.enum(['portrait', 'background', 'character_sheet']);
 const anchorUseCase = z.enum(['hero-face', 'location', 'hero-sheet']);
 const useCaseRole = { 'hero-face': 'portrait', location: 'background', 'hero-sheet': 'character_sheet' } as const;
 const anchorReference = z.strictObject({ source: z.strictObject({ kind: z.literal('batch_unit'), unit_key: anchorKey }),
-  role: anchorRole, take: anchorTexts, ignore: anchorTexts });
+  role: anchorRole });
 const anchorUnit = z.strictObject({ unit_key: anchorKey, use_case: anchorUseCase, workflow: z.enum(['txt2img', 'img2img']), subject_ids: anchorSubjects,
-  purpose: anchorText, framing: anchorText, drawable_content: anchorText, image_prompt: anchorText,
-  preserve: anchorTexts, ignore: anchorTexts, references: z.array(anchorReference).max(256) });
+  image_prompt: anchorText, references: z.array(anchorReference).max(256) });
 const narrativeRef = artifactRefSchema.refine(r => r.schema_id === 'story' && ['1', '2'].includes(r.schema_version) && r.produced_by_stage === 'storytell');
 const wardrobeRef = artifactRefSchema.refine(r => r.schema_id === 'visual_anchor_plan' && r.schema_version === '2' && r.produced_by_stage === 'wardrobe');
 export const wardrobePlanSchema = z.strictObject({ schema_id: z.literal('visual_anchor_plan'), schema_version: z.literal('2'), narrative_ref: narrativeRef,
-  direction: z.strictObject({ appearance: anchorText, wardrobe: anchorText, environment: anchorText, lighting: anchorText,
-    palette: anchorTexts, must_preserve: anchorTexts, prohibited_drift: anchorTexts }), batch_prompt: z.array(anchorUnit).min(1).max(256),
+  batch_prompt: z.array(anchorUnit).min(1).max(256),
 }).superRefine((plan, ctx) => {
   const earlier = new Map<string, z.infer<typeof anchorUnit>>();
   for (const u of plan.batch_prompt) {
     const sheet = u.use_case === 'hero-sheet';
-    if (earlier.has(u.unit_key) || (u.use_case === 'location') !== (u.subject_ids.length === 0)
+    if (earlier.has(u.unit_key) || u.subject_ids.length !== (u.use_case === 'location' ? 0 : 1)
       || !unique(u.references.map(r => r.source.unit_key))
       || u.workflow !== (sheet ? 'img2img' : 'txt2img')
       || (sheet ? u.references.map(r => r.role).join(',') !== 'portrait,background' : u.references.length !== 0)
