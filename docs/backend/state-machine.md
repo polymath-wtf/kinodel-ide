@@ -1,6 +1,6 @@
 # Execution State Machine
 
-Status: **Decided design; compact StoryState and local business lifecycles implemented, process-death recovery tested on Windows. Full cinematic ExecutionStateV1 and media/job schemas pending.**
+Status: **Decided design; compact StoryState and local business lifecycles implemented, process-death recovery tested on Windows. [Offline 5A portrait job/initial intent storage](artifacts.md#offline-portrait-job-intent) is implemented in DB16, [offline 5B portrait candidate/original import](artifacts.md#offline-portrait-candidate-import) in DB17, without provider lifecycle/worker or graph activation. Candidate validation covers original bytes and exact local job/pin lineage, not provider acceptance, successful generation or approval. NEXT: 6A first restart-safe portrait; verified parent bytes/rights, reference uploads/final graph remain 6B, image activation/group 7. Full cinematic ExecutionStateV1, media/job lifecycles, public media DTO/API and selection/assets remain pending.**
 
 Deployment decision: SQLite local / PostgreSQL server. Advisory-session mechanisms refer only to server; the [local profile](../database/local-vs-hosted.md) uses one application and one active graph runner with exclusive data-directory ownership. Both must prove the same durable-outcome invariants. Internal Story saver/recovery is verified on Windows under [Local MVP step 2](../roadmap-mvp.md#step-2); full cinematic and server integration remain pending.
 

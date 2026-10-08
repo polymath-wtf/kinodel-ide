@@ -25,7 +25,8 @@ def historical_schema(version):
                             (7, RUNNER_SCHEMA), (8, database.CONTROL_SCHEMA),
                             (9, database.DISCUSSION_SCHEMA), (10, database.LIVE_STORY_SCHEMA),
                             (11, database.STORY_V2_SCHEMA), (12, database.STORY_DIAGNOSTIC_SCHEMA),
-                            (13, database.WARDROBE_SCHEMA)):
+                            (13, database.WARDROBE_SCHEMA), (14, database.WARDROBE_V2_SCHEMA),
+                            (15, database.BATCH_INPUT_SCHEMA), (16, database.RENDER_JOB_SCHEMA)):
         if version >= introduced:
             script += ddl
     return script
@@ -66,12 +67,13 @@ class DatabaseTests(unittest.TestCase):
                 self.assertEqual({row[0] for row in db.execute("SELECT name FROM sqlite_schema WHERE type='table'")},
                                   {"executions", "artifacts", "execution_bindings", "story_operations",
                                     "review_requests", "execution_work", "execution_outcomes", "execution_controls",
-                                    "wardrobe_operations"})
+                                    "wardrobe_operations", "batch_input_pins", "batch_unit_input_pins",
+                                    "render_jobs", "render_submission_attempts", "portrait_candidates"})
             with self.assertRaises(sqlite3.ProgrammingError):
                 db.execute("SELECT 1")
 
     def test_v14_retains_v13_fingerprint_and_only_widens_anchor_versions(self):
-        self.assertEqual(database.SCHEMA_VERSION, 14)
+        self.assertEqual(database.SCHEMA_VERSION, 17)
         self.assertNotEqual(database._expected_schema(13), database._expected_schema(14))
         for version in (13, 14):
             with closing(sqlite3.connect(":memory:")) as db:
@@ -94,9 +96,9 @@ class DatabaseTests(unittest.TestCase):
                             with self.assertRaises(sqlite3.IntegrityError):
                                 db.execute("INSERT INTO artifacts VALUES (?,?,?,?,?,?,?,?)", row)
 
-    def test_versions_one_through_thirteen_upgrade_with_each_correct_stamp(self):
+    def test_versions_one_through_sixteen_upgrade_with_each_correct_stamp(self):
         validate = database._validate
-        for version in range(1, 14):
+        for version in range(1, 17):
             root = self.root.parent / f"schema-{version}"
             root.mkdir()
             with closing(sqlite3.connect(root / DATABASE_NAME)) as old:
@@ -107,10 +109,10 @@ class DatabaseTests(unittest.TestCase):
                 validate(db)
             with self.subTest(version=version), patch.object(database, "_validate", side_effect=checked):
                 with open_database(root) as db:
-                    self.assertEqual(db.execute("PRAGMA user_version").fetchone(), (14,))
-                    self.assertEqual(database._schema(db), database._expected_schema(14))
+                    self.assertEqual(db.execute("PRAGMA user_version").fetchone(), (SCHEMA_VERSION,))
+                    self.assertEqual(database._schema(db), database._expected_schema(SCHEMA_VERSION))
                     self.assertEqual(db.execute("PRAGMA foreign_key_check").fetchall(), [])
-            expected = [version, *range(max(3, version + 1), 15)]
+            expected = [version, *range(max(3, version + 1), SCHEMA_VERSION + 1)]
             self.assertEqual(list(dict.fromkeys(stamps)), expected)
 
     def test_populated_v13_upgrade_preserves_all_rows_rowids_fks_and_old_bytes(self):
@@ -146,7 +148,7 @@ class DatabaseTests(unittest.TestCase):
             frozen = {table: old.execute(f"SELECT rowid,* FROM {table} ORDER BY rowid").fetchall() for table in tables}
         for _ in range(2):
             with open_database(self.root) as db:
-                self.assertEqual(db.execute("PRAGMA user_version").fetchone(), (14,))
+                self.assertEqual(db.execute("PRAGMA user_version").fetchone(), (SCHEMA_VERSION,))
                 self.assertEqual(db.execute("PRAGMA foreign_key_check").fetchall(), [])
                 for table in tables:
                     self.assertEqual(db.execute(f"SELECT rowid,* FROM {table} ORDER BY rowid").fetchall(), frozen[table])
@@ -167,7 +169,223 @@ class DatabaseTests(unittest.TestCase):
             self.assertEqual(database._schema(old), before)
             self.assertEqual(old.execute("SELECT input_message FROM executions").fetchone(), ("vibe",))
         with open_database(self.root) as db:
-            self.assertEqual(db.execute("PRAGMA user_version").fetchone(), (14,))
+            self.assertEqual(db.execute("PRAGMA user_version").fetchone(), (SCHEMA_VERSION,))
+
+    def test_populated_v14_additive_migration_preserves_every_existing_row(self):
+        self.root.mkdir()
+        with closing(sqlite3.connect(self.path, isolation_level=None)) as old:
+            old.executescript(f"PRAGMA application_id={APPLICATION_ID}; {historical_schema(14)} PRAGMA user_version=14;")
+            old.execute("INSERT INTO executions (rowid,execution_id,project_id,input_message,shot_ids) VALUES (17,'e','p','vibe','[]')")
+            old.execute("INSERT INTO artifacts (rowid,artifact_id,execution_id,operation_id,digest,uri,schema_id,schema_version,produced_by_stage) "
+                        "VALUES (42,'anchor','e','op','digest','uri','visual_anchor_plan','2','wardrobe')")
+            old.execute("INSERT INTO execution_bindings VALUES ('e','wardrobe_plan','anchor',1)")
+            old.execute("INSERT INTO execution_outcomes VALUES ('e','completed','op','anchor')")
+            tables = [r[0] for r in old.execute("SELECT name FROM sqlite_schema WHERE type='table'")]
+            rows = {t: old.execute(f"SELECT rowid,* FROM {t}").fetchall() for t in tables}
+            schema = database._schema(old)
+        for _ in range(2):
+            with open_database(self.root) as db:
+                self.assertEqual(db.execute("PRAGMA user_version").fetchone(), (SCHEMA_VERSION,))
+                self.assertEqual([r for r in database._schema(db) if r[1] not in
+                                  ('batch_input_pins', 'batch_unit_input_pins',
+                                   'render_jobs', 'render_submission_attempts', 'portrait_candidates')], schema)
+                self.assertEqual({t: db.execute(f"SELECT rowid,* FROM {t}").fetchall() for t in tables}, rows)
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM batch_input_pins").fetchone(), (0,))
+                self.assertEqual(db.execute("PRAGMA foreign_key_check").fetchall(), [])
+
+    def test_v14_migration_ddl_failure_rolls_back_new_tables_and_stamp(self):
+        self.root.mkdir()
+        with closing(sqlite3.connect(self.path, isolation_level=None)) as old:
+            old.executescript(f"PRAGMA application_id={APPLICATION_ID}; {historical_schema(14)} PRAGMA user_version=14;")
+            old.execute("INSERT INTO executions (execution_id,project_id,input_message,shot_ids) VALUES ('e','p','vibe','[]')")
+            before = database._schema(old)
+        self.assertTrue(hasattr(database, 'BATCH_INPUT_SCHEMA'), 'DB15 pin migration is missing')
+        with patch.object(database, 'BATCH_INPUT_SCHEMA', database.BATCH_INPUT_SCHEMA + 'SELECT * FROM missing_table;'):
+            with self.assertRaises(sqlite3.OperationalError):
+                with open_database(self.root):
+                    self.fail('Partial pin migration accepted')
+        with closing(sqlite3.connect(self.path)) as old:
+            self.assertEqual(old.execute('PRAGMA user_version').fetchone(), (14,))
+            self.assertEqual(database._schema(old), before)
+            self.assertEqual(old.execute('SELECT input_message FROM executions').fetchone(), ('vibe',))
+
+    def test_v14_invalid_schema_or_fk_refused_without_migration(self):
+        for failure in ('schema', 'fk'):
+            self.root = self.root.parent / ('invalid-v14-' + failure)
+            self.root.mkdir()
+            self.path = self.root / DATABASE_NAME
+            with closing(sqlite3.connect(self.path, isolation_level=None)) as old:
+                old.executescript(f"PRAGMA application_id={APPLICATION_ID}; {historical_schema(14)} PRAGMA user_version=14;")
+                if failure == 'schema':
+                    old.execute('CREATE TABLE unexpected (body TEXT)')
+                else:
+                    old.execute("INSERT INTO execution_bindings VALUES ('missing','wardrobe_plan','missing',1)")
+            with self.subTest(failure=failure):
+                self.refuse_unchanged()
+
+    def populated_v15(self):
+        self.root.mkdir()
+        with closing(sqlite3.connect(self.path, isolation_level=None)) as old:
+            old.executescript(f'PRAGMA application_id={APPLICATION_ID}; {historical_schema(15)} PRAGMA user_version=15;')
+            old.execute("INSERT INTO executions (rowid,execution_id,project_id,input_message,shot_ids,owner_config) "
+                        "VALUES (17,'e','p','old text','[]','old-config')")
+            old.execute("INSERT INTO artifacts VALUES ('story','e','story-op','s-digest','s-uri','story','1','storytell')")
+            old.execute("INSERT INTO artifacts (rowid,artifact_id,execution_id,operation_id,digest,uri,schema_id,schema_version,produced_by_stage) "
+                        "VALUES (42,'plan','e','wardrobe-op','p-digest','p-uri','visual_anchor_plan','1','wardrobe')")
+            old.execute("INSERT INTO execution_bindings VALUES ('e','story','story',1)")
+            old.execute("INSERT INTO execution_bindings VALUES ('e','wardrobe_plan','plan',1)")
+            old.execute("INSERT INTO story_operations (operation_id,execution_id,activation_id,input_digest,prepared_inputs,artifact_id,next_activation) "
+                        "VALUES ('story-op','e','start','input','old-body','story','next')")
+            old.execute("INSERT INTO review_requests (request_id,execution_id,trigger_activation,subject_artifact_id,subject_digest,binding_revision,request_revision,request_digest) "
+                        "VALUES ('review','e','next','story','s-digest',1,1,'r-digest')")
+            old.execute("INSERT INTO wardrobe_operations (operation_id,execution_id,activation_id,approval_request_id,input_digest,prepared_inputs,owner_config,repair_request,candidate_kind,candidate_body,candidate_digest,artifact_id,next_activation) "
+                        "VALUES ('wardrobe-op','e','approved','review','w-input','old-pins','old-config','old-request','plan','old-plan','p-digest','plan','done')")
+            old.execute("INSERT INTO execution_work (work_id,execution_id,kind,source_id,payload_digest,status) VALUES ('work','e','resume','review','d-digest','completed')")
+            old.execute("INSERT INTO execution_controls VALUES ('e','command','retry','work',0)")
+            old.execute("INSERT INTO execution_outcomes VALUES ('e','completed','wardrobe-op','plan')")
+            old.execute("INSERT INTO batch_input_pins (rowid,batch_id,execution_id,stage_id,activation_id,source_artifact_id,input_digest,body,uri,publication_state) "
+                        "VALUES (61,'batch','e','anchor-batch','activation','plan','b-digest','exact batch 🦊','b-uri','published')")
+            old.execute("INSERT INTO batch_unit_input_pins (rowid,batch_id,unit_key,input_digest,body,uri,publication_state) "
+                        "VALUES (73,'batch','face','u-digest','exact unit 🦊','u-uri','published')")
+            old.execute("INSERT INTO batch_unit_input_pins VALUES ('batch','reserved','r-digest','reserved unit','r-uri','reserved')")
+            schema = database._schema(old)
+            tables = [r[1] for r in schema if r[0] == 'table']
+            rows = {t: old.execute(f'SELECT rowid,* FROM {t} ORDER BY rowid').fetchall() for t in tables}
+        return schema, rows
+
+    def test_populated_v15_additive_migration_preserves_all_rows_rowids_schema_and_pins(self):
+        schema, rows = self.populated_v15()
+        for _ in range(2):
+            with open_database(self.root) as db:
+                self.assertEqual(db.execute('PRAGMA user_version').fetchone(), (SCHEMA_VERSION,))
+                self.assertEqual([r for r in database._schema(db) if r[1] not in
+                                  ('render_jobs', 'render_submission_attempts', 'portrait_candidates')], schema)
+                self.assertEqual({t: db.execute(f'SELECT rowid,* FROM {t} ORDER BY rowid').fetchall() for t in rows}, rows)
+                self.assertEqual(db.execute('PRAGMA foreign_key_check').fetchall(), [])
+                for table in ('render_jobs', 'render_submission_attempts'):
+                    self.assertEqual(db.execute(f'SELECT COUNT(*) FROM {table}').fetchone(), (0,))
+
+    def test_v15_job_ddl_failure_rolls_back_pair_tables_stamp_and_rows(self):
+        schema, rows = self.populated_v15()
+        self.assertTrue(hasattr(database, 'RENDER_JOB_SCHEMA'), 'DB16 job migration is missing')
+        with patch.object(database, 'RENDER_JOB_SCHEMA', database.RENDER_JOB_SCHEMA + 'SELECT * FROM missing_table;'):
+            with self.assertRaises(sqlite3.OperationalError):
+                with open_database(self.root):
+                    self.fail('Partial render job migration accepted')
+        with closing(sqlite3.connect(self.path)) as old:
+            self.assertEqual(old.execute('PRAGMA user_version').fetchone(), (15,))
+            self.assertEqual(database._schema(old), schema)
+            self.assertEqual({t: old.execute(f'SELECT rowid,* FROM {t} ORDER BY rowid').fetchall() for t in rows}, rows)
+
+    def test_v15_invalid_schema_or_pin_fk_refused_without_migration(self):
+        for failure in ('schema', 'fk'):
+            self.root = self.root.parent / ('invalid-v15-' + failure)
+            self.path = self.root / DATABASE_NAME
+            self.populated_v15()
+            with closing(sqlite3.connect(self.path, isolation_level=None)) as old:
+                if failure == 'schema':
+                    old.execute('CREATE TABLE unexpected (body TEXT)')
+                else:
+                    old.execute("UPDATE batch_unit_input_pins SET batch_id='missing'")
+            with self.subTest(failure=failure):
+                self.refuse_unchanged()
+
+    def test_render_job_tables_enforce_unit_ownership_and_one_initial_attempt(self):
+        self.populated_v15()
+        with open_database(self.root) as db:
+            self.assertEqual(db.execute('PRAGMA user_version').fetchone(), (SCHEMA_VERSION,))
+            for batch_id, key in (('missing', 'face'), ('batch', 'missing')):
+                with self.assertRaises(sqlite3.IntegrityError):
+                    db.execute('INSERT INTO render_jobs VALUES (?,?,?,?)', ('job', batch_id, key, 'u-digest'))
+            db.execute("INSERT INTO render_jobs VALUES ('job','batch','face','u-digest')")
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute("INSERT INTO render_jobs VALUES ('other','batch','face','u-digest')")
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute("INSERT INTO render_submission_attempts VALUES ('attempt','missing','digest','{}')")
+            db.execute("INSERT INTO render_submission_attempts VALUES ('attempt','job','digest','{}')")
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute("INSERT INTO render_submission_attempts VALUES ('second','job','digest','{}')")
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute('UPDATE render_submission_attempts SET intent_body=?', ('x' * (1024 * 1024 + 1),))
+
+    def populated_v16(self):
+        self.populated_v15()
+        with closing(sqlite3.connect(self.path, isolation_level=None)) as old:
+            old.executescript(database.RENDER_JOB_SCHEMA + 'PRAGMA user_version=16;')
+            old.execute("INSERT INTO render_jobs (rowid,job_id,batch_id,unit_key,unit_input_digest) VALUES (83,'job','batch','face','u-digest')")
+            old.execute("INSERT INTO render_submission_attempts (rowid,attempt_id,job_id,intent_digest,intent_body) VALUES (97,'attempt','job','intent-digest','exact intent 🦊')")
+            schema = database._schema(old)
+            return schema, {r[1]: old.execute(f'SELECT rowid,* FROM {r[1]} ORDER BY rowid').fetchall()
+                            for r in schema if r[0] == 'table'}
+
+    def test_populated_v16_additive_candidate_migration_preserves_all_old_rows_and_pairs(self):
+        schema, rows = self.populated_v16()
+        for _ in range(2):
+            with open_database(self.root) as db:
+                self.assertEqual(db.execute('PRAGMA user_version').fetchone(), (17,))
+                self.assertEqual([r for r in database._schema(db) if r[1] != 'portrait_candidates'], schema)
+                self.assertEqual({t: db.execute(f'SELECT rowid,* FROM {t} ORDER BY rowid').fetchall() for t in rows}, rows)
+                self.assertEqual(db.execute('SELECT COUNT(*) FROM portrait_candidates').fetchone(), (0,))
+                self.assertEqual(db.execute('PRAGMA foreign_key_check').fetchall(), [])
+
+    def test_v16_candidate_ddl_and_validation_failure_roll_back_schema_stamp_and_rows(self):
+        schema, rows = self.populated_v16()
+        self.assertTrue(hasattr(database, 'PORTRAIT_CANDIDATE_SCHEMA'), 'DB17 candidate migration is missing')
+        validate = database._validate
+        def fail_validation(db):
+            validate(db)
+            if db.execute('PRAGMA user_version').fetchone() == (17,):
+                raise ValueError('injected validation failure')
+        for fault in (patch.object(database, 'PORTRAIT_CANDIDATE_SCHEMA', database.PORTRAIT_CANDIDATE_SCHEMA + 'SELECT * FROM missing_table;'),
+                      patch.object(database, '_validate', side_effect=fail_validation)):
+            with fault, self.assertRaises((ValueError, sqlite3.OperationalError)):
+                with open_database(self.root):
+                    self.fail('Partial candidate migration accepted')
+            with closing(sqlite3.connect(self.path)) as old:
+                self.assertEqual(old.execute('PRAGMA user_version').fetchone(), (16,))
+                self.assertEqual(database._schema(old), schema)
+                self.assertEqual({t: old.execute(f'SELECT rowid,* FROM {t} ORDER BY rowid').fetchall() for t in rows}, rows)
+
+    def test_v16_invalid_historical_shape_and_attempt_fk_refuse_unchanged(self):
+        for failure in ('schema', 'fk'):
+            self.root = self.root.parent / ('invalid-v16-' + failure)
+            self.path = self.root / DATABASE_NAME
+            self.populated_v16()
+            with closing(sqlite3.connect(self.path, isolation_level=None)) as old:
+                if failure == 'schema':
+                    old.execute('CREATE TABLE unexpected (body TEXT)')
+                else:
+                    old.execute("UPDATE render_submission_attempts SET job_id='missing'")
+            self.refuse_unchanged()
+
+    def test_candidate_table_enforces_initial_uniqueness_foreign_keys_bounds_and_state(self):
+        self.populated_v16()
+        with open_database(self.root) as db:
+            row = ('candidate', 'job', 'attempt', 'u-digest', 'intent-digest', 'm-digest', '{}', 'c-uri', 'reserved')
+            for index, value in ((1, 'missing'), (2, 'missing'), (6, 'x' * 8193), (8, 'success')):
+                changed: list[str] = list(row)
+                changed[index] = value
+                with self.subTest(index=index), self.assertRaises(sqlite3.IntegrityError):
+                    db.execute('INSERT INTO portrait_candidates VALUES (?,?,?,?,?,?,?,?,?)', changed)
+            db.execute('INSERT INTO portrait_candidates VALUES (?,?,?,?,?,?,?,?,?)', row)
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute('INSERT INTO portrait_candidates VALUES (?,?,?,?,?,?,?,?,?)', ('second', *row[1:]))
+
+    def test_pin_tables_enforce_foreign_keys_identity_state_and_size(self):
+        with open_database(self.root) as db:
+            db.execute("INSERT INTO executions (execution_id,project_id,input_message,shot_ids) VALUES ('e','p','vibe','[]')")
+            db.execute("INSERT INTO artifacts VALUES ('a','e','op','digest','uri','visual_anchor_plan','2','wardrobe')")
+            row = ('b','e','anchor-batch','activation','a','digest','{}','pin-uri','reserved')
+            for index, value in ((1,'missing'), (2,'wrong'), (4,'missing'), (8,'ready'), (6,'x' * (1024 * 1024 + 1))):
+                changed: list[str] = list(row)
+                changed[index] = value
+                with self.subTest(index=index), self.assertRaises(sqlite3.IntegrityError):
+                    db.execute('INSERT INTO batch_input_pins VALUES (?,?,?,?,?,?,?,?,?)', changed)
+            db.execute('INSERT INTO batch_input_pins VALUES (?,?,?,?,?,?,?,?,?)', row)
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute('INSERT INTO batch_input_pins VALUES (?,?,?,?,?,?,?,?,?)', ('other', *row[1:]))
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute('INSERT INTO batch_unit_input_pins VALUES (?,?,?,?,?,?)', ('missing','unit','digest','{}','unit-uri','reserved'))
 
     def test_v13_tampered_schema_or_foreign_keys_refuse_without_migration(self):
         for failure in ("schema", "foreign_keys"):

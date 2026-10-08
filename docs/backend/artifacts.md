@@ -236,6 +236,84 @@ Old revisions remain valid historical outputs. A slot may still point to its lat
 
 Apply the same closure checks at input preparation, commit, review acceptance, and promotion. Obsolete pending reviews/jobs cannot advance production. Retain historical approvals, but require current validity before consuming them. Invalidation is not an automatic rewind: a change outside the current repair path creates a new execution in the same project. Future [Fork](../hilp/fork.md) pins unchanged upstream results and their dependencies; the selected stage and descendants produce new outputs with their own required approvals. MVP start still begins at Brief.
 
+## Durable Batch Input Pins
+
+`backend/batch_store.py` implements the pre-submit storage boundary, separate from creative artifacts,
+image Start, jobs and graph/group waits. Additive application DB14→15 introduces `batch_input_pins`
+and `batch_unit_input_pins`; existing rows, artifact schemas/retention and checkpoint schema stay intact.
+First handoff reservation resolves exact committed compact V2, original applied Story approval and work
+lineage through `read_saved_batch_input`. The original completed text execution is not reopened.
+
+- `pin_saved_batch_input` / `read_batch_input` own the full canonical handoff/digest, with deterministic
+  identity from source execution, stage and activation selector. That selector is not Start authorization.
+- `prepare_saved_batch_unit` / `read_prepared_batch_unit` own one prepared body/digest per batch/unit.
+  Ordered parent metadata must match; only a new unit requires matching trusted native context.
+- SQL first commits private canonical bytes/digest as `reserved`; no-overwrite publication writes
+  `projects/<project_id>/inputs/<derived-id>.<digest>.json`; a guarded transaction marks `published`.
+  Consumer reads require published SQL and exact bounded, regular/single-link immutable bytes.
+- Recovery returns original pins before source/catalog/registry/RNG lookup. Same selectors replay;
+  changed source/settings/parents/explicit seed conflict. Reserved publication resumes the original
+  bytes, including a known deterministic staging prefix or exact interrupted two-link pair. Foreign
+  aliases, mismatches and redirected ancestors reject. Published missing/corrupt files never heal.
+
+Caller holds the existing data-root lock. Windows file sync/SQLite FULL guarantee process-death
+recovery, not a power-loss claim. Parent metadata remains a pin, not verification of media bytes,
+rights, imported lineage or upload receipt. Initial portrait job/attempt binding is implemented below;
+final post-upload graph, provider transport and accepted image activation/group remain steps 6–7
+of the [ComfyUI roadmap](../roadmap-comfyui.md#wardrobe-comfyui).
+
+## Offline Portrait Job Intent
+
+`backend/render_job_store.py` implements internal offline step 5А. Additive DB15→16 adds only
+`render_jobs` and `render_submission_attempts`; historical rows/rowids/schema and input pins stay intact.
+`create_portrait_job(db, batch_id, unit_key, expected_unit_digest=...)` accepts only a published,
+exact zero-reference `hero-face`/txt2img portrait. Job/input binding and ONE initial attempt commit
+together, with deterministic IDs and a canonical technical intent body/digest. The intent freezes
+exact batch/unit IDs, digests and managed URIs: these immutable pins preserve graph/schema/mapping,
+endpoint, output and resolved settings without another snapshot copy.
+
+`read_portrait_job(db, job_id, expected_unit_digest=...)` and repeated create revalidate committed SQL
+and exact managed input bytes offline, without source/catalog/registry/RNG/network lookup.
+Missing/tampered pins, selector conflicts and inconsistent job/attempt pairs fail without repair.
+Caller holds the data-root lock; a caller's open transaction is refused. Before-commit process death
+leaves neither record; after-commit recovery reads the same pair and inputs.
+
+This intent fingerprint is not a native HTTP envelope, provider acceptance, definitely-unsent evidence,
+public Start or submit authorization. There is no dispatch, state machine or second-attempt allocator.
+Candidate storage/import is implemented below; accepted render intent, native envelope/correlation and
+submit/reconciliation follow in 6А; image activation/group/wait remains 7.
+
+## Offline Portrait Candidate Import
+
+`backend/portrait_candidate_store.py` implements internal offline 5Б. Additive DB16→17 adds only
+`portrait_candidates`, one per initial portrait job/attempt; prior schema/rows/rowids/pins stay intact.
+`import_portrait_candidate(db, job_id, attempt_id, expected_unit_digest=..., descriptor=..., stream=...)`
+requires the exact persisted job/attempt and published inputs. A strict private descriptor pins the
+declared output node/history key/index 0, safe filename/subfolder, `type=output`, `mime_type=image/png`.
+It is transport provenance, not a local path or evidence of successful provider execution.
+
+- Static PNG only: 16 MiB hard cap, reads at most 64 KiB, exact pinned portrait dimensions ≤1024
+  and ≤1,048,576 pixels. Single IHDR, supported critical chunks, PLTE presence/order/entry bounds,
+  contiguous IDAT, complete bounded zlib/checksum/scanline count and Pillow verify→reopen→load are
+  checked without re-encoding or changing global Pillow settings. The 8 KiB canonical SQL metadata
+  cap is separate from embedded PNG metadata, which is preserved within media/decoder limits.
+- Candidate ID derives from job/attempt/declared slot. Validated original staging precedes a private
+  SQL reservation of canonical metadata/digest. Publication is no-overwrite under
+  `projects/<project_id>/attempts/<job_id-digest>/<candidate_id-digest>.<digest>.png`;
+  a guarded SQL marker makes the candidate visible. No transaction spans streaming/decode.
+- `read_portrait_candidate(db, candidate_id, expected_unit_digest=...)` rechecks committed published
+  metadata, original bytes/digest/size/decode and exact offline job/input/endpoint lineage.
+  Reimport preserves identity and original bytes (including PNG metadata); changed bytes/descriptor
+  conflict. Published missing/corrupt originals never heal through reimport or rerender.
+- Reserved recovery uses its exact staging/original, or a verified identical supplied stream.
+  Partial reserved staging accepts only the exact original prefix; after-link recovery accepts only
+  the owned same-inode two-alias pair. Foreign links, mismatches and redirected ancestors refuse.
+  Unreserved random staging orphans remain hidden and are not adopted or automatically collected.
+
+Caller holds the root lock. A technically valid candidate is not provider acceptance/history success,
+approval, an asset or selected binding. Future worker 6А must prove successful declared history before
+import. Public media reads, parent rights resolver, selection/group and transport remain later steps.
+
 ## Minimal Schemas
 
 Implement and verify schemas in activation order. The wider catalog is design context, not a prerequisite for the first backend code:
@@ -247,8 +325,12 @@ Implement and verify schemas in activation order. The wider catalog is design co
   [W8](../roadmap-mvp.md#wardrobe-batch-output) schema/config/start/graph/storage/readers are implemented,
   with retained V1 rows/files isolated and unsupported, no V1 consumption bridge/dual reader/replay or reset.
   Compact V2 is a patch in place, not a new artifact version; removed rich fields reject without conversion.
-  DB stays v14 with existing artifact v1/v2 retention; no new migration or rewrite of old rows/files.
-  Final W8 full-discovery/live V2 acceptance remains pending.
+  W8 itself retained DB14 and artifact v1/v2 retention; subsequent input/job/candidate storage adds DB15–17 without
+  rewriting old rows/files or creative contracts.
+  W8 is accepted under the user-requested reduced criterion (manual prompt assessment + focused mocked compact V2/offline recovery).
+  Full discovery and the automated real-model/offline harness are deferred, not PASS. Technical handoff,
+  native preparation, durable input pins, offline initial portrait job/attempt storage and original
+  candidate import are implemented; NEXT is the first restart-safe portrait (6А).
   Future batch FramePlan, candidate-set records and `RenderResultV1` belong to the pending media slice.
   Stable keys, `SelectedMedia` and selected slots are unchanged;
 - mode-discriminated MotionPlan under the next `img2vid/ref2vid` contract, `MontagePlanV1` and `MontageResultV1` when video/montage is enabled; original i2v `MotionPlanV1` retains its meaning;

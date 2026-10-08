@@ -1,6 +1,6 @@
 # Batch-generation: препродакшн image-ноды
 
-Статус: **7 октября 2026: компактный Wardrobe V2 DTO/adapter/storage/runtime/API и exact frontend reader реализованы как patch in place текущего V2; финальная W8-приёмка pending. Исходные graph identity/digest, adapter 2, Start route и DB v14 не меняются. Batch/media runtime и media UI ещё не реализованы**.
+Статус: **8 октября 2026: [W8 принят по сокращённому критерию автора](../roadmap-mvp.md#wardrobe-batch-output). Exact saved V2 handoff, guarded diagnostics, native preparation/replay и durable private input pins реализованы в [ComfyUI шаге 4](../roadmap-comfyui.md#wardrobe-comfyui), [offline 5А portrait job/initial intent](../backend/artifacts.md#offline-portrait-job-intent) — в DB16, [offline 5Б portrait candidate/original import](../backend/artifacts.md#offline-portrait-candidate-import) — в DB17. Wardrobe graph/config/route сохраняются; после W8/DB14 additive DB15 добавляет input-pin records, DB16 — initial job/attempt records, DB17 — только `portrait_candidates`, без изменения прежних rows/schema/pins. NEXT — 6А первый restart-safe portrait. Offline candidate — technical original с exact local job/pin lineage, не provider acceptance/successful generation/approval. Provider lifecycle/worker, public media DTO/API, selection/assets, image activation/group/review и batch/media UI ещё pending**.
 Первый потребитель — Wardrobe, следующий — Storyboard. Общие side-effect/review правила остаются в
 [Render](render.md); backend/LLM-задачи — в [Local MVP](../roadmap-mvp.md#wardrobe-batch-output),
 workflow/job/media/UI-задачи — в [ComfyUI roadmap](../roadmap-comfyui.md#wardrobe-comfyui).
@@ -28,9 +28,11 @@ hero-face/location — zero-ref txt2img, hero-sheet — img2img с ровно д
 Compact schema заменяет rich shape в текущем V2: удалённые поля строго отклоняются, без compatibility
 reader/conversion. V1 сохранён, но изолирован и неподдержан, без reset/conversion. W1–W7 —
 [историческая приёмка](../roadmap-mvp.md#wardrobe-backend), не active contract.
-ComfyUI умеет pure preparation/replay, но ещё не upload/submit/import. Pipeline/Chat читают compact V2 планы
+ComfyUI умеет saved-plan handoff, native installed-context acquisition и preparation/replay,
+но ещё не upload/submit/import. Pipeline/Chat читают compact V2 планы
 компактно: полные prompts и короткие refs; читаемый input один раз, technical details свёрнуты.
-Focused mocked/offline/browser проверки выполнены, full discovery и live V2 acceptance pending.
+Автор подтвердил пригодность batch-промптов вручную; focused mocked compact V2/offline recovery и UI приняты.
+Full discovery и automated real-model/offline harness отложены вне [критерия закрытия W8](../roadmap-mvp.md#wardrobe-batch-output), не объявлены PASS.
 
 ## 2. Один тип, несколько экземпляров
 
@@ -153,19 +155,21 @@ prompt. Compact schema, authored prompt и validators реализованы с�
 в [W8](../roadmap-mvp.md#wardrobe-batch-output) с существующими `WardrobeStartSettingsV2` /
 `WardrobeOwnerConfigV2`, `PreparedWardrobeInputsV2`, storage/readers и исходной start/graph identity.
 Adapter 2 использует 180 s / 8192 / low; exact authority input/evidence остаются в frozen storage.
-Focused mocked/schema/offline recovery и UI проверены; full discovery и реальный model-authored
-compact `plan.batch_prompt` с offline exact V2 reopen ещё не приняты. W6 live-приёмка доказывает только V1.
+Focused mocked/schema/offline recovery и UI проверены; full discovery и automated real-model/offline
+harness отложены, не объявлены PASS и не блокируют handoff. W6 live-приёмка доказывает только V1.
 
 **Wardrobe/batch route — compact V2-only.** ComfyUI получает exact сохранённый validated
 `VisualAnchorPlanV2`, без V1 consumption adapter или `units → batch_prompt` bridge.
 Rich shape не получает compatibility reader или conversion. Exact V1 graph triple исключён из
 runner/list, commands/reads отклоняются.
 Unversioned Start возвращает 410 до payload work; сохранённые browser envelopes не перенаправляются.
-DB остаётся v14; patch не добавляет migration/schema version/route. Пользовательский backend ожидает его restart;
+W8 patch сохранял DB14 без новой migration/schema version/route; последующий input-pin storage добавляет DB15.
+Активация/restart пользовательского backend не проверялись;
 его prior run не мигрирован, не переписан и не регенерирован.
 W1–W7 остаются историческими; reset/deletion нет, Story/Brief/video compatibility не меняется.
 
-Порядок: W8 V2 acceptance → ComfyUI saved V2-plan handoff → один portrait job → N jobs / полный review.
+W8 принят по сокращённому критерию; technical saved V2-plan preparation реализована;
+Offline 5А portrait job/initial intent и offline 5Б portrait candidate/original import реализованы; NEXT: 6А один restart-safe portrait → 6Б verified parent bytes/rights, reference uploads/final graph → N jobs / полный review (шаг 7).
 Read-only preparation разрешена заранее; initial render и technical Retry не вызывают Wardrobe повторно.
 
 ## 4. Порядок, зависимости и workflow binding
@@ -216,6 +220,21 @@ ordered задания и frozen supplied-image alias bindings. Поддержи
 сохраняют authority и lineage. После подготовки handoff его identity/digest неизменны.
 `V1` здесь — первая версия **технического** schema с независимой нумерацией, не поддержка creative
 `VisualAnchorPlanV1`; Wardrobe source в новой media activation — compact V2.
+
+**Реализована preparation boundary:** `freeze_batch_input` проверяет compact V2 against exact
+Wardrobe authority; `read_saved_batch_input` разрешает committed source и applied Story receipt.
+`prepare_batch_unit` принимает только ordered resolver-provided parent bindings и private installed
+context; `replay_batch_input`/`replay_batch_unit` читают прежние canonical bodies по trusted digests.
+`acquire_preparation_context` проверяет frozen endpoint/registry/template до GET и отдаёт schemas
+только trusted adapter. Guarded preparation API выдаёт summaries/pins, не raw provider graph/mapping/schema.
+`backend/batch_store.py` теперь сохраняет handoff и prepared unit как private SQL reservation →
+immutable input file → published marker; exact digest/selector conflicts блокируют replacement.
+`pin_saved_batch_input` проверяет saved authority при первом reservation, `read_batch_input` читает
+прежний body offline; `prepare_saved_batch_unit` сначала replay/recover, только новый unit требует
+matching native context и once-resolved seed. `read_prepared_batch_unit` сверяет expected ordered parents.
+DB15 добавляет только две input-pin таблицы. [Persistence](../backend/artifacts.md#durable-batch-input-pins).
+Handoff pin не является принятой image activation/job; parent metadata не доказывает bytes/import/rights,
+а resolved pre-upload graph не является upload receipt. Эти гарантии — шаги 5–7.
 
 - До provider effects сохраняются batch/group intent, required unit keys и wait identity.
 - Один provider job одновременно; следующий начинается после verified immutable import предыдущего.

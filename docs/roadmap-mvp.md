@@ -1,10 +1,14 @@
 # Local Cinematic MVP: Build Plan
 
-Обновлено: **7 октября 2026**.
+Обновлено: **8 октября 2026**.
 
 - Шаг 3 закрыт: Storytell и Wardrobe W1–W7 приняты, включая live-приёмку W6 и UI-приёмку W7 с mocked HTTP; сохранённый план и полные image prompts доступны до рендера.
-- [Wardrobe W8 / compact batch_prompt V2](#wardrobe-batch-output) реализован в pure/adapter, storage, runtime/API и frontend как patch in place текущего V2; финальная приёмка pending. Остались полный discovery и live V2 provider/offline acceptance. [Storyboard batch plan](#storyboard-batch-backend) ещё pending; историческая V1-приёмка шага 3 не подтверждает compact V2.
-- ComfyUI шаги 1–3 реализованы: preflight, image preparation и production settings/draft diagnostics. Cinematic Run/render/media ещё не подключены.
+- [Wardrobe W8 / compact batch_prompt V2](#wardrobe-batch-output) принят по согласованному сокращённому критерию: ручная live-проверка автора и focused compact V2/offline recovery. Полный discovery и автоматизированная real-model/offline приёмка отложены, не объявлены PASS. ComfyUI handoff/native preparation/durable input pins, [offline 5А portrait job/initial intent](backend/artifacts.md#offline-portrait-job-intent) и [offline 5Б portrait candidate/original import](backend/artifacts.md#offline-portrait-candidate-import) реализованы; следующий шаг — 6А первый restart-safe portrait; [Storyboard batch plan](#storyboard-batch-backend) ещё pending.
+- ComfyUI шаги 1–3 реализованы: preflight, image preparation и production settings/draft diagnostics. Cinematic Run/render и media API/UI ещё не подключены.
+- ComfyUI шаг 4: exact saved compact V2 handoff и native preparation/replay подключены через guarded
+  diagnostic API; private durable input pins добавлены в DB15, offline 5А job/first-attempt records — в DB16,
+  offline 5Б portrait candidate/original import — в DB17. Далее 6А portrait; provider lifecycle/worker ещё pending,
+  image activation/group — шаг 7.
 
 Здесь ведём общий порядок сборки и задачи агентов: LLM, текстовые входы/результаты, версии, review, восстановление и подключение готового агента к существующему UI в его milestone. Подключение ComfyUI к сохранённым планам и render/media-задачи ведутся в [roadmap-comfyui.md](roadmap-comfyui.md). Статусы ниже — фактическая готовность, не обещание работающего приложения.
 
@@ -20,11 +24,11 @@
 
 ## Сейчас и следующий результат
 
-**Шаги 0–3 закрыты на Windows по исходной W1–W7 V1-приёмке; W8 реализован, но ещё не принят полностью.** Одна обычная «Начать историю» сохраняет исходный `kinodel.story-wardrobe` v2/digest через `/api/executions/story-wardrobe/v2`: exact Story approval → Wardrobe adapter 2 → сохранённый compact `VisualAnchorPlanV2.batch_prompt`, без публикации библиотеки или рендера. Compact result и creative projection исправлены внутри текущего V2; DB остаётся v14, без новой migration/schema/route или rich-shape compatibility. Исторические internal/live Story routes сохраняют approve→END. V1 Wardrobe retained/isolated, unversioned Start даёт 410. Compact V2 проверен с mocked HTTP, не paid calls. Пользовательский backend ожидает его перезапуска; prior run не мигрирован, не переписан и не регенерирован. ComfyUI подготовлен read-only; cinematic render/media ещё не подключены.
+**Шаги 0–3 закрыты на Windows; W8 принят по сокращённому критерию автора.** Одна обычная «Начать историю» сохраняет исходный `kinodel.story-wardrobe` v2/digest через `/api/executions/story-wardrobe/v2`: exact Story approval → Wardrobe adapter 2 → сохранённый compact `VisualAnchorPlanV2.batch_prompt`, без публикации библиотеки или рендера. Compact result и creative projection исправлены внутри текущего V2; W8 сохранял DB14 без новой migration/schema/route или rich-shape compatibility. Последующие additive DB15 (private input pins), DB16 (offline 5А portrait job/initial intent) и DB17 (только `portrait_candidates`, offline 5Б original import) сохраняют прежние rows/schema/pins и contracts; future locked open проходит 14→15→16→17. Исторические internal/live Story routes сохраняют approve→END. V1 Wardrobe retained/isolated, unversioned Start даёт 410. Автор подтвердил годные batch-промпты ручной проверкой; автоматизированная offline-проверка использует mocked HTTP. Пользовательский root этой проверкой не открывался/мигрировался; активация/restart не проверялись. Cinematic render и public media API/UI ещё не подключены.
 
-**Story UI 6A–6E и исторический Wardrobe UI W7 приняты; cinematic-каркас 6F визуально утверждён.** W8 frontend читает только exact compact V2 планы общей поверхностью Pipeline/Chat: полные копируемые prompts, use_case/mode и короткие ordered refs; Inputs показывают читаемый frozen контекст один раз, technical details свёрнуты. Следующий результат — финальная [приёмка W8](#wardrobe-batch-output), затем [передача exact saved V2 plan в ComfyUI](roadmap-comfyui.md#wardrobe-comfyui). Первые изображения, anchor review, кадры/видеошоты и монтаж ещё не подключены.
+**Story UI 6A–6E и Wardrobe W8 приняты; cinematic-каркас 6F визуально утверждён.** W8 frontend читает только exact compact V2 планы общей поверхностью Pipeline/Chat: полные копируемые prompts, use_case/mode и короткие ordered refs; Inputs показывают читаемый frozen контекст один раз, technical details свёрнуты. [ComfyUI handoff/native preparation/durable input pins](roadmap-comfyui.md#wardrobe-comfyui), offline 5А portrait job/initial intent и offline 5Б portrait candidate/original import реализованы; следующий результат — 6А первый restart-safe portrait. Первые live-изображения, anchor review, кадры/видеошоты и монтаж ещё не подключены.
 
-**Порядок ближайших работ: W8 final acceptance → ComfyUI saved V2-plan handoff → один portrait job → N batch/review → оставшиеся image/video/media этапы → montage и приёмка выпуска.** Остались полный discovery текущего кода и обновление исторического live harness для compact V2/provider acceptance с offline reopen. Перезапуск пользовательского backend — отдельный activation gate. Read-only ComfyUI preparation разрешена заранее; первый live render потребляет только сохранённый validated compact V2 план после W8 acceptance, без повторного Wardrobe call. Шаг 6 сохраняет cinematic/media integration и полный проход автора; первый deploy — локальный Windows-пилот.
+**Порядок ближайших работ: 6А один restart-safe portrait → 6Б reference transport → N batch/review → оставшиеся image/video/media этапы → montage и приёмка выпуска.** Handoff/native preparation и durable input pins реализованы в [ComfyUI шаге 4](roadmap-comfyui.md#wardrobe-comfyui), offline 5А — только records первого zero-reference portrait job/attempt с exact published input binding. Это не native HTTP request envelope/correlation, submit authorization, provider acceptance, worker, Start, retry или graph activation; preparation-only capability неизменна. Offline 5Б сохраняет technically validated original и exact local job/pin lineage, не доказательство successful generation или approval; public media DTO/API, selection/assets/group остаются pending. Diagnostic API не принимает Start/render work. W8 закрыт по минимальному критерию, согласованному автором; отложенные full discovery и real-model/offline harness не считаются пройденными. Первый live render потребляет только сохранённый validated compact V2 план, без повторного Wardrobe call. Шаг 6 сохраняет cinematic/media integration и полный проход автора; первый deploy — локальный Windows-пилот.
 
 ## Repository And Dependencies
 
@@ -95,7 +99,7 @@ Internal Story foundation сохраняет v1 → вопрос/правка �
     хранение результата и исполнение; генератор получает готовый план на следующем этапе.
 
     **История принятого V1 milestone — W1–W7:** описания ниже фиксируют прежние contracts/endpoints,
-    не активный Wardrobe contract. Текущая compact V2 реализация и незакрытая приёмка — [W8](#wardrobe-batch-output).
+    не активный Wardrobe contract. Текущая compact V2 реализация и сокращённая приёмка — [W8](#wardrobe-batch-output).
 
     **Готовые части — W1–W6:**
 
@@ -187,14 +191,14 @@ Internal Story foundation сохраняет v1 → вопрос/правка �
         без нового paid browser run; существующая live-приёмка W6 сохраняется.
         ComfyUI render и anchor review не входят в W7; готовые prompts доступны автору до их подключения.
 
-     - [ ] **Активация в пользовательской установке.** Пользователь перезапускает ранее запущенный backend
-       с текущим кодом; browser reload не обновляет Python-процесс. Перезапуск пока не выполнен;
-       code/browser acceptance W7 не означает, что старый работающий экземпляр уже обновлён.
+     - [x] **Активация в пользовательской установке.** Пользователь перезапускает ранее запущенный backend
+       с текущим кодом; browser reload не обновляет Python-процесс.
 
      <a id="wardrobe-batch-output"></a>
-       - [ ] **W8 · Wardrobe compact batch_prompt V2 — реализован; финальная приёмка pending.** A pure/adapter,
-         B store, C activation/runtime/API и D frontend реализованы. W1–W7 остаются исторической V1-приёмкой,
-         не активным контрактом и не доказательством compact V2 provider readiness.
+       - [x] **W8 · Wardrobe compact batch_prompt V2 — принят по сокращённому критерию автора.** A pure/adapter,
+         B store, C activation/runtime/API и D frontend реализованы. Автор подтвердил годные batch-промпты
+         ручной live-проверкой; focused compact V2/offline recovery принят. W1–W7 остаются исторической
+         V1-приёмкой, не активным контрактом и не доказательством compact V2 provider readiness.
          [Контракт](tools/batch-generation.md#3-новый-creative-output-batch_prompt).
         - [x] **A · Strict DTO/schema/prompt/config.** `WardrobeInputV2` / `anchor-basics.v2`,
           `WardrobeResultV2`, `VisualAnchorDraftV2={batch_prompt}` / `VisualAnchorPlanV2`: единственный массив `batch_prompt`,
@@ -208,14 +212,15 @@ Internal Story foundation сохраняет v1 → вопрос/правка �
           projection без persistent refs/digests/дублирующего canon. Authority input/evidence V2/V1 неизменны.
           Strict rich shape отклоняется, без compatibility reader/conversion; compact result — patch in place.
         - [x] **B · Frozen storage и retention.** `PreparedWardrobeInputsV2`, immutable plan/binding,
-          candidate recovery, compact V2 exact reader и прежние attempt/repair budgets. DB остаётся v14
-          с существующим artifact v1/v2 retention; patch не добавляет migration и не переписывает rows/files.
+          candidate recovery, compact V2 exact reader и прежние attempt/repair budgets. W8 сохранял DB14
+          с существующим artifact v1/v2 retention; этот patch не добавлял migration и не переписывал rows/files.
+          Последующий DB15 input-pin storage принадлежит ComfyUI шагам 4–5.
         - [x] **C · Текущая V2 activation/runtime/API.** Исходная exact identity `kinodel.story-wardrobe` v2
           и её digest не меняются; обычный `POST /api/executions/story-wardrobe/v2` принимает `LiveStart`.
           Adapter 2, input V2/capability и original Start/replay остаются; новой route/schema/union нет.
           Exact V1 triple исключён из runner/list, commands/reads отклоняются.
           Unversioned Start даёт 410 до payload validation/preparation/effects. Fixture preflight/isolation проверены;
-          пользовательский root не инвентаризован/мигрирован этой приёмкой и ждёт пользовательского restart.
+          пользовательский root не инвентаризован/мигрирован этой приёмкой; его restart здесь не проверяется.
           Нет reset, mapping, V1 consumption/replay или retarget; отдельные Story/Brief/video/library не изменены.
         - [x] **D · Compact V2 exact reader и UI.** Pipeline/Chat сохраняют full copyable prompts,
           use_case/mode и короткие ordered refs. Inputs: approved Story link, idea, frozen Character Bio/images
@@ -229,13 +234,17 @@ Internal Story foundation сохраняет v1 → вопрос/правка �
           Invocation-scoped drain публичных saver writes предшествует terminal/lock release.
           [Backend evidence](../test-results/README.md#wardrobe-w8-backend-and-final-status--7-october-2026),
           [UI checks/screenshots](../test-results/README.md#wardrobe-w8-subtask-d--v2-frontend-evidence--7-october-2026).
-        - [ ] **Full discovery acceptance текущего compact V2 кода.** Focused suites не заменяют полный discovery;
-          прежние незавершённые discovery не являются PASS, текущая full-suite приёмка не заявлена.
-        - [ ] **Live V2 provider + offline real-model acceptance.** Обновить исторический V1
-          `tests/live_wardrobe_check.py`, получить реальный `plan.batch_prompt` и после restart прочитать exact
-          сохранённый compact V2 plan/ref без provider. Paid V2 calls не выполнялись; W6 доказывает только V1.
-        **Критерий финальной приёмки:** полный discovery завершён и live V2/offline gate подтверждён;
-        implemented schema/config/start/graph/storage/readers сами по себе W8 не закрывают.
+        - [x] **Минимальная финальная приёмка.** Ручная live-проверка автора подтверждает пригодность batch-промптов;
+          targeted compact V2 checks подтверждают strict output/targets, API save и exact offline reopen/recovery.
+          Это согласованная замена прежнего обязательного full discovery + automated live/offline gate,
+          а не утверждение, что те проверки выполнены. [Evidence](../test-results/README.md#wardrobe-w8-backend-and-final-status--7-october-2026).
+        **Отложенные проверки, вне критерия закрытия W8:**
+        - [ ] **Full discovery текущего compact V2 кода.** Прежние незавершённые discovery не являются PASS;
+          focused suites не заменяют full-suite acceptance.
+        - [ ] **Автоматизированный live V2 + offline real-model harness.** Обновить исторический V1
+          `tests/live_wardrobe_check.py` и проверить exact сохранённый реальный compact V2 plan/ref после restart
+          без provider. Ручная оценка качества и mocked offline recovery не доказывают этот combined сценарий.
+        **Критерий закрытия W8:** ручная оценка автора + focused compact V2/offline проверки; выполнен.
         Генерация изображений и technical **saved V2-plan** handoff принадлежат
        [ComfyUI шагу 4](roadmap-comfyui.md#wardrobe-comfyui), без второго checklist здесь.
 
@@ -249,8 +258,9 @@ Internal Story foundation сохраняет v1 → вопрос/правка �
     **Закрытие шага 3 и Wardrobe milestone:** W7 принят — автор проходит новый маршрут в существующем UI,
     видит exact inputs/config и сохранённый план, копирует полные prompts и открывает тот же результат после restart.
     [Контракт](agents/wardrobe.md#durable-operation), [evidence](../test-results/README.md#backend-evidence).
-      NEXT — [W8: финальная compact V2 приёмка](#wardrobe-batch-output), затем
-      [подключение сохранённого V2 плана к ComfyUI](roadmap-comfyui.md#wardrobe-comfyui).
+      [ComfyUI saved V2 handoff/native preparation/durable input pins](roadmap-comfyui.md#wardrobe-comfyui) реализованы;
+      offline 5А portrait job/initial intent и offline 5Б portrait candidate/original import реализованы; NEXT — 6А первый restart-safe portrait;
+      [W8 принят по сокращённому критерию](#wardrobe-batch-output).
 
   <a id="storyboard-batch-backend"></a>
   - [ ] **Следующий агентный backend milestone · Storyboard batch plan.** После появления exact approved

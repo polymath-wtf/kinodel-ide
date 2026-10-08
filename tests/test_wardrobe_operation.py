@@ -842,7 +842,7 @@ class WardrobeMigrationTests(unittest.TestCase):
                 tables = ("executions", "artifacts", "execution_bindings", "execution_outcomes")
                 frozen = {table: old.execute(f"SELECT rowid,* FROM {table}").fetchall() for table in tables}
             with database.open_database(root) as db:
-                self.assertEqual(db.execute("PRAGMA user_version").fetchone(), (14,), "Wardrobe V2 schema migration is absent")
+                self.assertEqual(db.execute("PRAGMA user_version").fetchone(), (15,), "Current storage migration is absent")
                 for table in tables:
                     self.assertEqual(db.execute(f"SELECT rowid,* FROM {table}").fetchall(), frozen[table])
                 self.assertEqual(db.execute("SELECT COUNT(*) FROM wardrobe_operations").fetchone(), (0,))
@@ -861,7 +861,7 @@ class WardrobeMigrationTests(unittest.TestCase):
                 self.assertEqual(old.execute("PRAGMA user_version").fetchone(), (12,))
                 self.assertEqual(database._schema(old), before)
             with database.open_database(rollback) as db:
-                self.assertEqual(db.execute("PRAGMA user_version").fetchone(), (14,))
+                self.assertEqual(db.execute("PRAGMA user_version").fetchone(), (15,))
 
 
 if __name__ == "__main__":

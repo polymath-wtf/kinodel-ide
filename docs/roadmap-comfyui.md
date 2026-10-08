@@ -1,10 +1,15 @@
 # ComfyUI Local: поэтапная интеграция
 
-Обновлено: **7 октября 2026**.
+Обновлено: **8 октября 2026**.
 
 - Шаги 1–3 реализованы: read-only подключение, image preparation и production settings/draft diagnostics.
-- Вход новой генерации — только exact сохранённый validated compact Wardrobe V2 `batch_prompt` после финальной [W8-приёмки](roadmap-mvp.md#wardrobe-batch-output). Compact result — patch in place текущего V2; V1 изолирован, consumption bridge не строим.
-- Cinematic Run, render jobs и media-путь ещё не реализованы.
+- Preparation-граница шага 4 завершена: exact saved V2 handoff, guarded preparation API, native preparation
+  и durable input pins реализованы. Offline portrait job/initial attempt storage (5А, DB16) и
+  verified original candidate import (5Б, DB17) реализованы. NEXT — один restart-safe portrait (6А).
+  Verified parents и image activation — шаги 6Б–7.
+  [Граница готовности](#wardrobe-comfyui).
+- Вход новой генерации — только exact сохранённый validated compact Wardrobe V2 `batch_prompt`; [W8 принят по сокращённому критерию автора](roadmap-mvp.md#wardrobe-batch-output). Compact result — patch in place текущего V2; V1 изолирован, consumption bridge не строим.
+- Cinematic Run, provider job lifecycle и публичный media-путь ещё не реализованы.
 
 Это детализация генерации через ComfyUI из [Local MVP, шаг 4](roadmap-mvp.md#remaining-steps):
 сохранённые планы агентов → workflow/job → проверенные изображения/видео → выбор автора.
@@ -23,10 +28,10 @@ Storyboard batch — полного workflow viewer; итоговые требо
 
 | Область | Фактическое состояние |
 |---|---|
-| Текст/runtime | Compact Wardrobe V2 pure/adapter/store/runtime/API/frontend реализованы как patch in place: обычный `/api/executions/story-wardrobe/v2`, исходный exact `kinodel.story-wardrobe` v2/digest, adapter 2 и saved `batch_prompt`. Focused mocked recovery/UI проверены; финальная [W8-приёмка](roadmap-mvp.md#wardrobe-batch-output) ждёт full discovery и live V2/offline proof. W1–W7/W6 live — историческое V1 evidence; V1 Wardrobe изолирован. Отдельные Story routes сохраняют approve→END. NEXT — W8 acceptance, затем [saved V2-plan handoff](#wardrobe-comfyui); пользовательский restart отдельно pending. |
-| Подключение | Backend config, явный env-file allowlist launcher и `backend/comfyui.py` подключены. Guarded API/CLI preflight проверяет выбранный workflow; оба настроенных соединения прочитаны без генерации. |
+| Текст/runtime | Compact Wardrobe V2 pure/adapter/store/runtime/API/frontend реализованы как patch in place: обычный `/api/executions/story-wardrobe/v2`, исходный exact `kinodel.story-wardrobe` v2/digest, adapter 2 и saved `batch_prompt`. [W8 принят](roadmap-mvp.md#wardrobe-batch-output) по ручной live-проверке автора и focused compact V2/offline recovery; full discovery и combined real-model/offline harness отложены, не PASS. W1–W7/W6 live — историческое V1 evidence; V1 Wardrobe изолирован. Отдельные Story routes сохраняют approve→END. [Saved V2 handoff/native preparation/durable input pins](#wardrobe-comfyui), offline portrait job/initial attempt storage (5А) и original candidate import (5Б) реализованы; NEXT — первый restart-safe portrait (6А). |
+| Подключение | Backend config, явный env-file allowlist launcher и `backend/comfyui.py` подключены. Guarded API/CLI preflight проверяет выбранный workflow; private `acquire_preparation_context` передаёт installed schemas в preparation после проверки frozen connection/registry pins. |
 | Workflow | Единый SHA-pinned registry в `backend/comfyui_workflows.py`: preparation включена для portrait/background txt2img и Qwen 1/2/3 inputs; остальные кандидаты inspection-only. `backend/production.py` даёт preparation-only bundle/diagnostics, не cinematic profiles/defaults. [Mappings](tools/comfyui-tool.md#текущие-файлы-и-порты). |
-| Хранение | SQLite, OS lock, immutable Story/compact Wardrobe V2 plan и operation recovery/replay реализованы; DB остаётся v14 с existing artifact v1/v2 retention. Patch не добавляет migration/schema/route или rich-shape compatibility/conversion. Live provider acceptance принадлежит историческому V1; compact V2 live gate pending. Render jobs, candidates, assets, selection и media import ещё нужны. |
+| Хранение | SQLite, OS lock, immutable Story/compact Wardrobe V2 plan и operation recovery/replay реализованы. W8 сохранял DB14; additive DB15 добавил `batch_input_pins` / `batch_unit_input_pins`, DB16 — `render_jobs` / `render_submission_attempts`, DB17 — `portrait_candidates` для одного zero-reference portrait. Exact inputs, initial intent и проверенные PNG originals читаются offline; прежние artifact retention/rows и graph/route сохраняются. Provider lifecycle, assets, selection и публичный media-путь ещё нужны. |
 | UI | Cinematic-карта, вложенные scopes, inspector и отдельная страница Canvas есть. Pipeline/Chat показывают exact saved Wardrobe plan, frozen inputs/config и полные копируемые prompts. Anchor render/review не подключены; Canvas пуст, provider graph unavailable. |
 | Brief | V1/text inputs сохранены. Новый BriefV2 и отдельный cinematic draft имеют image/video sizes, shot count, total/per-shot ms и video mode. Guarded diagnostics и UI draft подключены; public cinematic Start отсутствует. |
 
@@ -205,9 +210,10 @@ Report содержит workflow/registry pins, `preparation_enabled` и `graph_
 **UI:** одна «Новая история», общие idea/Characters, image/video sizes, ComfyUI, count/total seconds/mode и per-shot summary; без editable shot IDs/per-shot duration, catalog/validate calls и отдельной страницы настроек. Defaults: image 1024×1024, video 480×480. Unmarked старый video 1024×1024 мигрирует один раз (`video_defaults_version: 1`); custom/явно выбранные размеры и exact pending Start envelope сохраняются. Idea/refs берутся из активного Start, independent cinematic draft/pins сохраняются; Start-only cache наследует count/duration. Live text Start получает stable shot keys и exact total/count ms при прежних лимитах 1–8 кадров/60 s на кадр. Invalid numeric text сохраняется, oversized edits отклоняются локально; cinematic Run отсутствует.
 
 <a id="wardrobe-comfyui"></a>
+
 ### 4. Подключение Wardrobe plan к ComfyUI
 
-**Зависимость:** [W8](roadmap-mvp.md#wardrobe-batch-output) реализует compact Wardrobe V2 `batch_prompt` и exact saved-plan reader как patch in place; full discovery/live V2 acceptance pending. LLM/schema/config/storage/start/graph остаются в MVP. Targets — selected only, иначе generated/declared fallback, иначе location-only; ровно face+sheet на target и одна location, refs только source/role, creative detail внутри prompts. Rich shape строго отклоняется без compatibility/conversion; V1 изолирован. Здесь подключаем общий image-tool **Batch-generation**, экземпляр `anchor-batch`, только к exact saved compact V2, вместо нового anchor-specific renderer.
+**Зависимость:** [W8](roadmap-mvp.md#wardrobe-batch-output) принят по сокращённому критерию автора: ручная live-проверка и focused compact V2/offline recovery. Full discovery и combined real-model/offline harness отложены, не объявлены PASS. LLM/schema/config/storage/start/graph остаются в MVP. Targets — selected only, иначе generated/declared fallback, иначе location-only; ровно face+sheet на target и одна location, refs только source/role, creative detail внутри prompts. Rich shape строго отклоняется без compatibility/conversion; V1 изолирован. Здесь подключаем общий image-tool **Batch-generation**, экземпляр `anchor-batch`, только к exact saved compact V2, вместо нового anchor-specific renderer.
 Реальные jobs, изображения и их review подключаются шагами 5–8.
 
 **Проект архитектуры:** [Batch-generation](tools/batch-generation.md). Порядок массива задаёт очередь,
@@ -215,31 +221,63 @@ ordered references — data dependencies. Внутри N отдельных `com
 и полный review. Для первого примера: `hero_face txt2img → location txt2img → hero_sheet img2img`;
 sheet получает оба parent images отдельными slots. Число 3 не hardcoded.
 
-- [ ] **Вход генератора.** Определить versioned handoff exact утверждённой Story и сохранённого
-  validated compact `VisualAnchorPlanV2` (`wardrobe_plan`) в новый scoped image-only маршрут с frozen image
+**Реализованная граница шага 4:** `backend/batch_generation.py` задаёт technical handoff и per-unit
+preparation/replay; `backend/batch_preparation.py` читает exact committed plan и проверяет original
+applied Story approval. Guarded `POST /api/executions/{execution_id}/anchor-batch/prepare` возвращает
+только public diagnostic projection (`preparation_only`, `can_submit=false`), без private workflow snapshots.
+Он не сохраняет activation, не создаёт jobs и не переоткрывает terminal text execution.
+Private native context получает schemas/models через bounded GET-only pipeline существующего preflight;
+проверка frozen connection/registry/template identity предшествует HTTP. [API](backend/local-startup.md#saved-wardrobe-batch-preparation),
+[evidence](../test-results/README.md#comfyui-step-4--saved-v2-preparation--8-october-2026).
+
+**Durable inputs:** `backend/batch_store.py` сохраняет full private handoff и per-unit `pre_upload`
+body/digest в DB15 и `projects/<project_id>/inputs/`. SQL reservation закрепляет bytes/seed перед
+публикацией; читатели видят только published records. Recovery использует прежние pins без catalog,
+registry, context acquisition или RNG; conflicting selectors/parents/seed отклоняются. Это storage
+boundary, не принятая image activation/job. [Storage contract](backend/artifacts.md#durable-batch-input-pins),
+[evidence](../test-results/README.md#comfyui-step-4--durable-input-pins--8-october-2026).
+
+- [x] **Вход генератора — technical handoff.** Определить versioned handoff exact утверждённой Story и сохранённого
+  validated compact `VisualAnchorPlanV2` (`wardrobe_plan`) для нового scoped image-only маршрута с frozen image
   settings/profile/connection и `BatchGenerationInputV1`. Его V1 — независимая первая версия technical
   schema, не поддержка creative V1. Source V2 ref/digest и stage mapping pin сохраняются;
   V1 plans/configs и rich shape отклоняются до effects, без adapter/dual readers/conversion.
   Initial rendering не вызывает LLM и не создаёт второй creative artifact/миграцию.
   `ImageOnlyInputV1` пока diagnostics; прежние terminal text executions не переоткрывать.
   Handoff и первый live render идут после W8 V2 acceptance; ComfyUI readiness не следует из LLM evidence.
-- [ ] **Проверка плана перед effects.** Проверить exact plan/ref/digest, `narrative_ref`, subjects,
+- [x] **Проверка плана перед effects.** Проверить exact plan/ref/digest, `narrative_ref`, subjects,
   unique unit keys/order, `use_case`/mode/reference signatures и earlier-only dependencies. Режим
   `txt2img` требует ноль refs, `img2img` — минимум один; references не заменяются очередью или auto-sort.
   Missing/stale/corrupt plan или unsupported mapping блокирует до upload/submit. План — supporting
   output без отдельного обязательного approval; approved Story и права на sources проверяет resolver.
-- [ ] **Plan → workflow preparation.** Передать image prompts из плана в registry шага 2:
-  `hero-face`/`location` → portrait/background txt2img, `hero-sheet` → Qwen с ordered
-  `[portrait, background]` generated parents. `workflow` — режим, actual workflow выбирает pinned
+- [x] **Plan → workflow preparation.** Передать image prompts из плана в registry шага 2:
+  `hero-face`/`location` → `krea2-txt2img` (portrait/background),
+  `hero-sheet` → `qwen21-multi-img2img` с ordered `[portrait, background]` generated parents.
+  `workflow` — режим, actual workflow выбирает pinned
   stage mapping, не LLM. Required signature/capacity проверяется до effects.
   Required render refs берутся из declared earlier units; image evidence модели не становится
   автоматическим render binding. N приходит из плана; один unit → один job → один первоначальный candidate.
+- [x] **Durable prepared inputs.** Сохранить handoff и per-unit prepared bodies/digests до submit.
+  - [x] Per-unit prepared body/digest и replay проверяют exact batch/parent bindings, mapping, prompt,
+    size и однажды resolved seed; required parents не выдумываются до их появления.
+  - [x] Private reservations, immutable publication, offline reopen и exact seed recovery
+    через `backend/batch_store.py` / additive DB15.
+
+**Сквозная интеграция — шаги 5–7.** Следующий родительский пункт и его уточнения закрываются
+по мере подключения потребителей; они не блокируют переход от готовой preparation-границы к шагу 5.
+
 - [ ] **Закреплённые входы jobs.** Связать подготовку со storage/submit шагов 5–6:
   сохранить plan pin, exact parent candidates/digests, profile/workflow pins и resolved size/crop/seed
   до соответствующего submit. Повтор использует прежние подготовленные входы;
   UI и worker не сочиняют prompts заново и не вызывают LLM для технического retry.
+  - [x] Привязать published prepared input к portrait job/initial attempt и immutable technical intent — 5А.
+  - [ ] Принять render work и закрепить native wire request/correlation до HTTP — 6А;
+    technical intent 5А не является submit authorization или provider acceptance.
+  - [ ] Resolver verified parent bytes/lineage/rights и post-upload final graph/receipts — шаги 5–6.
+  - [ ] Принять и сохранить отдельную image-only activation, подключить graph wait/group — шаг 7;
+    diagnostic API не является Start или принятым render work.
 
-**Приёмка:** offline handoff передаёт prompts, use cases/modes, stable unit keys/order и обе sheet dependencies
+**Приёмка preparation-границы:** offline handoff передаёт prompts, use cases/modes, stable unit keys/order и обе sheet dependencies
 из exact сохранённого validated compact V2 плана в объявленные workflow roles; проверить location-only, 3 и N>3 units,
 включая `ada_face`/`leo_face` с одним `hero-face`, без повторного LLM call. Unsupported plan version блокируется до effects.
 Self/future/missing refs, mode/role mismatch и unsupported mapping блокируются до provider effects;
@@ -249,13 +287,60 @@ Self/future/missing refs, mode/role mismatch и unsupported mapping блокир
 
 ### 5. Минимальное media-хранение и records
 
-- [ ] Расширять существующие SQLite migrations/operations по потребителю: для первого job — job/submission attempts/input bindings/candidate; group/manifest и selected assets — при подключении шагов 7–8. Сохранить прежние Story executions; не заводить вторую очередь или отдельную БД Canvas.
-- [ ] Переиспользовать no-overwrite publication и digest checks из Story storage, адаптировав их к bounded streaming media/staging. Проверять image decode/MIME/size установленным Pillow; video metadata — внешним `ffprobe` при включении видео. Не применять Character re-encode к canonical render original.
+**Порядок bounded-срезов, полностью offline:**
+
+1. **5А — records одного txt2img job/attempt — реализовано.** Привязать job и первоначальный submission attempt
+   к published prepared unit input; сохранить exact input binding и submit intent. Проверить
+   idempotent create/reopen, конфликты и recovery без выдуманного provider acceptance.
+2. **5Б — candidate и original bytes — реализовано.** Импортировать небольшое тестовое изображение по mock provider
+   descriptor в этот job/attempt; проверить bounded decode/MIME/dimensions/digest, immutable publication
+   и видимость только после DB commit, включая crash/reimport/disk-full/tampering/conflicts.
+
+**Offline-граница первого portrait (5А–5Б) завершена:** records и verified original import,
+не только таблицы. Первый live render — шаг 6А; verified parent resolver
+добавляется до reference transport 6Б и не блокирует zero-reference portrait.
+
+**Реализовано 5А:** `backend/render_job_store.py` атомарно сохраняет deterministic job/initial attempt
+и exact published input binding в DB16. Intent body/digest закрепляет граф и остальные private snapshots
+через immutable batch/unit refs без второй копии; reopen проверяет SQL и bytes, conflicts/corruption
+не исправляет. Только zero-reference `hero-face`/portrait; provider acceptance, dispatch и новые attempts
+ещё не реализованы. [Контракт](backend/artifacts.md#offline-portrait-job-intent),
+[evidence](../test-results/README.md#comfyui-step-5a--offline-portrait-job-intent--8-october-2026).
+
+**Реализовано 5Б:** `backend/portrait_candidate_store.py` импортирует static PNG original через bounded
+stream/staging, проверяет MIME/geometry/decode/digest и закрепляет exact job/attempt/input/output provenance.
+DB17 reservation → immutable publication → guarded published marker; только published candidate видим
+читателю. Повтор сохраняет identity/bytes, corruption не лечится. Metadata provider descriptor не является
+доказательством provider acceptance/history success; будущий worker проверяет их на 6А.
+[Контракт](backend/artifacts.md#offline-portrait-candidate-import),
+[evidence](../test-results/README.md#comfyui-step-5b--offline-portrait-candidate-import--8-october-2026).
+
+- [x] Records первого portrait job: job/submission attempt/input binding/candidate в существующей SQLite,
+  без второй очереди/БД Canvas и изменений прежних Story executions. Group/manifest и selected assets — шаги 7–8.
+  - [x] Additive DB14→15: только batch/unit input pins; exact старые rows/schema/retention сохранены.
+  - [x] Additive DB15→16: portrait job/initial submission attempt и input binding; старые rows/rowids/pins сохранены.
+  - [x] Additive DB16→17: portrait candidate reservation/published records и verified original import — 5Б.
+- [x] No-overwrite publication/digest checks адаптированы к bounded PNG stream/staging; Pillow verify/reopen/load
+  и bounded zlib completeness проверяют decode/MIME/size; critical chunk order/palette bounds проверяются
+  отдельно от Pillow. Canonical original не проходит Character re-encode.
+  Video metadata/`ffprobe` — при включении видео.
 - [ ] До первого submit сохранять frozen API graph/mapping/input digests и snapshots/digests **использованных node schemas** отдельно от creative artifact. Исторический attempt не зависит от последующего `/object_info` или изменённого registry. Input snapshots и candidates доступны по committed metadata; технические audit/credentials не уходят в общий DTO.
+  - [x] Full per-unit `pre_upload` snapshot (graph/settings/resolved seed/ordered parents/schema pins)
+    сохраняется immutable; snapshots не выдаются публичным API.
+  - [x] Привязать portrait input pin к job/initial attempt — 5А.
+  - [ ] Закрепить native submit envelope/correlation для zero-reference portrait до HTTP — 6А.
+  - [ ] После verified uploads закрепить final graph/receipts — шаг 6Б.
 
 **Приёмка:** file→DB crash, disk-full, tampering и конфликт destination не создают видимый полурезультат и не заменяют original. Reopen читает прежние bytes/digest; corruption не лечится rerender под тем же ID.
 
 ### 6. Один restart-safe image job
+
+**Последовательно:** **6А — один txt2img portrait** без parent images: durable intent → submit → reconcile
+→ download → verified import; затем **6Б — reference transport**: verified parent bytes/lineage/rights
+→ ordered uploads/receipts → final graph pin и recovery. Полный live sheet с двумя parents — шаг 7.
+До первого live submit явно принять и сохранить render intent для exact saved plan/prepared input;
+diagnostic `/prepare` и preparation-only профиль сами по себе не разрешают submit.
+Полноценный image-only graph Start/group/wait подключается на шаге 7.
 
 - [ ] Worker: prepared payload → durable submit intent → `POST /prompt` → persist `prompt_id` → queue/history → `/view` → verified immutable candidate. Upload refs — multipart `/upload/image`, уникальное/content-addressed имя без overwrite; сохранить и использовать фактические `name/subfolder/type` ответа.
 - [ ] Начать с polling, одного provider job одновременно и раздельных bounded HTTP calls/общего job deadline. Node/browser request не ждёт рендер. Completion требует success status, отсутствия execution errors и outputs **объявленных** нод.

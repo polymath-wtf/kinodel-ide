@@ -15,7 +15,7 @@ from backend.ownership import own_data_root
 
 DATABASE_NAME = "application.sqlite3"
 APPLICATION_ID = 0x4B494E4F  # KINO; SQLite header identity, not a business record.
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 17
 BUSY_TIMEOUT_MS = 1000
 INITIALIZING = ".kinodel-initializing-v1"
 READY = ".kinodel-ready-v1"
@@ -210,6 +210,53 @@ INSERT INTO batch_artifacts (rowid,artifact_id,execution_id,operation_id,digest,
 DROP TABLE artifacts;
 ALTER TABLE batch_artifacts RENAME TO artifacts;
 """
+BATCH_INPUT_SCHEMA = """
+CREATE TABLE batch_input_pins (
+    batch_id TEXT PRIMARY KEY,
+    execution_id TEXT NOT NULL REFERENCES executions(execution_id),
+    stage_id TEXT NOT NULL CHECK(stage_id='anchor-batch'), activation_id TEXT NOT NULL,
+    source_artifact_id TEXT NOT NULL REFERENCES artifacts(artifact_id),
+    input_digest TEXT NOT NULL,
+    body TEXT NOT NULL CHECK(length(CAST(body AS BLOB)) BETWEEN 1 AND 1048576),
+    uri TEXT NOT NULL UNIQUE,
+    publication_state TEXT NOT NULL CHECK(publication_state IN ('reserved','published')),
+    UNIQUE(execution_id, stage_id, activation_id)
+);
+CREATE TABLE batch_unit_input_pins (
+    batch_id TEXT NOT NULL REFERENCES batch_input_pins(batch_id), unit_key TEXT NOT NULL,
+    input_digest TEXT NOT NULL,
+    body TEXT NOT NULL CHECK(length(CAST(body AS BLOB)) BETWEEN 1 AND 1048576),
+    uri TEXT NOT NULL UNIQUE,
+    publication_state TEXT NOT NULL CHECK(publication_state IN ('reserved','published')),
+    PRIMARY KEY(batch_id, unit_key)
+);
+"""
+RENDER_JOB_SCHEMA = """
+CREATE TABLE render_jobs (
+    job_id TEXT PRIMARY KEY NOT NULL,
+    batch_id TEXT NOT NULL, unit_key TEXT NOT NULL, unit_input_digest TEXT NOT NULL,
+    FOREIGN KEY(batch_id, unit_key) REFERENCES batch_unit_input_pins(batch_id, unit_key),
+    UNIQUE(batch_id, unit_key)
+);
+CREATE TABLE render_submission_attempts (
+    attempt_id TEXT PRIMARY KEY NOT NULL,
+    job_id TEXT NOT NULL UNIQUE REFERENCES render_jobs(job_id),
+    intent_digest TEXT NOT NULL,
+    intent_body TEXT NOT NULL CHECK(length(CAST(intent_body AS BLOB)) BETWEEN 1 AND 1048576)
+);
+"""
+PORTRAIT_CANDIDATE_SCHEMA = """
+CREATE TABLE portrait_candidates (
+    candidate_id TEXT PRIMARY KEY NOT NULL,
+    job_id TEXT NOT NULL UNIQUE REFERENCES render_jobs(job_id),
+    attempt_id TEXT NOT NULL UNIQUE REFERENCES render_submission_attempts(attempt_id),
+    unit_input_digest TEXT NOT NULL, intent_digest TEXT NOT NULL,
+    metadata_digest TEXT NOT NULL,
+    metadata_body TEXT NOT NULL CHECK(length(CAST(metadata_body AS BLOB)) BETWEEN 1 AND 8192),
+    uri TEXT NOT NULL UNIQUE,
+    publication_state TEXT NOT NULL CHECK(publication_state IN ('reserved','published'))
+);
+"""
 
 
 def _schema(db: sqlite3.Connection) -> list[tuple[str, str, str]]:
@@ -241,6 +288,12 @@ def _expected_schema(version: int) -> list[tuple[str, str, str]]:
             candidate.executescript(WARDROBE_SCHEMA)
         if version >= 14:
             candidate.executescript(WARDROBE_V2_SCHEMA)
+        if version >= 15:
+            candidate.executescript(BATCH_INPUT_SCHEMA)
+        if version >= 16:
+            candidate.executescript(RENDER_JOB_SCHEMA)
+        if version >= 17:
+            candidate.executescript(PORTRAIT_CANDIDATE_SCHEMA)
         return _schema(candidate)
 
 
@@ -259,7 +312,7 @@ def _validate(db: sqlite3.Connection) -> None:
     if db.execute("PRAGMA application_id").fetchone()[0] != APPLICATION_ID:
         raise ValueError("Unknown application database identity")
     version = db.execute("PRAGMA user_version").fetchone()[0]
-    if version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, SCHEMA_VERSION):
+    if version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, SCHEMA_VERSION):
         raise ValueError("Unsupported application database version; maintenance required")
     if _schema(db) != ([] if version == 1 else _expected_schema(version)):
         raise ValueError("Unexpected application database schema")
@@ -524,6 +577,39 @@ def open_database(root: Path) -> Iterator[sqlite3.Connection]:
                     f"BEGIN IMMEDIATE; {WARDROBE_V2_SCHEMA} PRAGMA user_version=14; COMMIT;"
                 )
                 _validate(db)
+            if db.execute("PRAGMA user_version").fetchone()[0] == 14:
+                # Private technical reservations only; existing creative rows stay untouched.
+                db.execute("PRAGMA synchronous=FULL")
+                try:
+                    db.executescript(f"BEGIN IMMEDIATE; {BATCH_INPUT_SCHEMA} PRAGMA user_version=15;")
+                    _validate(db)
+                    db.execute("COMMIT")
+                except BaseException:
+                    if db.in_transaction:
+                        db.execute("ROLLBACK")
+                    raise
+            if db.execute("PRAGMA user_version").fetchone()[0] == 15:
+                # One internal portrait job/initial intent; no accepted render lifecycle yet.
+                db.execute("PRAGMA synchronous=FULL")
+                try:
+                    db.executescript(f"BEGIN IMMEDIATE; {RENDER_JOB_SCHEMA} PRAGMA user_version=16;")
+                    _validate(db)
+                    db.execute("COMMIT")
+                except BaseException:
+                    if db.in_transaction:
+                        db.execute("ROLLBACK")
+                    raise
+            if db.execute("PRAGMA user_version").fetchone()[0] == 16:
+                # Original-byte import only; no provider/job lifecycle or selected assets.
+                db.execute("PRAGMA synchronous=FULL")
+                try:
+                    db.executescript(f"BEGIN IMMEDIATE; {PORTRAIT_CANDIDATE_SCHEMA} PRAGMA user_version=17;")
+                    _validate(db)
+                    db.execute("COMMIT")
+                except BaseException:
+                    if db.in_transaction:
+                        db.execute("ROLLBACK")
+                    raise
             _marker(root / READY, create=True)
             settings = {
                 "journal_mode": ("WAL", "wal"),

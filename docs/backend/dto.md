@@ -1,6 +1,6 @@
 # DTO Contracts
 
-Status: **Foundation refs, V1 bodies/canonical JSON and V2 cinematic production/Motion validators are executable in `backend/domain.py`; compact Wardrobe V2 DTO/adapter/store/runtime/API/readers are implemented as a patch in place, with final W8 acceptance pending. Original graph/config identities and DB v14 are unchanged; V1 is isolated. Cinematic Run and review/media storage remain pending.** This page owns DTO shapes and boundary validation. [Artifacts](artifacts.md) owns persistence/provenance, [HITL](../hilp/hilp.md) human actions, and [cinematic](../pipelines/cinematic.md) stage ownership. Build order and acceptance live in [Local MVP](../roadmap-mvp.md). Hosted wire activates separately.
+Status: **Foundation refs, V1 bodies/canonical JSON and V2 cinematic production/Motion validators are executable in `backend/domain.py`; compact Wardrobe V2 DTO/adapter/store/runtime/API/readers are implemented as a patch in place, with [W8 accepted under the user-requested reduced criterion](../roadmap-mvp.md#wardrobe-batch-output). Original graph/config identities are unchanged; W8 itself retained DB v14, while later input-pin storage adds DB v15, offline 5A portrait job/initial intent DB v16 and offline 5B portrait candidate/original import DB v17; V1 is isolated. Technical [ComfyUI saved V2-plan handoff/native preparation and durable input pins](../roadmap-comfyui.md#wardrobe-comfyui), [offline 5A portrait job/initial intent](artifacts.md#offline-portrait-job-intent) and [offline 5B portrait candidate/original import](artifacts.md#offline-portrait-candidate-import) are implemented; NEXT: 6A first restart-safe portrait; verified parents/reference transport and image activation/group remain steps 6B/7. Cinematic Run, public media DTO/API, selection/assets/group and review remain pending.** This page owns DTO shapes and boundary validation. [Artifacts](artifacts.md) owns persistence/provenance, [HITL](../hilp/hilp.md) human actions, and [cinematic](../pipelines/cinematic.md) stage ownership. Build order and acceptance live in [Local MVP](../roadmap-mvp.md). Hosted wire activates separately.
 
 ## Trust And Encoding
 
@@ -186,20 +186,29 @@ is omitted. Full authority remains frozen in storage; no rich-config compatibili
 `PreparedWardrobeInputsV2` pins schema_version:"2", capability_set:"anchor-basics.v2", authority
 (execution/activation/approval request+digest/decision/Story binding/start/Story config), Wardrobe config
 digest, repair instruction/request digest and planned artifact ID.
-[Durable operation](../agents/wardrobe.md#durable-operation) stores immutable compact V2 under existing DB v14.
-This patch adds no migration, schema version, route or graph identity/digest; existing artifact v1/v2 rows/files remain.
+The [durable operation](../agents/wardrobe.md#durable-operation) committed immutable compact V2 under existing DB v14 in W8.
+W8 itself added no migration, schema version, route or graph identity/digest; later input-pin storage adds DB v15 without rewriting existing artifact v1/v2 rows/files.
 Original `kinodel.story-wardrobe` v2/digest and `/api/executions/story-wardrobe/v2` use adapter 2 for current Start/replay.
 Retired v1 stays isolated from runner/list, commands/reads reject; unversioned Start returns 410 before payload work.
 No reset/conversion/V1 bridge; the user's prior run was not migrated or rewritten. W1–W7 remain historical evidence.
-Focused mocked recovery/UI checks passed; full discovery and live V2 acceptance remain pending.
+[W8](../roadmap-mvp.md#wardrobe-batch-output) is accepted on manual prompt assessment + focused mocked compact V2/offline recovery; UI checks passed.
+Full discovery and the automated real-model/offline harness are deferred, not PASS. Technical ComfyUI saved V2-plan handoff/native preparation, durable input pins, offline 5A portrait job/initial intent and offline 5B portrait candidate/original import are implemented; NEXT is 6A first restart-safe portrait; verified parents/reference transport and image activation/group remain steps 6B/7.
 
-**Pending batch/media handoff:** next FramePlan uses batch fields with its own shot/composition constraints;
+**Implemented technical batch handoff; pending media extension:** next FramePlan uses batch fields with its own shot/composition constraints;
 future source vocabulary adds `{kind:"supplied_image",alias}` under a declared stage capability.
-Internal proposed `BatchGenerationInputV1` pins exact source plan, stage/activation, profiles/connection/mapping,
-ordered jobs and supplied alias bindings. Its V1 numbering is technical, **not creative V1 support**;
-Wardrobe source is only saved validated compact V2. `SelectedMedia={render_result_ref,unit_key}` is unchanged.
+Implemented internal `BatchGenerationInputV1` pins exact saved compact V2 source, stage/activation,
+image profile/connection/mapping and ordered units. Its V1 numbering is technical, **not creative V1 support**.
+`backend/batch_store.py` pins the frozen handoff and per-unit `pre_upload` input via canonical SQL reservation
+→ immutable file → published marker, with offline replay and retained seeds. These are input pins, not accepted
+image activation or provider acceptance. Separate [offline 5A storage](artifacts.md#offline-portrait-job-intent)
+binds only one initial zero-reference portrait job/attempt to exact published inputs; no HTTP envelope/correlation,
+worker, Start, dispatch/retry or graph activation yet; the intent grants no submit authorization. The diagnostic prepare API stays read-only (`preparation_only`, `can_submit:false`).
+Separate [offline 5B import](artifacts.md#offline-portrait-candidate-import) validates portrait original bytes and exact local job/pin lineage only, not provider acceptance, successful history/generation or approval. Its private descriptor/candidate records are not public media DTO/API or selection/assets/group.
+DB v15 adds only `batch_input_pins` / `batch_unit_input_pins`; DB v16 adds only `render_jobs` / `render_submission_attempts`.
+DB v17 adds only `portrait_candidates`. Future locked open auto-upgrades 14→15→16→17 preserving historical rows/schema/pins; the current user DB is untouched, activation/restart uninspected.
+`SelectedMedia={render_result_ref,unit_key}` is unchanged.
 `batch_outputs` is a proposed complete manifest ref, not RenderResult or approval.
-[Field semantics, ordering and boundaries](../tools/batch-generation.md); [W8 status](../roadmap-mvp.md#wardrobe-batch-output).
+[Field semantics, ordering and boundaries](../tools/batch-generation.md); [ComfyUI step 4](../roadmap-comfyui.md#wardrobe-comfyui); [W8 status](../roadmap-mvp.md#wardrobe-batch-output).
 
 Implemented V2 preparation: `MotionPlanV2` and `FilmmakerInputV2` are strict mode-discriminated unions in `backend/domain.py`. `backend/production.validate_motion_plan` matches mode, exact Story, ordered keys/durations and supplied media selectors. Full ref2vid roles are mandatory; no reduced profile is confirmed. Structural selector equality does not certify approval/authorization/lineage: future stage resolution owns those checks. The single `.agents/filmmaker/system.md` matches these shapes but has no runtime activation.
 

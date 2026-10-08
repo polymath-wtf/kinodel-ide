@@ -14,7 +14,9 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import Field, model_validator
 
-from backend import comfyui, production
+from backend import batch_preparation, comfyui, config, production
+from backend.batch_generation import BatchConnectionPinV1
+from backend.batch_preparation import AnchorBatchPreparationRequestV1, PublicBatchPreparationV1
 from backend.config import resolve_data_root
 from backend.character_api import character_router
 from backend.characters import CharacterRef
@@ -511,6 +513,25 @@ def create_app(root: Path | None = None, produce_story=fixture_story, *,
                             "image_profile_stale", "image_size_unsupported"):
                 code = "image_input_invalid"
             raise HTTPException(422, code) from error
+
+    @app.post("/api/executions/{execution_id}/anchor-batch/prepare", response_model=PublicBatchPreparationV1)
+    async def prepare_saved_anchor_batch(execution_id: CanonicalUUID, body: AnchorBatchPreparationRequestV1,
+                                         request: Request):
+        # Read-only diagnostic: no Start, work acceptance, activation persistence or provider calls.
+        try:
+            selected = config.resolve_comfyui_connection(body.connection)
+            connection = BatchConnectionPinV1(connection=selected.connection,
+                                             endpoint_digest="sha256:" + selected.endpoint_digest)
+            prepared = batch_preparation.read_saved_batch_input(request.app.state.runtime.db, execution_id,
+                source_plan_ref=body.source_plan_ref, image_size=body.image_size, image_profile=body.image_profile,
+                connection=connection, activation_id=body.activation_id)
+            return batch_preparation.project_saved_batch_preparation(prepared)
+        except config.ComfyUIConfigError as error:
+            raise HTTPException(422, error.code) from error
+        except (ValueError, TypeError, KeyError, IndexError, AttributeError, OSError, RecursionError) as error:
+            raise HTTPException(409, "Saved batch source or preparation settings are unavailable or invalid") from error
+        except LookupError as error:
+            raise HTTPException(404, "Saved batch source not found") from error
 
     @app.get("/", include_in_schema=False)
     @app.get("/index.html", include_in_schema=False)

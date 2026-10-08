@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+from dataclasses import dataclass
 import hashlib
 import json
 from pathlib import Path
@@ -13,7 +14,7 @@ from urllib.parse import quote
 import httpx
 from pydantic import BaseModel, Field
 
-from backend.config import ComfyUIConfigError, resolve_comfyui_connection
+from backend.config import ComfyUIConfigError, ComfyUIConnection, resolve_comfyui_connection
 from backend import comfyui_workflows as registry
 
 
@@ -109,6 +110,31 @@ class _Failure(Exception):
         self.code = code
 
 
+class PreparationContextError(ValueError):
+    """Safe acquisition failure; raw responses, endpoints and credentials are omitted."""
+
+    def __init__(self, code: str):
+        self.code = code
+        super().__init__(_REASONS.get(code, "Frozen preparation identity or installed image context is invalid; no preparation context was returned."))
+
+
+@dataclass(frozen=True, repr=False)
+class NativeImagePreparationContext:
+    """Private worker context, not a report/DTO, live render capability or upload receipt.
+
+    Pass template/schemas/model_inventory to prepare_batch_unit. That function still
+    validates the request and resolves its seed once. Never send this object to UI.
+    """
+
+    workflow_id: str
+    registry_digest: str
+    connection: Literal["local", "server"]
+    endpoint_digest: str
+    template: bytes
+    schemas: dict
+    model_inventory: dict
+
+
 def _issue(report: PreflightReport, code: str, subject: str | None = None, *, warning: bool = False) -> None:
     report.issues.append(PreflightIssue(code=code, reason=_REASONS[code],
                                         severity="warning" if warning else "error", subject=subject))
@@ -149,7 +175,7 @@ def _parse_json(data: bytes):
     return json.loads(data, object_pairs_hook=_unique_object, parse_constant=reject_constant)
 
 
-def _load_workflow(workflow: str, report: PreflightReport) -> dict:
+def _load_workflow(workflow: str, report: PreflightReport) -> tuple[bytes, dict]:
     if workflow not in list_workflows():
         raise _Failure("invalid_workflow")
     report.workflow = workflow
@@ -170,7 +196,7 @@ def _load_workflow(workflow: str, report: PreflightReport) -> dict:
         report.preparation_enabled = spec.preparation_enabled
         if report.workflow_sha256 != spec.file_sha256:
             raise _Failure("template_pin_mismatch")
-        return graph
+        return data, graph
     except (OSError, ValueError, RecursionError):
         raise _Failure("invalid_workflow_graph") from None
 
@@ -376,38 +402,46 @@ def _is_tls_error(error: BaseException | None) -> bool:
     return False
 
 
+async def _installed_context(graph: dict, report: PreflightReport, settings: ComfyUIConnection,
+                             transport: httpx.AsyncBaseTransport | None) -> tuple[dict, dict]:
+    """One bounded native GET/schema pipeline shared by reporting and worker acquisition."""
+    report.connection = settings.connection
+    report.endpoint_digest = settings.endpoint_digest
+    headers = {"Accept": "application/json", "Accept-Encoding": "identity"}
+    if settings.auth_token:
+        headers["Authorization"] = "Bearer " + settings.auth_token
+    async with asyncio.timeout(TOTAL_TIMEOUT), httpx.AsyncClient(
+        base_url=settings.endpoint, headers=headers, verify=settings.verify, trust_env=False,
+        follow_redirects=False, timeout=httpx.Timeout(REQUEST_TIMEOUT, connect=5.0), transport=transport,
+    ) as client:
+        stats = await _get_json(client, "system_stats", report)
+        _system_report(stats, report, settings.auth_token)
+        schemas, inventories = await _dependencies(client, graph, report, settings.auth_token)
+    report.dependencies_ready = not any(issue.severity == "error" for issue in report.issues)
+    if report.preparation_enabled:
+        report.graph_ready = False
+        if report.dependencies_ready:
+            assert report.workflow is not None
+            spec = registry.workflow_snapshot(report.workflow)
+            try:
+                registry.validate_graph(graph, schemas, workflow=spec,
+                                        planned_loaders=[s["load_id"] for s in spec["mapping"]["slots"]],
+                                        model_inventory=inventories)
+                report.graph_ready = True
+            except registry.WorkflowValidationError as error:
+                report.issues.append(PreflightIssue(code=error.code,
+                    reason="Registered image graph does not satisfy the installed schema or declared mapping; inspect the trusted workflow before any upload."))
+    return schemas, inventories
+
+
 async def preflight(connection: Literal["local", "server"] | None = None, workflow: str = DEFAULT_WORKFLOW,
                     *, transport: httpx.AsyncBaseTransport | None = None) -> PreflightReport:
     """Check selected native dependencies, not execution/VRAM sufficiency or creative capability."""
     report = PreflightReport()
     try:
-        graph = _load_workflow(workflow, report)
+        _, graph = _load_workflow(workflow, report)
         settings = resolve_comfyui_connection(connection)
-        report.connection = settings.connection
-        report.endpoint_digest = settings.endpoint_digest
-        headers = {"Accept": "application/json", "Accept-Encoding": "identity"}
-        if settings.auth_token:
-            headers["Authorization"] = "Bearer " + settings.auth_token
-        async with asyncio.timeout(TOTAL_TIMEOUT), httpx.AsyncClient(
-            base_url=settings.endpoint, headers=headers, verify=settings.verify, trust_env=False,
-            follow_redirects=False, timeout=httpx.Timeout(REQUEST_TIMEOUT, connect=5.0), transport=transport,
-        ) as client:
-            stats = await _get_json(client, "system_stats", report)
-            _system_report(stats, report, settings.auth_token)
-            schemas, inventories = await _dependencies(client, graph, report, settings.auth_token)
-        report.dependencies_ready = not any(issue.severity == "error" for issue in report.issues)
-        if report.preparation_enabled:
-            report.graph_ready = False
-            if report.dependencies_ready:
-                spec = registry.workflow_snapshot(workflow)
-                try:
-                    registry.validate_graph(graph, schemas, workflow=spec,
-                                            planned_loaders=[s["load_id"] for s in spec["mapping"]["slots"]],
-                                            model_inventory=inventories)
-                    report.graph_ready = True
-                except registry.WorkflowValidationError as error:
-                    report.issues.append(PreflightIssue(code=error.code,
-                        reason="Registered image graph does not satisfy the installed schema or declared mapping; inspect the trusted workflow before any upload."))
+        await _installed_context(graph, report, settings, transport)
     except ComfyUIConfigError as error:
         report.issues.append(PreflightIssue(code=error.code, reason=str(error)))
     except _Failure as error:
@@ -418,6 +452,54 @@ async def preflight(connection: Literal["local", "server"] | None = None, workfl
         code = "tls_error" if _is_tls_error(error) else "unavailable" if isinstance(error, httpx.ConnectError) else "http_error"
         _issue(report, code)
     return report
+
+
+async def acquire_preparation_context(connection: Literal["local", "server"], workflow: str, *,
+                                      expected_endpoint_digest: str, expected_registry_digest: str,
+                                      transport: httpx.AsyncBaseTransport | None = None) -> NativeImagePreparationContext:
+    """Acquire validated installed inputs for one preparation-enabled frozen workflow.
+
+    Expected digests use the batch's exact ``sha256:...`` connection/mapping pins.
+    IDs or declared basenames are accepted. Selection is explicit: no default,
+    retry, fallback or POST. Identity/template mismatches reject BEFORE HTTP.
+    All used schemas/models and the registered graph must validate; partial or
+    incompatible contexts are never returned. Credentials stay inside transport.
+    """
+    report = PreflightReport()
+    try:
+        if connection not in ("local", "server"):
+            raise PreparationContextError("invalid_connection")
+        spec = registry.get_workflow(workflow)
+        if not spec.preparation_enabled:
+            raise PreparationContextError("preparation_disabled")
+        digest = "sha256:" + registry.canonical_digest(registry.workflow_snapshot(spec.id))
+        if expected_registry_digest != digest:
+            raise PreparationContextError("registry_pin_mismatch")
+        template, graph = _load_workflow(spec.basename, report)
+        settings = resolve_comfyui_connection(connection)
+        endpoint_digest = "sha256:" + settings.endpoint_digest
+        if expected_endpoint_digest != endpoint_digest:
+            raise PreparationContextError("connection_pin_mismatch")
+        schemas, inventories = await _installed_context(graph, report, settings, transport)
+        if not report.dependencies_ready or report.graph_ready is not True:
+            code = next(issue.code for issue in report.issues if issue.severity == "error")
+            raise PreparationContextError(code)
+        if digest != "sha256:" + registry.canonical_digest(registry.workflow_snapshot(spec.id)):
+            raise PreparationContextError("registry_pin_mismatch")
+        return NativeImagePreparationContext(workflow_id=spec.id, registry_digest=digest,
+            connection=settings.connection, endpoint_digest=endpoint_digest, template=template,
+            schemas=schemas, model_inventory=inventories)
+    except PreparationContextError:
+        raise
+    except (ComfyUIConfigError, _Failure, registry.WorkflowValidationError) as error:
+        raise PreparationContextError(error.code) from None
+    except (TimeoutError, httpx.TimeoutException):
+        raise PreparationContextError("timeout") from None
+    except (httpx.HTTPError, ssl.SSLError) as error:
+        code = "tls_error" if _is_tls_error(error) else "unavailable" if isinstance(error, httpx.ConnectError) else "http_error"
+        raise PreparationContextError(code) from None
+    except (OSError, ValueError, TypeError, KeyError, IndexError, AttributeError, RecursionError):
+        raise PreparationContextError("invalid_preparation_context") from None
 
 
 def main() -> int:
