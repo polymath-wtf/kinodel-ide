@@ -198,7 +198,13 @@ stuff/
     previews/...                            # derived, rebuildable
 ```
 
-DB/WAL/SHM and lock/bootstrap files belong to the same root and are not project media. The text runtime already stores Story JSON in this layout; the media subdirectories are the target extension, not implemented storage yet. These are managed storage locations, not a user-editable state protocol; logical `kinodel://projects/...` URIs remain independent of the physical root. The backend creates every path, verifies hashes, and never lets an agent scan or write arbitrary project files. JSON lives beside local project media for inspection/export; the Project DB (SQLite local / PostgreSQL server) owns identity, current bindings, approvals, jobs and provenance. Hosted bytes stay on server. Kinodel endpoint order/workflow/input/output/audit use private object storage with authorized object-ref/signed-URL delivery; a URL never becomes canonical identity or uploads the local project implicitly.
+DB/WAL/SHM and lock/bootstrap files belong to the same root and are not project media. Story/Wardrobe JSON,
+private inputs and portrait `attempts/` originals are implemented; approved `assets/`, previews and wider
+media publication remain target extensions. Managed paths are not a user-editable state protocol:
+logical `kinodel://projects/...` URIs stay independent of physical root. The backend creates paths and
+verifies hashes; agents never scan/write arbitrary files. Project DB owns identity, bindings, approvals,
+jobs and provenance. Hosted bytes stay on server; private object-ref/signed-URL delivery is separate.
+A URL never becomes canonical identity or uploads the local project implicitly.
 
 The prepared operation pins intended objects before file publication and keeps that protection through finalization or explicit abandonment. Stage validated bytes in a temporary file on the destination filesystem, flush and sync the file, then atomically publish the immutable destination without overwriting an existing object. An existing destination must match the expected hash; a mismatch is an integrity failure. Verify platform-specific no-overwrite publication and crash durability, including directory metadata durability where required, in the storage spike rather than claiming portable guarantees from rename alone.
 
@@ -259,7 +265,8 @@ lineage through `read_saved_batch_input`. The original completed text execution 
 Caller holds the existing data-root lock. Windows file sync/SQLite FULL guarantee process-death
 recovery, not a power-loss claim. Parent metadata remains a pin, not verification of media bytes,
 rights, imported lineage or upload receipt. Initial portrait job/attempt binding is implemented below;
-final post-upload graph, provider transport and accepted image activation/group remain steps 6–7
+zero-reference provider transport is implemented in 6A below; verified parents/final post-upload graph
+and accepted image activation/group remain steps 6B–7
 of the [ComfyUI roadmap](../roadmap-comfyui.md#wardrobe-comfyui).
 
 ## Offline Portrait Job Intent
@@ -280,8 +287,8 @@ leaves neither record; after-commit recovery reads the same pair and inputs.
 
 This intent fingerprint is not a native HTTP envelope, provider acceptance, definitely-unsent evidence,
 public Start or submit authorization. There is no dispatch, state machine or second-attempt allocator.
-Candidate storage/import is implemented below; accepted render intent, native envelope/correlation and
-submit/reconciliation follow in 6А; image activation/group/wait remains 7.
+Candidate storage/import is implemented below; separate accepted render intent, native envelope/correlation
+and submit/reconciliation are implemented in 6А below. This 5A owner stays immutable; image activation/group/wait remains 7.
 
 ## Offline Portrait Candidate Import
 
@@ -311,8 +318,47 @@ It is transport provenance, not a local path or evidence of successful provider 
   Unreserved random staging orphans remain hidden and are not adopted or automatically collected.
 
 Caller holds the root lock. A technically valid candidate is not provider acceptance/history success,
-approval, an asset or selected binding. Future worker 6А must prove successful declared history before
-import. Public media reads, parent rights resolver, selection/group and transport remain later steps.
+approval, an asset or selected binding. Worker 6А proves successful declared history before import.
+Public media reads, parent rights resolver/reference transport and selection/group remain later steps.
+
+## Restart-safe Portrait Submission
+
+Internal 6A uses `backend/portrait_submission_store.py` and `backend/portrait_worker.py` for ONE initial
+zero-reference portrait from an exact saved validated compact V2 plan. Additive DB17→18 adds only
+`portrait_submissions`; 5A job/intent and 5B candidate identities/schema/ownership stay unchanged.
+Caller holds the root OS lock and services one job at a time; caller SQL transactions are refused.
+
+- `preview_portrait_submission` deterministically returns the frozen native envelope: exact resolved
+  `prompt`, deterministic `client_id`, and `extra_data.kinodel_portrait_v1` job/attempt/input/5A-intent/graph
+  digests. SQL owns the canonical wire body/digest, exact connection/endpoint pins and source plan ref;
+  credentials stay separate. Preview, 5A intent and preparation-only diagnostics never authorize POST.
+- `authorize_portrait_submission` requires expected input/wire digests and fixes acceptance time plus
+  original deadline (default 15 min, max 1 h). Revision-CAS `claim_portrait_dispatch` commits potentially-sent
+  **before HTTP**; only a fresh successful claim permits one POST. Reopened dispatching never means unsent.
+  Response `prompt_id`/first acceptance evidence commit before node-error/contract checks; unknown acceptance
+  stays blocked, empty history proves nothing. There is no second-attempt allocator or automatic POST retry.
+- `tick_portrait_job` performs bounded native async calls (connect 5 s, read/per-call total 15 s, tick 60 s),
+  verified TLS/no proxy-env/redirect/retry, identity transfer, strict bounded JSON and a 16 MiB PNG spool
+  in ≤64 KiB chunks. No SQL transaction spans await, streaming or decode. Exact native queue/history tuple,
+  graph, namespace, optional client ID and declared outputs are checked before successful completed history
+  can import. Only finite value-identical int→float at frozen schema-declared FLOAT scalars is equivalent;
+  all other graph fields/types/links remain exact. Safe Windows subfolder separators normalize for metadata;
+  `/view` retains actual native spelling. Candidate bytes/digest/geometry and publication remain owned by 5B.
+- `revalidate_contract=True` is explicit trusted-caller correction of a known owned-ID contract block,
+  only after full matching successful history and a safe declared descriptor. First acceptance evidence
+  remains; the original block is retained in restricted audit. Default ticks cannot clear a contract reason.
+- `authorize_portrait_output_recovery` grants ONE revision-guarded GET/import-only time pair ≤5 min for the
+  same accepted prompt after original expiry. It never changes original acceptance/deadline/dispatch or
+  permits POST; exact replay preserves the pair, expired/changed grants never renew. The inactive optional
+  pair alone is omitted from canonical serialization, keeping existing DB18 bodies exact without migration.
+  Successful history is rechecked before using the grant; published missing/corrupt originals never heal.
+
+6A is accepted: live original import and fresh-process exact offline read passed after the user confirmed
+ComfyUI was powered off, with HTTP/socket calls patched to fail. Shutdown is user-confirmed, not agent-performed
+or independently server-probed. [Evidence](../../test-results/README.md#comfyui-step-6a--restart-safe-portrait--8-october-2026).
+Completion is technical, not approval/selection. No public route/media DTO, cinematic Start, scheduler,
+capability activation or graph/group lifecycle is enabled. NEXT: verified parent rights/bytes, ordered
+uploads/receipts/final pins (6B), then image activation/groups (7).
 
 ## Minimal Schemas
 
@@ -330,7 +376,8 @@ Implement and verify schemas in activation order. The wider catalog is design co
   W8 is accepted under the user-requested reduced criterion (manual prompt assessment + focused mocked compact V2/offline recovery).
   Full discovery and the automated real-model/offline harness are deferred, not PASS. Technical handoff,
   native preparation, durable input pins, offline initial portrait job/attempt storage and original
-  candidate import are implemented; NEXT is the first restart-safe portrait (6А).
+  candidate import and private DB18 portrait submission/worker (6A) are implemented.
+  User-confirmed provider-off reopen completes 6A acceptance; NEXT implementation is verified parent transport (6B), then groups (7).
   Future batch FramePlan, candidate-set records and `RenderResultV1` belong to the pending media slice.
   Stable keys, `SelectedMedia` and selected slots are unchanged;
 - mode-discriminated MotionPlan under the next `img2vid/ref2vid` contract, `MontagePlanV1` and `MontageResultV1` when video/montage is enabled; original i2v `MotionPlanV1` retains its meaning;

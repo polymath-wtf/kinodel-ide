@@ -15,7 +15,7 @@ from backend.ownership import own_data_root
 
 DATABASE_NAME = "application.sqlite3"
 APPLICATION_ID = 0x4B494E4F  # KINO; SQLite header identity, not a business record.
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 18
 BUSY_TIMEOUT_MS = 1000
 INITIALIZING = ".kinodel-initializing-v1"
 READY = ".kinodel-ready-v1"
@@ -257,6 +257,23 @@ CREATE TABLE portrait_candidates (
     publication_state TEXT NOT NULL CHECK(publication_state IN ('reserved','published'))
 );
 """
+PORTRAIT_SUBMISSION_SCHEMA = """
+CREATE TABLE portrait_submissions (
+    attempt_id TEXT PRIMARY KEY NOT NULL REFERENCES render_submission_attempts(attempt_id),
+    job_id TEXT NOT NULL UNIQUE REFERENCES render_jobs(job_id),
+    wire_digest TEXT NOT NULL, submission_digest TEXT NOT NULL,
+    submission_body TEXT NOT NULL CHECK(length(CAST(submission_body AS BLOB)) BETWEEN 1 AND 1048576),
+    revision INTEGER NOT NULL CHECK(revision>=0),
+    state TEXT NOT NULL CHECK(state IN ('authorized','dispatching','accepted','blocked','failed','completed')),
+    prompt_id TEXT CHECK(length(prompt_id) BETWEEN 1 AND 128),
+    candidate_id TEXT REFERENCES portrait_candidates(candidate_id),
+    CHECK((state='completed') = (candidate_id IS NOT NULL)),
+    CHECK(state NOT IN ('accepted','completed') OR prompt_id IS NOT NULL),
+    CHECK(state NOT IN ('authorized','dispatching') OR prompt_id IS NULL),
+    CHECK((state='authorized' AND revision=0) OR (state='dispatching' AND revision=1)
+        OR (state IN ('accepted','blocked','failed','completed') AND revision>=1))
+);
+"""
 
 
 def _schema(db: sqlite3.Connection) -> list[tuple[str, str, str]]:
@@ -294,7 +311,17 @@ def _expected_schema(version: int) -> list[tuple[str, str, str]]:
             candidate.executescript(RENDER_JOB_SCHEMA)
         if version >= 17:
             candidate.executescript(PORTRAIT_CANDIDATE_SCHEMA)
+        if version >= 18:
+            candidate.executescript(PORTRAIT_SUBMISSION_SCHEMA)
         return _schema(candidate)
+
+
+def _wardrobe_retention_schema(version: int) -> list[tuple[str, str, str]]:
+    """Exact historical SQL for retaining unsupported Wardrobe V3 artifacts only."""
+    return [(kind, name, sql.replace(
+        "schema_id='visual_anchor_plan' AND schema_version IN ('1','2')",
+        "schema_id='visual_anchor_plan' AND schema_version IN ('1','2','3')",
+    ) if name == 'artifacts' else sql) for kind, name, sql in _expected_schema(version)]
 
 
 def _check_file(path: Path) -> None:
@@ -312,9 +339,12 @@ def _validate(db: sqlite3.Connection) -> None:
     if db.execute("PRAGMA application_id").fetchone()[0] != APPLICATION_ID:
         raise ValueError("Unknown application database identity")
     version = db.execute("PRAGMA user_version").fetchone()[0]
-    if version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, SCHEMA_VERSION):
+    if version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, SCHEMA_VERSION):
         raise ValueError("Unsupported application database version; maintenance required")
-    if _schema(db) != ([] if version == 1 else _expected_schema(version)):
+    schema = _schema(db)
+    if (schema != ([] if version == 1 else _expected_schema(version))
+            and not (version >= 15 and schema == _wardrobe_retention_schema(version))
+            and not (version == 15 and schema == _wardrobe_retention_schema(14))):
         raise ValueError("Unexpected application database schema")
     if version != 1 and db.execute("PRAGMA foreign_key_check").fetchone():
         raise ValueError("Application database foreign key check failed")
@@ -577,8 +607,11 @@ def open_database(root: Path) -> Iterator[sqlite3.Connection]:
                     f"BEGIN IMMEDIATE; {WARDROBE_V2_SCHEMA} PRAGMA user_version=14; COMMIT;"
                 )
                 _validate(db)
-            if db.execute("PRAGMA user_version").fetchone()[0] == 14:
+            if (db.execute("PRAGMA user_version").fetchone()[0] == 14
+                    or (db.execute("PRAGMA user_version").fetchone()[0] == 15
+                        and _schema(db) == _wardrobe_retention_schema(14))):
                 # Private technical reservations only; existing creative rows stay untouched.
+                # The exact Wardrobe-only DB15 collision needs the same additive pin DDL.
                 db.execute("PRAGMA synchronous=FULL")
                 try:
                     db.executescript(f"BEGIN IMMEDIATE; {BATCH_INPUT_SCHEMA} PRAGMA user_version=15;")
@@ -604,6 +637,17 @@ def open_database(root: Path) -> Iterator[sqlite3.Connection]:
                 db.execute("PRAGMA synchronous=FULL")
                 try:
                     db.executescript(f"BEGIN IMMEDIATE; {PORTRAIT_CANDIDATE_SCHEMA} PRAGMA user_version=17;")
+                    _validate(db)
+                    db.execute("COMMIT")
+                except BaseException:
+                    if db.in_transaction:
+                        db.execute("ROLLBACK")
+                    raise
+            if db.execute("PRAGMA user_version").fetchone()[0] == 17:
+                # Guarded one-portrait authorization/dispatch facts, separate from immutable 5A/5B.
+                db.execute("PRAGMA synchronous=FULL")
+                try:
+                    db.executescript(f"BEGIN IMMEDIATE; {PORTRAIT_SUBMISSION_SCHEMA} PRAGMA user_version=18;")
                     _validate(db)
                     db.execute("COMMIT")
                 except BaseException:

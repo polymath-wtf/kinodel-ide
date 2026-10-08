@@ -1,6 +1,6 @@
 # Batch-generation: препродакшн image-ноды
 
-Статус: **8 октября 2026: [W8 принят по сокращённому критерию автора](../roadmap-mvp.md#wardrobe-batch-output). Exact saved V2 handoff, guarded diagnostics, native preparation/replay и durable private input pins реализованы в [ComfyUI шаге 4](../roadmap-comfyui.md#wardrobe-comfyui), [offline 5А portrait job/initial intent](../backend/artifacts.md#offline-portrait-job-intent) — в DB16, [offline 5Б portrait candidate/original import](../backend/artifacts.md#offline-portrait-candidate-import) — в DB17. Wardrobe graph/config/route сохраняются; после W8/DB14 additive DB15 добавляет input-pin records, DB16 — initial job/attempt records, DB17 — только `portrait_candidates`, без изменения прежних rows/schema/pins. NEXT — 6А первый restart-safe portrait. Offline candidate — technical original с exact local job/pin lineage, не provider acceptance/successful generation/approval. Provider lifecycle/worker, public media DTO/API, selection/assets, image activation/group/review и batch/media UI ещё pending**.
+Статус: **8 октября 2026: [W8 принят по сокращённому критерию](../roadmap-mvp.md#wardrobe-batch-output). Saved V2 preparation и immutable 5А/5Б owners реализованы; после W8/DB14 input pins — DB15, job/intent — DB16, candidates — DB17. [Private 6А portrait lifecycle](../backend/artifacts.md#restart-safe-portrait-submission) добавляет только DB18 `portrait_submissions`, не batch activation. 6А принят: live import и fresh-process network-forbidden reopen после user-confirmed provider shutdown пройдены. NEXT: 6Б parent rights/bytes + ordered uploads/final pins, затем groups 7. Public media DTO/API, selection/assets/review и batch/media UI ещё pending**.
 Первый потребитель — Wardrobe, следующий — Storyboard. Общие side-effect/review правила остаются в
 [Render](render.md); backend/LLM-задачи — в [Local MVP](../roadmap-mvp.md#wardrobe-batch-output),
 workflow/job/media/UI-задачи — в [ComfyUI roadmap](../roadmap-comfyui.md#wardrobe-comfyui).
@@ -164,12 +164,13 @@ Rich shape не получает compatibility reader или conversion. Exact V
 runner/list, commands/reads отклоняются.
 Unversioned Start возвращает 410 до payload work; сохранённые browser envelopes не перенаправляются.
 W8 patch сохранял DB14 без новой migration/schema version/route; последующий input-pin storage добавляет DB15.
-Активация/restart пользовательского backend не проверялись;
-его prior run не мигрирован, не переписан и не регенерирован.
+Историческая W8 acceptance не включала активацию/restart пользовательского backend.
+6А читает genuine saved V2/approval из isolated backup; prior creative run не переписывается/не регенерируется.
 W1–W7 остаются историческими; reset/deletion нет, Story/Brief/video compatibility не меняется.
 
 W8 принят по сокращённому критерию; technical saved V2-plan preparation реализована;
-Offline 5А portrait job/initial intent и offline 5Б portrait candidate/original import реализованы; NEXT: 6А один restart-safe portrait → 6Б verified parent bytes/rights, reference uploads/final graph → N jobs / полный review (шаг 7).
+Offline 5А/5Б реализованы; private 6А portrait принят с user-confirmed provider-off fresh-process reopen.
+NEXT implementation: 6Б verified parent bytes/rights, reference uploads/final graph → N jobs / полный review (шаг 7).
 Read-only preparation разрешена заранее; initial render и technical Retry не вызывают Wardrobe повторно.
 
 ## 4. Порядок, зависимости и workflow binding

@@ -87,11 +87,11 @@ Unversioned `POST /api/executions/story-wardrobe` returns **410 before payload p
 
 After Python/backend changes, stop the existing backend with Ctrl+C and relaunch it with the command above and the same data root. Browser reload and `npm run build:watch` update frontend assets only; this launch has no Python auto-reload, so an old process continues serving its old API and runtime. User-process activation/restart was not inspected by this W8 acceptance; code/browser evidence does not establish activation, migration or evaluated preflight counts in that root. After restart, newly recorded Storytell failures expose safe stage/attempt/HTTP-or-transport evidence in **«Вызовы модели»**. A historical null diagnostic remains **«Причина не установлена»**; restart cannot recover missing failure evidence.
 
-Previously blocked V1 Wardrobe runs remain retained history, not supported V2 continuation. Restart does not resume/convert them; new work requires a fresh V2 run. Current compact V2 retries retain their frozen inputs/config/budget. User-process restart and exact offline reopen of the user's real artifact were not inspected; their prior run was not migrated, rewritten or regenerated, and no agent-run paid provider proof is claimed.
+**Historical W8 acceptance boundary:** previously blocked V1 Wardrobe runs remain retained history, not supported V2 continuation. Restart does not resume/convert them; new work requires a fresh V2 run. Compact V2 retries retain their frozen inputs/config/budget. That acceptance did not inspect user-process restart/offline reopen of the user's real artifact or claim agent-run paid provider proof; the prior run was not migrated, rewritten or regenerated. Separate 6A source validation/live portrait evidence does not extend W8's real-model acceptance.
 
 Exact Story approval atomically records approval and Wardrobe activation without terminal completion. The runner invokes Wardrobe and holds resume work through a stable stop/end; a valid saved plan is required for successful terminal commit before `END`. The plan is a supporting output without another HITL gate. Applied approval is the authority in this route; a completed outcome is not required to establish Story approval.
 
-Authenticated `GET /api/executions/{execution_id}/wardrobe-plans/{artifact_id}` verifies exact compact V2 `{ref,plan}`. Projection retains `wardrobe_plan_ref` and `wardrobe_stop={work_id,reason,explanation,allowed_actions}`. Non-ready/failure stops remain blocked. Unavailable Retry uses the same pins and remaining hard maximum of two Wardrobe attempts, without replenishment; other stops require cancel/new-run. Control handlers persist work; runner drains invocation-scoped public saver writes before cancellation terminal/lock release. Guarded `/api/executions/{execution_id}/wardrobe-activity` exposes stored authoritative input V2 and config 2 after preparation, without credentials/provider payload/current environment/library lookup. Pipeline/Chat share exact saved prompts and short ordered refs. W1–W7 remain historical V1 acceptance. W8 is accepted under the user-requested reduced criterion (manual prompt assessment + focused mocked compact V2/offline recovery); full discovery and the automated real-model/offline harness are deferred, not PASS. [ComfyUI handoff/native preparation/durable input pins](../roadmap-comfyui.md#wardrobe-comfyui), offline 5A portrait job/initial intent and [offline 5B portrait candidate/original import](artifacts.md#offline-portrait-candidate-import) are implemented; NEXT: 6A first restart-safe portrait. Public cinematic Start/render/review remain pending ([checklist](../roadmap-mvp.md#wardrobe-batch-output), [evidence](../../test-results/README.md#wardrobe-w8-backend-and-final-status--7-october-2026)).
+Authenticated `GET /api/executions/{execution_id}/wardrobe-plans/{artifact_id}` verifies exact compact V2 `{ref,plan}`. Projection retains `wardrobe_plan_ref` and `wardrobe_stop={work_id,reason,explanation,allowed_actions}`. Non-ready/failure stops remain blocked. Unavailable Retry uses the same pins and remaining hard maximum of two Wardrobe attempts, without replenishment; other stops require cancel/new-run. Control handlers persist work; runner drains invocation-scoped public saver writes before cancellation terminal/lock release. Guarded `/api/executions/{execution_id}/wardrobe-activity` exposes stored authoritative input V2 and config 2 after preparation, without credentials/provider payload/current environment/library lookup. Pipeline/Chat share exact saved prompts and short ordered refs. W1–W7 remain historical V1 acceptance. W8 retains its reduced acceptance; full discovery/real-model harness remain deferred. Private [6A portrait submission/import](artifacts.md#restart-safe-portrait-submission) is implemented without changing these routes. NEXT implementation: reference transport 6B, then groups 7. Public cinematic Start/render/review remain pending ([checklist](../roadmap-mvp.md#wardrobe-batch-output), [W8 evidence](../../test-results/README.md#wardrobe-w8-backend-and-final-status--7-october-2026)).
 
 **Request inspection (existing shell, compact V2 reader):** double-click / Shift+Enter follows Pipeline → `wardrobe` (Wardrobe agent / Batch generation · Anchors / review) → Wardrobe agent → `wardrobe:request` (**START → Model → END → Plan**). Batch/media reviews remain disconnected; historical `cinematic.v1.json` is untouched. END is validation/save, not approval/trace. Only persisted preparation supplies frozen model/config; env/Storytell model never substitutes. Inputs show approved Story link, idea and frozen Character Bio/images once; technical refs/provenance/full authority input are collapsed. Original bytes go to the model as ordered base64 without resize/re-encoding/omission. Outputs show full copyable prompts, use_case/mode and short ordered refs, with exact plan/Story refs collapsed; all creative detail is inside prompts ([frontend contract](../frontend/webui.md#wardrobe-и-comfyui)).
 
@@ -143,17 +143,34 @@ installed schemas/models through bounded GET-only preflight. Its private context
 Internal `backend.batch_store` now persists these canonical bodies/digests through SQL reservations
 and immutable input publication; it is not called by the diagnostic API. [Storage contract](artifacts.md#durable-batch-input-pins).
 Separate [offline 5A portrait job/initial intent storage](artifacts.md#offline-portrait-job-intent) binds
-only one initial zero-reference portrait job/attempt to exact published inputs. No HTTP envelope/correlation,
-acceptance, submit authorization, worker, Start, dispatch/retry or graph activation; preparation-only capability is unchanged.
+only one initial zero-reference portrait job/attempt to exact published inputs; this intent does not authorize submit.
+Separate [6A](artifacts.md#restart-safe-portrait-submission) owns explicit exact-wire authorization/native ticks in DB18,
+not Start, retry allocation or graph activation; preparation-only public capability is unchanged.
 [Offline 5B portrait candidate/original import](artifacts.md#offline-portrait-candidate-import) is implemented:
 static PNG only, 16 MiB cap, exact pinned portrait geometry up to 1024 per side. It validates original bytes
 and exact local job/pin lineage, not provider acceptance, successful history/generation or approval;
 no public media DTO/API, selection/assets/group or media UI is enabled.
-NEXT: 6A first restart-safe portrait; verified parent bytes/rights, reference uploads/final graph remain 6B, group/activation 7.
+6A is accepted: live portrait import and fresh-process network-forbidden reopen after user-confirmed provider shutdown passed.
+NEXT implementation: verified parent bytes/rights, ordered uploads/final graph 6B, then group/activation 7.
+
+**Historical offline 5B migration note (retained):**
 
 The next normal locked `open_database` upgrades a valid DB14 through 14→15→16→17: two private input-pin
 tables in DB15, two job/first-attempt tables in DB16, only `portrait_candidates` in DB17. Existing rows/schema/pins, creative files and checkpoints remain unchanged. No user data-root
 open/migration or process restart was performed in this implementation check.
+
+During 6A development, locked startup also recognizes the exact persisted **Wardrobe-only DB15**
+fingerprint: DB14 tables with the historical Wardrobe artifact CHECK allowing versions 1/2/3, without
+input-pin tables. This earlier trial reused the DB15 stamp. Only that complete fingerprint receives
+the additive pin migration before the normal 15→16→17→18 path; DB18 adds the in-progress portrait
+submission storage. Original SQL/rows/rowids and V3 artifact files are retained, but V3 readers/routes
+remain unsupported. The exact retention fingerprint is validated after each migration/reopen;
+unknown or partially matching schemas still refuse startup. [Repair evidence](../../test-results/README.md#startup-schema-collision-repair--8-october-2026).
+
+**Current 6A storage:** DB18 adds only implemented `portrait_submissions`; the preceding DB15 repair
+description is retained as its historical migration fact. Native worker/accepted intent and output-only
+recovery are internal, caller-lock-owned operations, with no public route or scheduler. The live check used
+an isolated read-only SQLite backup and copied immutable project files, not another migration of the source root.
 
 ## Acceptance Gate
 

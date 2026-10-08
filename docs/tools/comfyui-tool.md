@@ -1,6 +1,6 @@
 # ComfyUI Tool: workflow и REST-путь
 
-Статус: **read-only backend preflight, единый registry и offline image preparation реализованы; submit/import adapter ещё не реализован**. Это транспорт и кандидаты workflow для [Render](render.md), не проверенные live production profiles. Рендер принадлежит worker, а не агенту или HTTP-запросу пользователя; кандидаты становятся `anchor_frames`, `story_frames` и `shot_videos` только после review/selection. [Контракт provider и crash/retry](../backend/comfyui.md) остаётся обязательным; пошаговая настройка/реализация — [ComfyUI roadmap](../roadmap-comfyui.md).
+Статус: **read-only preparation и private zero-reference portrait submit/reconcile/import (6А, DB18) реализованы и приняты: live import и fresh-process network-forbidden reopen после user-confirmed provider shutdown пройдены. NEXT: reference transport 6Б, затем groups/activation 7**. Это не public render route или capability promotion: кандидаты становятся выбранными `anchor_frames`, `story_frames`, `shot_videos` только через review/selection. [6А storage/worker contract](../backend/artifacts.md#restart-safe-portrait-submission), [provider boundary](../backend/comfyui.md), [roadmap](../roadmap-comfyui.md).
 
 ## Текущие файлы и порты
 
@@ -88,7 +88,12 @@ stuff/projects/<project_id>/
   previews/...                                      # производные thumbnails/posters
 ```
 
-По умолчанию здесь это `D:\Ai\kinodel-ide\stuff\projects\<project_id>\`; абсолютный `KINODEL_DATA_ROOT` меняет root. Offline storage первого portrait уже реализован: [5Б candidate import](../backend/artifacts.md#offline-portrait-candidate-import) принимает bounded PNG stream, сохраняет exact original и делает его видимым после immutable publication/DB finalization. Native `/view` download и проверка успешной history — ещё шаг 6А. Будущий download ограничивается bytes/time; текущий import вычисляет SHA-256 и проверяет decode/MIME/размеры, для video duration/audio через `ffprobe` добавляется при включении видео. Interrupted/invalid stream не становится видимым candidate; повторный import того же output сверяется с committed identity/digest, не создаёт новый результат.
+Default root — `D:\Ai\kinodel-ide\stuff\projects\<project_id>\`; абсолютный `KINODEL_DATA_ROOT` меняет root.
+[6А worker](../backend/artifacts.md#restart-safe-portrait-submission) проверяет exact successful declared history,
+затем bounded identity-encoded PNG `/view` stream → private spool → existing [5Б import](../backend/artifacts.md#offline-portrait-candidate-import).
+Strict safe Windows subfolder нормализуется для metadata, но actual native spelling идёт в query; filename
+не выбирает local destination. Import сохраняет original и проверяет SHA/decode/MIME/geometry до публикации;
+partial/invalid download невидим, published corruption не лечится. Video `ffprobe` остаётся будущим срезом.
 
 Human review/save отдельно создаёт approved `AssetRef` и selected RenderResult; уже durable candidate bytes можно переиспользовать без второй копии, сохранив отдельную asset identity/selection. Browser читает committed media через Kinodel, downstream — exact refs; после импорта ComfyUI может быть выключен. Original не заменяется preview и не проходит Character re-encode. Подробные visibility/crash rules — [managed storage](../backend/artifacts.md#managed-project-storage), [candidates and promotion](../backend/artifacts.md#candidates-and-promotion).
 
@@ -96,7 +101,12 @@ Skill CLI `--input-image` — пример транспорта, не production
 
 ## Следующая проверка на работающем сервере
 
-GET-only connection/dependency checks и offline graph preparation/replay по installed schemas выполнены в шагах 1–2. Далее выполнить один REST-проход **для workflow текущего среза**, не все кандидаты сразу: `object_info`/models → необходимые uploads → подготовленный `POST /prompt` → queue/history → `/view` → digest/media probe; сохранить request/response/status fixtures и версии установленного ComfyUI/custom nodes. Затем проверить portrait→sheet, позже все роли multi-reference frame workflow и start-frame→clip с измерением RIFE/FPS/duration/audio. Lost response/restart проверяются до активации production worker. Upload/generation/import ещё не проверены; [порядок срезов](../roadmap-comfyui.md#последовательность), [общая приёмка](../roadmap-mvp.md#acceptance).
+GET-only preparation/replay выполнены в шагах 1–2; zero-reference portrait native POST → exact history →
+verified original import и fresh-process network-forbidden reopen после user-confirmed provider shutdown
+закрывают 6А. Lost-response/process-death checks не разрешают повторный POST. Далее 6Б verified parents/uploads,
+потом portrait+background→sheet/groups, multi-reference frames и video timing/audio. Остальные workflow
+не получают capability promotion от одного portrait. [6А evidence](../../test-results/README.md#comfyui-step-6a--restart-safe-portrait--8-october-2026),
+[порядок срезов](../roadmap-comfyui.md#последовательность), [общая приёмка](../roadmap-mvp.md#acceptance).
 
 Источники transport: [локальный REST-гайд](../../skills/comfyui-skill/references/rest-api.md), [официальные routes](https://docs.comfy.org/development/comfyui-server/comms_routes) и [API examples](https://docs.comfy.org/development/comfyui-server/api-examples). Skill — toolkit, не владелец jobs Kinodel.
 

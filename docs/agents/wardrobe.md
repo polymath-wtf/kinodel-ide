@@ -1,7 +1,7 @@
 # Wardrobe
 
 Class: creative agent  
-Status: **ACTIVE implementation is compact V2-only: W8 patches the result and creative model projection in place; original graph identity/digest, adapter 2 and Start route are unchanged. W8 itself retained DB v14; later input-pin storage adds DB v15, offline 5A portrait job/initial intent DB v16, offline 5B portrait candidate/original import DB v17. Pure/adapter, durable operation/storage, scoped Story approval → Wardrobe runtime/API and shared Pipeline/Chat exact reader are implemented. [W8 is accepted under the user-requested reduced criterion](../roadmap-mvp.md#wardrobe-batch-output): manual prompt assessment + focused mocked compact V2/offline recovery; browser checks passed. Full discovery and the automated real-model/offline harness are deferred, not PASS. [W1–W7](../roadmap-mvp.md#wardrobe-backend) / [W6 evidence](../../test-results/README.md#wardrobe-w6-live-acceptance--6-october-2026) retain historical V1 acceptance. Technical [ComfyUI saved V2-plan handoff/native preparation and durable input pins](../roadmap-comfyui.md#wardrobe-comfyui), [offline 5A portrait job/initial intent](../backend/artifacts.md#offline-portrait-job-intent) and [offline 5B portrait candidate/original import](../backend/artifacts.md#offline-portrait-candidate-import) are implemented; NEXT: 6A first restart-safe portrait; verified parent bytes/rights, reference uploads/final graph and image activation/group remain steps 6B/7. Offline candidates are technical originals with exact local job/pin lineage, not provider acceptance, successful generation or approval. User-process activation/restart was not inspected; anchor rendering/review remain pending, and the user's prior run was not migrated or rewritten.**
+Status: **ACTIVE compact V2-only; original graph/digest, adapter 2 and Start route unchanged. W8 retained DB14 and [reduced acceptance](../roadmap-mvp.md#wardrobe-batch-output); full discovery/real-model harness remain deferred, not PASS. W1–W7/W6 remain historical V1 evidence. Subsequent immutable input/job/candidate owners use DB15–17; [private 6A portrait submission/import](../backend/artifacts.md#restart-safe-portrait-submission) uses DB18 without another Wardrobe call. 6A is accepted: live import and fresh-process network-forbidden reopen after user-confirmed provider shutdown passed. NEXT: verified parents/reference transport 6B, then image activation/groups 7. Full anchor rendering/review and public media UI remain pending.**
 
 Wardrobe owns anchor direction and prompts. The planned image tool creates its generated result `anchor_frames`, reviewed before Storyboard in the [cinematic route](../pipelines/cinematic.md). The next media route uses **Batch-generation / `anchor-batch`** in place of the original `anchor-gen`; this change is a [preproduction design](../tools/batch-generation.md), not activated rendering.
 
@@ -46,9 +46,12 @@ adapter-owned. Schema/prompt/config/storage/readers and versioned start/graph ar
 under [W8](../roadmap-mvp.md#wardrobe-batch-output). Compact V2 is patched in place: strict validators
 reject removed rich fields, without a compatibility reader or conversion. V1 runs/configs remain retained
 but isolated and unsupported, without a V1 consumption adapter, replay, conversion or reset.
-W8 itself retained DB v14 without a migration, route or artifact-schema change; later input-pin storage adds DB v15, offline 5A portrait job/initial intent DB v16 and offline 5B portrait candidate/original import DB v17 (only `portrait_candidates`).
-Future locked open auto-upgrades 14→15→16→17 preserving historical rows/schema/pins; the current user DB and prior run are untouched,
-and user-process activation/restart was not inspected. Separate Story/Brief/video compatibility is unaffected.
+W8 retained DB14 without migration/route/artifact-schema change; subsequent input pins use DB15, immutable
+job/intent DB16 and candidate import DB17. Current DB18 adds only separate `portrait_submissions` for 6A;
+no changes to Wardrobe creative ownership, approvals or graph activation.
+Current locked migrations retain historical rows/schema/pins through DB18, including the separately
+documented [historical DB15 repair](../backend/local-startup.md). 6A uses an isolated source backup;
+creative runs are not rewritten/regenerated. Separate Story/Brief/video compatibility is unaffected.
 W8 is accepted under the user-requested reduced criterion; focused mocked schema/offline recovery and UI checks passed.
 Full discovery and the automated real-model/offline harness are deferred, not PASS.
 Authored TS scopes use disconnected `anchor-batch`/`frames-batch`; historical `cinematic.v1.json` is untouched.
@@ -95,7 +98,14 @@ The scoped runtime invokes this operation, holds resume work through a stable st
 
 `POST /api/executions/story-wardrobe/v2` uses `LiveStart` for ordinary current Start and exact replay. Unversioned Start returns **410 before payload validation/preparation**, never retargeting V1. Exact `GET /api/executions/{execution_id}/wardrobe-plans/{artifact_id}` returns compact V2 `{ref,plan}`. Projection retains `wardrobe_plan_ref` and `wardrobe_stop={work_id,reason,explanation,allowed_actions}`. «Новая история» starts Story → Wardrobe; Pipeline/Chat show full copyable prompts and short ordered refs, with technical identities collapsed. Inputs show approved Story/idea and frozen Character Bio/images once, generated cast only when selection is empty. Saved envelopes preserve endpoint/bytes/key, without retargeting. Guarded `/api/executions/{execution_id}/wardrobe-activity` supplies stored authoritative input V2/config 2 after preparation.
 
-W8 is accepted under the user-requested reduced criterion; full discovery and the automated real-model/offline harness are deferred, not PASS. W1–W7 remain historical V1 acceptance; `tests/live_wardrobe_check.py` is still the V1 harness pending update. User-process activation/restart and exact offline reopen of the user's real artifact were not inspected; their prior run was not migrated, rewritten or regenerated. Technical ComfyUI saved V2-plan handoff/native preparation, durable input pins, offline 5A portrait job/initial intent and offline 5B portrait candidate/original import are implemented; NEXT is 6A first restart-safe portrait; verified parents/reference transport and image activation/group remain steps 6B/7, anchor rendering/review pending. [Build status](../roadmap-mvp.md#wardrobe-batch-output), [ComfyUI step 4](../roadmap-comfyui.md#wardrobe-comfyui), [current evidence](../../test-results/README.md#wardrobe-w8-backend-and-final-status--7-october-2026).
+W8 retains its reduced acceptance; full discovery/automated real-model harness remain deferred, not PASS.
+W1–W7 remain historical V1 evidence; `tests/live_wardrobe_check.py` is the V1 harness pending update.
+6A used the exact saved V2 and genuine Story approval from an isolated read-only backup, without rewriting
+or regenerating the source plan. Private 6A live portrait import and fresh-process network-forbidden reopen after
+user-confirmed provider shutdown passed. NEXT: 6B verified parents/reference transport, then groups 7;
+complete anchor review remains pending. [Build status](../roadmap-mvp.md#wardrobe-batch-output),
+[6A contract](../backend/artifacts.md#restart-safe-portrait-submission),
+[W8 evidence](../../test-results/README.md#wardrobe-w8-backend-and-final-status--7-october-2026).
 
 One aggregate declares the required anchor units before rendering and preserves existing IDs on repair. In the minimal new route, the plan is validated supporting evidence, not a separate mandatory human gate. Render generates candidates from that exact validated plan; a human selects exactly one candidate for every required anchor unit and approves that exact complete set, bound to its supporting plan revision. This does not independently approve the plan. Only promoted approved assets, with the exact plan and selection provenance, pass to Storyboard. An optional separate plan gate would require an explicit template declaration.
 

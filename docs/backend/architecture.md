@@ -1,6 +1,17 @@
 # Architecture
 
-Status: **Accepted boundaries; steps 0–3 and Story UI 6A–6E / cinematic map 6F retain historical Windows acceptance. Wardrobe W1–W7/W6 live proof describe V1 history. W8 compact V2 pure/adapter/store/runtime/API and shared Pipeline/Chat reader are implemented as a patch in place: ordinary `/api/executions/story-wardrobe/v2` retains the original `kinodel.story-wardrobe` v2 identity/digest and adapter 2, saves exact `batch_prompt` after nonterminal Story approval, then ends without rendering. W8 itself retained DB v14 without a migration, route, artifact-schema or rich-shape compatibility change; later input-pin storage adds DB v15, offline 5A portrait job/initial intent DB v16, offline 5B portrait candidate/original import DB v17 (only `portrait_candidates`). V1 stays retained/isolated; independent historical Story routes retain approve→END. W8 is accepted under the user-requested reduced criterion (manual prompt assessment + focused mocked compact V2/offline recovery); browser checks passed. Full discovery and the automated real-model/offline harness are deferred, not PASS. Technical [ComfyUI saved V2-plan handoff/native preparation and durable input pins](../roadmap-comfyui.md#wardrobe-comfyui), [offline 5A portrait job/initial intent](artifacts.md#offline-portrait-job-intent) and [offline 5B portrait candidate/original import](artifacts.md#offline-portrait-candidate-import) are implemented; NEXT: 6A first restart-safe portrait; verified parent bytes/rights, reference uploads/final graph and image activation/group remain steps 6B/7. Candidates validate original bytes and exact local job/pin lineage, not provider acceptance, successful generation or approval; no render worker/public media DTO/API/selection/assets/group yet. User-process activation/restart was not inspected; the current user DB and prior run are untouched. Future locked open auto-upgrades 14→15→16→17 preserving historical rows/schema/pins. Public cinematic Start/API, batch/media rendering/review and full frontend step 6 remain pending. [Build checklist](../roadmap-mvp.md#wardrobe-batch-output); [current evidence](../../test-results/README.md#wardrobe-w8-backend-and-final-status--7-october-2026).**
+Status: **Accepted boundaries; text/Story UI and compact Wardrobe V2 retain their scoped acceptance.
+Private zero-reference portrait lifecycle (6A, DB18) is implemented and accepted; live import and fresh-process
+network-forbidden reopen after user-confirmed provider shutdown passed. NEXT: reference transport 6B, then
+image activation/groups 7. Public cinematic Start, media DTO/API/UI, selection/assets remain pending.**
+
+W1–W7/W6 live remain historical V1 evidence. [W8](../roadmap-mvp.md#wardrobe-batch-output) patches compact V2
+in place under the original `kinodel.story-wardrobe` v2/digest, adapter 2 and ordinary Start route;
+Story approval → saved `batch_prompt` still ends without rendering. W8 retained DB14; subsequent DB15
+input pins, DB16 job/intent and DB17 candidates remain immutable owners. DB18 adds only private
+`portrait_submissions`, not capability activation or a new scheduler. W8's reduced acceptance does not
+claim deferred full discovery/real-model harness success. [6A contract](artifacts.md#restart-safe-portrait-submission)
+and [local startup](local-startup.md) own current storage/recovery boundaries and historical schema retention.
 
 Kinodel is a **runtime-vibe-factory for creators**. A creator follows a pipeline from an idea through story, characters, storyboard and video, or another production scheme, inspecting and revising results through human-in-the-loop decisions. Cinematic is one pipeline, not the definition of the entire product.
 

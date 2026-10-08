@@ -16,7 +16,7 @@ The first user build is local: CPython 3.13 (verified patch 3.13.15), FastAPI, P
 | worker | sole graph invocation path; claim, start, resume, recover, finalize cancellation |
 | authored graph | stage routing, typed node updates, checkpoints and interrupts |
 | node adapter | exact input preparation, bounded agent call, validation, idempotent commit |
-| Project DB | work, operations, bindings, requests, terminal outcomes, controls; private offline portrait jobs/attempts/candidates; render lifecycle pending |
+| Project DB | work, operations, bindings, requests, terminal outcomes, controls; private initial portrait jobs/attempts/candidates and DB18 submission facts; render group lifecycle pending |
 | managed files | immutable validated artifact/media bytes; never scheduling |
 
 The API returns an accepted execution/request/work identity after its transaction. HTTP completion, browser disconnect, and streaming lifetime never own graph execution. Additional server workers use the server claim protocol; the local profile does not allow a second active runner.
@@ -159,7 +159,20 @@ Late provider results may remain job audit but cannot bind output or resume term
 
 ## Rendering Extension
 
-**Documented target boundary, not an implemented render lifecycle.** [Offline 5A](artifacts.md#offline-portrait-job-intent) implements DB16 storage only for one initial zero-reference portrait job/attempt bound to exact published inputs; no native HTTP envelope/correlation, submit authorization, acceptance, Start, dispatch/retry or graph activation. [Offline 5B portrait candidate/original import](artifacts.md#offline-portrait-candidate-import) is implemented in DB17; it validates originals and exact local job/pin lineage, not provider acceptance, successful history/generation or approval. NEXT: 6A first restart-safe portrait; verified parent bytes/rights and reference uploads/final graph remain 6B. Render submit/wait/join (group/activation 7), provider lifecycle/worker, public media DTO/API and selection/assets remain pending; preparation-only capability is unchanged. The design has generation tool nodes submit durable groups and return job refs promptly. The proposed image capability [Batch-generation](../tools/batch-generation.md) follows this boundary for `anchor-batch` and `frames-batch`: N sequential durable unit/jobs inside one group/wait, without a dynamic graph per image. A worker invokes/reconciles the provider independently of the finished LLM call. Jobs retain ownership, request/unit identity, correlation keys, budgets and restricted audit. While the graph is paused, provider polling needs no live graph invocation; job workers cannot change selected output bindings.
+**One initial portrait lifecycle is implemented; graph submit/wait/join remains a target.** Immutable
+[5A job/intent](artifacts.md#offline-portrait-job-intent) (DB16) and [5B original import](artifacts.md#offline-portrait-candidate-import)
+(DB17) retain their owners. [6A](artifacts.md#restart-safe-portrait-submission) adds only DB18 `portrait_submissions`
+and a bounded native async tick: explicit exact-wire authorization, pre-HTTP dispatch CAS, acceptance,
+reconciliation and successful-history verified import. Ambiguous acceptance never permits another POST;
+known-ID contract revalidation and a one-shot ≤5 min GET/import-only grant are explicit, preserve the
+original dispatch deadline, and do not allocate attempts. Live import and fresh-process network-forbidden
+reopen after user-confirmed provider shutdown passed; 6A is accepted. Preparation-only public diagnostics still cannot submit.
+
+NEXT implementation: verified parent bytes/rights and ordered uploads/final graph (6B), then image
+activation/group/wait (7). No scheduler, public render/media route, selected binding or execution change
+is enabled by 6A. The target [Batch-generation](../tools/batch-generation.md) nodes submit durable groups
+and return refs promptly: N sequential unit/jobs inside one group/wait, without a graph per image.
+Provider ticks need no active graph invocation; job workers cannot change selected output bindings.
 
 ```text
 planner commits exact plan
