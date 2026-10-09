@@ -1,7 +1,7 @@
 # Wardrobe
 
 Class: creative agent  
-Status: **ACTIVE compact V2-only; original graph/digest, adapter 2 and Start route unchanged. W8 retained DB14 and [reduced acceptance](../roadmap-mvp.md#wardrobe-batch-output); full discovery/real-model harness remain deferred, not PASS. W1–W7/W6 remain historical V1 evidence. Subsequent immutable input/job/candidate owners use DB15–17; [private 6A portrait submission/import](../backend/artifacts.md#restart-safe-portrait-submission) uses DB18 without another Wardrobe call. 6A is accepted: live import and fresh-process network-forbidden reopen after user-confirmed provider shutdown passed. NEXT: verified parents/reference transport 6B, then image activation/groups 7. Full anchor rendering/review and public media UI remain pending.**
+Status: **ACTIVE compact V2-only; original graph/digest, adapter 2 and Start route unchanged. W8 retained DB14 and [reduced acceptance](../roadmap-mvp.md#wardrobe-batch-output); full discovery/real-model harness remain deferred, not PASS. W1–W7/W6 remain historical V1 evidence. Subsequent immutable input/job/candidate owners use DB15–17; [private 6A portrait submission/import](../backend/artifacts.md#restart-safe-portrait-submission) uses DB18 without another Wardrobe call. 6A is accepted; 6B reference transport is accepted offline/mock. [Private 7.1 image execution/group/wait](../backend/artifacts.md#accepted-image-execution-and-group-wait) is implemented in DB20. NEXT: 7.2 sequential worker/result wake/complete-set join, then 7.3 Continue commands/status/media. Live three-unit working `stuff` acceptance, full anchor rendering/review and public media UI remain pending.**
 
 Wardrobe owns anchor direction and prompts. The planned image tool creates its generated result `anchor_frames`, reviewed before Storyboard in the [cinematic route](../pipelines/cinematic.md). The next media route uses **Batch-generation / `anchor-batch`** in place of the original `anchor-gen`; this change is a [preproduction design](../tools/batch-generation.md), not activated rendering.
 
@@ -47,9 +47,9 @@ under [W8](../roadmap-mvp.md#wardrobe-batch-output). Compact V2 is patched in pl
 reject removed rich fields, without a compatibility reader or conversion. V1 runs/configs remain retained
 but isolated and unsupported, without a V1 consumption adapter, replay, conversion or reset.
 W8 retained DB14 without migration/route/artifact-schema change; subsequent input pins use DB15, immutable
-job/intent DB16 and candidate import DB17. Current DB18 adds only separate `portrait_submissions` for 6A;
+job/intent DB16 and candidate import DB17. 6A DB18 adds only separate `portrait_submissions`;
 no changes to Wardrobe creative ownership, approvals or graph activation.
-Current locked migrations retain historical rows/schema/pins through DB18, including the separately
+Current locked migrations retain historical rows/schema/pins through DB20, including the separately
 documented [historical DB15 repair](../backend/local-startup.md). 6A uses an isolated source backup;
 creative runs are not rewritten/regenerated. Separate Story/Brief/video compatibility is unaffected.
 W8 is accepted under the user-requested reduced criterion; focused mocked schema/offline recovery and UI checks passed.
@@ -102,7 +102,8 @@ W8 retains its reduced acceptance; full discovery/automated real-model harness r
 W1–W7 remain historical V1 evidence; `tests/live_wardrobe_check.py` is the V1 harness pending update.
 6A used the exact saved V2 and genuine Story approval from an isolated read-only backup, without rewriting
 or regenerating the source plan. Private 6A live portrait import and fresh-process network-forbidden reopen after
-user-confirmed provider shutdown passed. NEXT: 6B verified parents/reference transport, then groups 7;
+user-confirmed provider shutdown passed. [Private 7.1 image execution/group/wait](../backend/artifacts.md#accepted-image-execution-and-group-wait) is implemented;
+NEXT: 7.2 sequential worker/result wake/complete-set join, then 7.3 Continue commands/status/media;
 complete anchor review remains pending. [Build status](../roadmap-mvp.md#wardrobe-batch-output),
 [6A contract](../backend/artifacts.md#restart-safe-portrait-submission),
 [W8 evidence](../../test-results/README.md#wardrobe-w8-backend-and-final-status--7-october-2026).

@@ -1,6 +1,6 @@
 # ComfyUI Tool: workflow и REST-путь
 
-Статус: **6А portrait принят live; 6Б anchor lifecycle/verified parents/ordered uploads/final graph (DB19) принят offline/mock. NEXT: image execution/group/wait 7.1; live reference delivery — приёмка шага 7**. Это не public render route или capability promotion: кандидаты становятся выбранными `anchor_frames`, `story_frames`, `shot_videos` только через review/selection. [Current storage/worker contract](../backend/artifacts.md#bounded-anchor-lifecycle-and-reference-transport), [provider boundary](../backend/comfyui.md), [roadmap](../roadmap-comfyui.md).
+Статус: **6А portrait принят live; 6Б anchor lifecycle/verified parents/ordered uploads/final graph (DB19) принят offline/mock. [Private 7.1 image execution/group/wait](../backend/artifacts.md#accepted-image-execution-and-group-wait) реализован в DB20. NEXT: 7.2 sequential worker/result wake/complete-set join, затем 7.3 Continue commands/status/media; live three-unit working `stuff` acceptance остаётся pending**. Это не public render route или capability promotion: кандидаты становятся выбранными `anchor_frames`, `story_frames`, `shot_videos` только через review/selection. [Current storage/worker contract](../backend/artifacts.md#bounded-anchor-lifecycle-and-reference-transport), [provider boundary](../backend/comfyui.md), [roadmap](../roadmap-comfyui.md).
 
 ## Текущие файлы и порты
 

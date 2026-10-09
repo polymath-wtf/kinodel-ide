@@ -1,6 +1,6 @@
 # DTO Contracts
 
-Status: **Foundation/production DTOs and compact Wardrobe V2 are executable; [W8 acceptance remains scoped](../roadmap-mvp.md#wardrobe-batch-output). Original graph/config identities are unchanged: W8 retained DB14, later immutable input/job/candidate owners DB15–17, and [private 6A submission facts](artifacts.md#restart-safe-portrait-submission) DB18. 6A is accepted: live portrait import and fresh-process network-forbidden reopen after user-confirmed provider shutdown passed. NEXT: reference transport 6B, then groups 7. Public cinematic Run/media DTO/API, selection/assets and review remain pending.** [Artifacts](artifacts.md) owns persistence/provenance, [HITL](../hilp/hilp.md) human actions, and [cinematic](../pipelines/cinematic.md) stage ownership. Hosted wire activates separately.
+Status: **Foundation/production DTOs and compact Wardrobe V2 are executable; [W8 acceptance remains scoped](../roadmap-mvp.md#wardrobe-batch-output). Original graph/config identities are unchanged: W8 retained DB14, later immutable input/job/candidate owners DB15–17, and [private 6A submission facts](artifacts.md#restart-safe-portrait-submission) DB18. 6A is accepted; 6B reference transport is accepted offline/mock. [Private 7.1 image execution/group/wait](artifacts.md#accepted-image-execution-and-group-wait) is implemented in DB20. NEXT: 7.2 sequential worker/result wake/complete-set join, then 7.3 Continue commands/status/media. Live three-unit working `stuff` acceptance, public cinematic Run/media DTO/API, selection/assets and review remain pending.** [Artifacts](artifacts.md) owns persistence/provenance, [HITL](../hilp/hilp.md) human actions, and [cinematic](../pipelines/cinematic.md) stage ownership. Hosted wire activates separately.
 
 ## Trust And Encoding
 
@@ -192,7 +192,7 @@ Original `kinodel.story-wardrobe` v2/digest and `/api/executions/story-wardrobe/
 Retired v1 stays isolated from runner/list, commands/reads reject; unversioned Start returns 410 before payload work.
 No reset/conversion/V1 bridge; the user's prior run was not migrated or rewritten. W1–W7 remain historical evidence.
 [W8](../roadmap-mvp.md#wardrobe-batch-output) is accepted on manual prompt assessment + focused mocked compact V2/offline recovery; UI checks passed.
-Full discovery and the automated real-model/offline harness are deferred, not PASS. Saved V2 handoff and immutable 5A/5B owners remain separate from accepted private 6A portrait submission/worker. User-confirmed provider-off fresh-process reopen passed; NEXT implementation: verified parents/reference transport 6B, then image activation/groups 7.
+Full discovery and the automated real-model/offline harness are deferred, not PASS. Saved V2 handoff and immutable 5A/5B owners remain separate from accepted private 6A portrait submission/worker. Current [private 7.1 image execution/group/wait](artifacts.md#accepted-image-execution-and-group-wait) is implemented; NEXT: 7.2 sequential worker/result wake/complete-set join, then 7.3 Continue commands/status/media.
 
 **Implemented technical batch handoff; pending media extension:** next FramePlan uses batch fields with its own shot/composition constraints;
 future source vocabulary adds `{kind:"supplied_image",alias}` under a declared stage capability.
@@ -206,9 +206,9 @@ submit authorization. Separate 6A owns private `PortraitSubmissionPreviewV1`, `P
 and guarded `PortraitSubmissionV1` facts, not public DTOs. The diagnostic prepare API stays read-only (`preparation_only`, `can_submit:false`).
 Separate [offline 5B import](artifacts.md#offline-portrait-candidate-import) validates portrait original bytes and exact local job/pin lineage only, not provider acceptance, successful history/generation or approval. Its private descriptor/candidate records are not public media DTO/API or selection/assets/group.
 DB v15 adds only `batch_input_pins` / `batch_unit_input_pins`; DB v16 adds only `render_jobs` / `render_submission_attempts`.
-DB v17 adds only `portrait_candidates`; current DB18 adds only `portrait_submissions`, preserving historical rows/schema/pins.
+DB v17 adds only `portrait_candidates`; 6A DB18 adds only `portrait_submissions`, preserving historical rows/schema/pins.
 The optional output-only recovery time pair is omitted only when inactive, so earlier canonical DB18 bodies
-still validate without migration. No Start, public media route, group or capability activation is added.
+still validate without migration. 6A adds no Start, public media route, group or capability activation.
 [Native wire, evidence, revalidation and recovery limits](artifacts.md#restart-safe-portrait-submission).
 `SelectedMedia={render_result_ref,unit_key}` is unchanged.
 `batch_outputs` is a proposed complete manifest ref, not RenderResult or approval.

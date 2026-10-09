@@ -409,6 +409,39 @@ Recovery does not reprepare, resample, heal originals or overwrite foreign input
 selection and live three-unit sheet delivery remain step 7 onward.
 [Evidence](../../test-results/README.md#comfyui-step-6b--anchor-lifecycle-and-reference-transport--9-october-2026).
 
+## Accepted image execution and group wait
+
+**Implemented private 7.1, DB20.** `backend/image_group_store.py` accepts a separate
+`kinodel.image-only` v1 execution in the source plan's project. `StoryRuntime.start_images`
+uses the existing command lifetime; the existing single runner delivers its start work.
+The exact validated compact V2 plan and applied Story authority are resolved through the
+existing batch-input owner. Source text execution, artifacts and bindings retain their identities.
+
+- Project/client key deterministically identifies execution, activation, group, wait and start work.
+  A reserved batch input also fences that key against competing Story starts before image acceptance.
+  Changed source/settings/connection conflict; accepted replay reads the original pins without
+  resolving today's catalog, environment or source again.
+- Publish the immutable source-owned batch input before the atomic consumer execution +
+  `image_groups` + `execution_work` acceptance. DB19→20 adds only `image_groups`; no existing
+  rows/files or input/job/attempt/candidate identities are rewritten.
+- The batch pin is the sole owner of source plan, Story approval, image size/profile/connection,
+  full required-unit order and dependencies. Group membership is not a second mutable unit list.
+  Registration creates no unit payloads, seeds, jobs, uploads or provider requests. Sheet inputs
+  are prepared later from exact parents and verified upload receipts.
+- Graph state holds project/execution IDs, group/input refs and the immutable token
+  `{wait_id, stage_id, activation_id, request_digest}`. One pure `group_wait` interrupts for the
+  whole group. After synchronous checkpoint persistence, the runner CAS-binds the exact
+  checkpoint/task/interrupt triple, then settles start work. Reopen reuses that wait without
+  reinvocation; raw pending writes and checkpoint lineage are validated before recovery.
+- Binding replacement, unsolicited resume and completion without a durable complete-set result
+  fail closed. Consumer cancellation settles independently of the completed source execution;
+  a cancellation accepted during inspection takes precedence over a new sweep diagnostic.
+
+Sequential units, terminal group result/wake and complete-set join are **7.2**; public continuation,
+status and originals reads are **7.3**. Private acceptance does not promote the preparation-only
+profile or constitute candidate selection/approval.
+[Evidence](../../test-results/README.md#comfyui-step-71--accepted-image-execution-and-durable-wait--9-october-2026).
+
 ## Minimal Schemas
 
 Implement and verify schemas in activation order. The wider catalog is design context, not a prerequisite for the first backend code:
@@ -426,7 +459,8 @@ Implement and verify schemas in activation order. The wider catalog is design co
   Full discovery and the automated real-model/offline harness are deferred, not PASS. Technical handoff,
   native preparation, durable input pins, offline initial portrait job/attempt storage and original
   candidate import and private DB18 portrait submission/worker (6A) are implemented.
-  User-confirmed provider-off reopen completes 6A acceptance; DB19 reference transport (6B) is accepted offline/mock. NEXT: image execution/group/wait (7.1).
+  User-confirmed provider-off reopen completes 6A acceptance; DB19 reference transport (6B) is accepted offline/mock.
+  Private DB20 image execution/group/wait (7.1) is implemented; NEXT: sequential units/complete-set join (7.2).
   Future batch FramePlan, candidate-set records and `RenderResultV1` belong to the pending media slice.
   Stable keys, `SelectedMedia` and selected slots are unchanged;
 - mode-discriminated MotionPlan under the next `img2vid/ref2vid` contract, `MontagePlanV1` and `MontageResultV1` when video/montage is enabled; original i2v `MotionPlanV1` retains its meaning;

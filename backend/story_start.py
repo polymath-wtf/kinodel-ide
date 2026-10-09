@@ -59,6 +59,18 @@ def _reject_retired_start_key(db, project_id, client_key):
         reject_retired_wardrobe(db, row[0])
 
 
+def _reject_image_start_key(db, project_id, client_key):
+    # Fixture Story keeps its 256-character key limit; image admission is bounded to 128.
+    if len(client_key) > 128:
+        return
+    from backend.image_group_store import STAGE_ID, _identities
+
+    activation = _identities(project_id, client_key)[0]
+    if db.execute('SELECT 1 FROM batch_input_pins WHERE stage_id=? AND activation_id=?',
+                  (STAGE_ID, activation)).fetchone():
+        raise ValueError('Start client key conflicts with reserved image admission')
+
+
 class StartReceipt(NamedTuple):
     execution_id: str  # Also the LangGraph thread_id.
     work_id: str
@@ -144,6 +156,7 @@ async def _start_live_story(db, saver, project_id, client_key, shot_ids, brief, 
         raise ValueError("Live Story needs 1–8 shots and a bounded client key")
     _reject_retired_start_key(db, project_id, client_key)
     await validate_story_storage(db, saver)
+    _reject_image_start_key(db, project_id, client_key)
     route = wardrobe_store.GRAPH_ID if wardrobe else LIVE_GRAPH_ID
     old = db.execute("SELECT execution_id,shot_ids,owner_config,graph_id FROM executions WHERE project_id=? AND client_key=?", (project_id, client_key)).fetchone()
     if old:
@@ -189,6 +202,7 @@ async def _start_story(db, saver, project_id, client_key, input_message, shot_id
     client_key.encode("utf-8")
     _reject_retired_start_key(db, project_id, client_key)
     await validate_story_storage(db, saver)
+    _reject_image_start_key(db, project_id, client_key)
     if owner_config is not None:
         from backend.openrouter import read_owner_config
         version = read_owner_config(owner_config).adapter_version
@@ -206,6 +220,7 @@ async def _start_story(db, saver, project_id, client_key, input_message, shot_id
     digest = _payload_digest(input_message, shot_ids, owner_config)
     db.execute("BEGIN IMMEDIATE")
     try:
+        _reject_image_start_key(db, project_id, client_key)
         row = db.execute("SELECT execution_id,start_digest,graph_id FROM executions WHERE project_id=? AND client_key=?",
                           (project_id, client_key)).fetchone()
         if row:

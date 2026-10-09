@@ -8,10 +8,11 @@
   verified original candidate import (5Б, DB17) реализованы. 6А (DB18) реализован и принят: один live portrait
   импортирован; fresh-process offline reopen после подтверждённого пользователем выключения ComfyUI пройден с запрещённой сетью.
    6Б.1–6Б.3 реализованы и приняты offline/mock (DB19): anchor lifecycle, verified parents,
-   ordered uploads и final graph. NEXT — image activation/group (7.1).
+   ordered uploads и final graph. Private 7.1 image execution/group/wait реализован (DB20).
+   NEXT — 7.2 sequential worker/complete-set join.
   [Граница готовности](#wardrobe-comfyui).
 - Вход новой генерации — только exact сохранённый validated compact Wardrobe V2 `batch_prompt`; [W8 принят по сокращённому критерию автора](roadmap-mvp.md#wardrobe-batch-output). Compact result — patch in place текущего V2; V1 изолирован, consumption bridge не строим.
-- Public cinematic Run, batch/group lifecycle и публичный media-путь ещё не реализованы;
+- Public cinematic Run, sequential group execution/join и публичный media-путь ещё не реализованы;
    private anchor-unit lifecycle реализован в 6А–6Б; live reference delivery ещё не проверена.
 
 Это детализация генерации через ComfyUI из [Local MVP, шаг 4](roadmap-mvp.md#remaining-steps):
@@ -41,10 +42,58 @@ explicit GET-only revalidation принимает единственную exact
 reference sent-block сохраняет причину/revision при reopen. [Evidence](../test-results/README.md#comfyui-step-6--recovery-and-isolation-corrections--9-october-2026).
 Повторное синхронное чтение/проверка родителей остаётся локальной возможностью упрощения, не блокером 7.1.
 
-**NEXT — 7.1:** новый image-only execution в том же project, accepted group/wait из exact saved V2.
-Затем 7.2 sequential worker/join и 7.3 «Продолжить» + status/media reads.
+**7.1 реализован:** новый private image-only execution в том же project, accepted group/wait из exact saved V2.
+**NEXT — 7.2** sequential worker/join, затем 7.3 «Продолжить» + status/media reads.
 Живой three-unit batch в рабочем `stuff` — приёмка шага 7; текущая сборка его не запускала
 и рабочую БД не мигрировала. Preparation-only diagnostics остаются прежними.
+
+### Checkpoint перед шагом 7 — 9 октября 2026
+
+**Шаг 6 даёт надёжное получение отдельных изображений; шаг 7 собирает их в один запуск из приложения;
+шаг 8 закрепляет выбор и утверждение автора.** После recovery/isolation исправлений можно приступать к 7.1.
+
+- Готовы три private unit-роли: portrait и background по тексту, sheet с обоими exact parent originals.
+  Job/input/attempt, provider acceptance, verified original и lineage сохраняются и восстанавливаются.
+  Неопределённое принятие не разрешает повторную отправку; явная revalidation делает только GET.
+- Portrait проверен на настоящем ComfyUI и читается после его выключения. Background, sheet и references
+  приняты offline/mock. Настоящий полный набор в рабочем проекте ещё предстоит получить на шаге 7.
+- `broken_job` сохраняется как private diagnostic чужой malformed provider-записи; отображение истории
+  появится с status/history reads. Private group/wait и image execution реализованы в 7.1;
+  кнопка и публичное чтение originals ещё pending.
+
+**Первый bounded-срез — только 7.1:** принять отдельный image-only execution в том же project из exact
+saved validated compact Wardrobe V2 и applied Story authority; сохранить frozen settings/connection,
+group identity, ordered required units/dependencies и durable graph wait до provider effects.
+Исходный завершённый text execution и creative artifacts сохраняются; новых LLM calls нет.
+Список units известен заранее, но sheet prepared input/seed/final graph закрепляются только при наличии
+его exact родителей и verified receipts. Prepared payloads не выдумываются при регистрации группы.
+
+**Приёмка 7.1:** повтор принятия и restart возвращают ту же execution/group/wait identity и исходные
+N/order/dependencies; конфликтующие pins отклоняются; регистрация не отправляет prompt/upload.
+Graph state содержит refs, не изображения. Следом отдельно: 7.2 sequential worker/recovery/complete-set
+join; 7.3 «Продолжить», progress и guarded original reads. Сквозная приёмка шага 7 — реальный
+portrait → background → sheet в рабочем `stuff`, восстановление между units и чтение набора в приложении
+после выключения ComfyUI. Это candidates для просмотра; выбор/approval остаются шагом 8.
+
+### Checkpoint после 7.1 — 9 октября 2026
+
+**7.1 выполнен в private backend-границах.** DB20 добавляет только `image_groups`.
+`StoryRuntime.start_images` принимает новый `kinodel.image-only` v1 из exact saved V2 в том же
+project. Immutable batch pin сохраняет Story authority, settings/connection и полный N/order/dependencies;
+existing runner закрепляет один external wait по exact checkpoint/task/interrupt и завершает start work.
+Повтор с тем же project/client key и reopen возвращают прежние identities; conflicting pins и unsolicited resume отклоняются.
+Reserved image client key защищён и от конкурирующих Story starts до acceptance.
+Регистрация не создаёт unit payloads/seeds/jobs и не делает prompt/upload/LLM calls.
+[Контракт](backend/artifacts.md#accepted-image-execution-and-group-wait),
+[evidence](../test-results/README.md#comfyui-step-71--accepted-image-execution-and-durable-wait--9-october-2026).
+
+**NEXT — только 7.2:** последовательные units, recovery готовых originals, terminal group result/wake
+и exact complete-set join. 7.3 подключит общую команду «Продолжить» с backend-derived точкой
+продолжения, status/media и кнопку. Настоящий three-unit batch
+и рабочая миграция/проверка `stuff` остаются сквозной приёмкой шага 7.
+
+«Продолжить» — общая runtime-команда из сохранённой точки. Saved V2 → images — один её сценарий;
+backend resolution и дедупликация перехода входят в 7.3.
 
 ## Checkpoint после 6А
 
@@ -80,11 +129,11 @@ restart-safe portrait 6А в их принятых границах; [evidence](
 
 | Область | Фактическое состояние |
 |---|---|
-| Текст/runtime | Compact Wardrobe V2 pure/adapter/store/runtime/API/frontend реализованы как patch in place: обычный `/api/executions/story-wardrobe/v2`, исходный exact `kinodel.story-wardrobe` v2/digest, adapter 2 и saved `batch_prompt`. [W8 принят](roadmap-mvp.md#wardrobe-batch-output) по ручной live-проверке автора и focused compact V2/offline recovery; full discovery и combined real-model/offline harness отложены, не PASS. W1–W7/W6 live — историческое V1 evidence; V1 Wardrobe изолирован. Отдельные Story routes сохраняют approve→END. [Saved V2 handoff/native preparation/durable input pins](#wardrobe-comfyui), offline storage 5А/5Б, private portrait 6А и anchor/reference lifecycle 6Б реализованы; NEXT — 7.1. |
+| Текст/runtime | Compact Wardrobe V2 сохраняет исходный graph v2/digest, adapter 2 и saved `batch_prompt`; [W8 reduced acceptance](roadmap-mvp.md#wardrobe-batch-output) не закрывает deferred full discovery/real-model harness. V1 изолирован; прежние Story routes сохраняются. Private 6А/6Б lifecycle и [7.1 image execution/group/wait](#checkpoint-после-71--9-октября-2026) реализованы; NEXT — 7.2 sequential worker/join. |
 | Подключение | Backend config, явный env-file allowlist launcher и `backend/comfyui.py` подключены. Guarded API/CLI preflight проверяет выбранный workflow; private `acquire_preparation_context` передаёт installed schemas в preparation после проверки frozen connection/registry pins. |
 | Workflow | Единый SHA-pinned registry в `backend/comfyui_workflows.py`: preparation включена для portrait/background txt2img и Qwen 1/2/3 inputs; остальные кандидаты inspection-only. `backend/production.py` даёт preparation-only bundle/diagnostics, не cinematic profiles/defaults. [Mappings](tools/comfyui-tool.md#текущие-файлы-и-порты). |
-| Хранение | W8 сохранял DB14; DB15 добавил input pins, DB16 — jobs/attempts, DB17 — candidates, DB18 — submissions. Current DB19 добавляет только `anchor_reference_transfers`; новые anchor-unit APIs переиспользуют прежние таблицы, не меняя 6А identities/bytes. Assets, selection, groups и публичный media-путь ещё нужны. |
-| UI | Cinematic-карта, вложенные scopes, inspector и отдельная страница Canvas есть. Pipeline/Chat показывают exact saved Wardrobe plan, frozen inputs/config и полные копируемые prompts. Anchor render/review не подключены; Canvas пуст, provider graph unavailable. |
+| Хранение | W8 сохранял DB14; DB15 — input pins, DB16 — jobs/attempts, DB17 — candidates, DB18 — submissions, DB19 — `anchor_reference_transfers`. Current DB20 добавляет только `image_groups`; прежние identities/bytes сохраняются. Group result/wake, assets, selection и публичный media-путь ещё нужны. |
+| UI | Есть первоначальная «Начать историю», отдельные Retry/Cancel и exact Story review; общей ▶ «Продолжить» пока нет. Pipeline/Chat показывают saved Wardrobe plan и frozen inputs/config; карта следующих этапов не означает их исполнимость. Anchor render/review не подключены; Canvas пуст, provider graph unavailable. |
 | Brief | V1/text inputs сохранены. Новый BriefV2 и отдельный cinematic draft имеют image/video sizes, shot count, total/per-shot ms и video mode. Guarded diagnostics и UI draft подключены; public cinematic Start отсутствует. |
 
 **Текущие ограничения:**
@@ -432,52 +481,67 @@ diagnostic `/prepare` и preparation-only профиль сами по себе 
 [Current contract](backend/artifacts.md#restart-safe-portrait-submission),
 [6А evidence](../test-results/README.md#comfyui-step-6a--restart-safe-portrait--8-october-2026).
 6А live и 6Б offline/mock завершены. Live two-reference sheet остаётся приёмкой шага 7;
-следующая implementation — 7.1 image execution/group/wait.
+7.1 private image execution/group/wait реализован; следующая implementation — 7.2 sequential worker/join.
 
 ### 7. Batch-generation: последовательные jobs и один graph wait
 
-**Порядок bounded-срезов:** 7.1 accepted image execution + durable group/wait; 7.2 ordered units,
-recovery и complete-set join; 7.3 guarded continuation/status/media API и кнопка в существующем UI.
-UI request принимает command и возвращает receipt; рендер выполняет worker, не browser request.
+**Что означает ▶ «Продолжить».** Это одно общее действие выбранного процесса в workspace,
+доступное из Pipeline/Chat, чтобы идти дальше из сохранённой точки. Сейчас его в рабочем UI нет:
+«Начать историю» создаёт новый text execution; после exact Story approval граф сам выполняет
+Wardrobe и завершает этот execution с сохранённым планом, без рендера.
 
-- [ ] **«Продолжить» из exact saved Wardrobe V2.** Кнопка явно принимает новый scoped image-only
-  execution в том же project с source plan/Story authority и frozen render settings. Исходный terminal
-  text execution остаётся неизменным; Wardrobe/Storytell не вызываются повторно. Lost response,
-  double click и reload повторяют один accepted command/group, не создают второй batch.
-  Незавершённый batch открывается/восстанавливается по persisted identity; successful units не
-  rerender. Blocked/failed batch показывает причину и разрешённое действие: «Продолжить» не
-  заменяет отдельную авторизацию потенциально затратного Retry или Regenerate.
-- [ ] **Минимальная поверхность первого live batch.** Показать persisted unit status, `готово X / N`
-  и доступ к verified originals через guarded Kinodel media reads, с различием candidate/approval.
-  DB и файлы сохраняются в рабочем data root, не evidence root; provider filename не выбирает
-  destination. Полная галерея Canvas/Workflow inspection подключается по шагам 9–10.
-- [ ] На новом scoped image-only graph подключить `saved wardrobe_plan V2 → anchor-batch [batch-generation] → anchor-hitl` через V2-only handoff шага 4: initial rendering потребляет exact сохранённый validated compact V2 план и его утверждённую Story, не вызывает Wardrobe повторно и не переоткрывает terminal text execution. Wardrobe вызывается для нового V2 плана только при принятом creative Revise (шаг 8). Group intent/wait identity сохраняются до submission; terminal group result и unique wake work коммитятся вместе по документированной целевой [submit/wait/join boundary](backend/runtime.md#rendering-extension), media-реализация которой ещё pending; новый runner protocol не нужен.
-- [ ] Генерировать units последовательно **строго в порядке массива**, например portrait → background → sheet с **обоими exact parent candidates**. Earlier-only validation не сортирует задания; self/future/missing refs отклоняются. Child input/seed/digests фиксируются до его submit. Один первоначальный candidate на unit; количество units приходит из плана, не hardcoded 3.
-- [ ] Каждый unit имеет отдельные job/attempt records и scope `comfyui-gen`; один provider job одновременно,
-  следующий — после verified import предыдущего. Persisted group/units переиспользуются для Storyboard;
-  динамический graph compiler, новый scheduler и отдельный LangGraph subgraph на image не нужны.
-- [ ] Join выдаёт `batch_outputs` — ref на immutable complete-set manifest с supporting plan и parent lineage,
-  не approved binding. Fast completion до checkpoint ждёт своего wait; partial/failed group имеет
-  диагностируемый retry/cancel, не вечный `waiting_job`.
-- [ ] **Fault-check retry identity:** по [batch-контракту](tools/batch-generation.md#retry-identity)
-  проверить unresolved acceptance без blind resubmit и crash после terminal failed result/wake до checkpoint.
-  Reopen сохраняет старый result/wake; authorized Retry создаёт новые group activation/handoff identity/digest
-  и wait с идентичными source plan/mapping/settings pins. Successful candidates сохраняют lineage;
-  successful units никогда не resubmit. Failed jobs получают новые attempts, not-yet-started required jobs — первые, в исходном
-  порядке массива. Проверить portrait failure до старта location/sheet и sheet failure после обоих parents:
-  уже prepared per-job payload/inputs/seeds неизменны, unprepared inputs фиксируются один раз при наличии
-  exact parents до submit. Не предполагать, что весь batch уже prepared.
-  Duplicate/late старый wake не отвечает новому group wait или следующему human review.
+| Сохранённая точка | Действие общей кнопки |
+|---|---|
+| Незавершённая работа без требуемого решения автора | Обеспечить durable continuation/recovery с прежними inputs и оставшимся бюджетом; committed результат переиспользовать |
+| Human review | Открыть exact review; дальше ведёт явное approve/revise/clarify автора |
+| Saved V2 plan, image consumer ещё не принят | Принять предусмотренный image handoff в том же project через 7.1 и показать его выполнение |
+| Image batch / external wait, в том числе после restart между units | Найти тот же consumer/group и восстановить его scheduling/reconciliation; exact готовый result будит только свой wait |
+| Работа уже активна | Показать текущее выполнение без второго запуска |
+| Blocked / cancelling / cancelled / failed | Показать причину и доступное действие; Retry, Regenerate или новый запуск принимаются отдельно |
+| Execution completed | Продолжить только через предусмотренный следующий handoff; если его нет или он ещё не реализован — показать завершение/недоступность следующего этапа |
 
-**Приёмка:** restart после любого parent и перед sheet не пересоздаёт готовые parents; sheet действительно получил portrait и background bytes в объявленные slots. Неполный набор не становится review. Group wake не отвечает следующему human wait; checkpoint содержит refs, не media.
+Внутри исполнимого маршрута worker идёт автоматически до следующего review/wait/завершения:
+дополнительный Play после каждого агента или image unit не требуется. Универсальность относится
+к поддерживаемым сохранённым точкам; Storyboard/video/montage подключаются своими следующими шагами.
+Terminal text execution остаётся завершённым: пользователь продолжает процесс через связанный
+consumer, а не изменением старого outcome. Правила восстановления — [runtime](backend/runtime.md#recovery-decision-table).
 
-**Рабочая live-приёмка «Продолжить»:** существующий saved V2 project в рабочем `stuff` → один
-accepted image execution/group → portrait + background txt2img → sheet с обоими originals →
-complete-set. Для первого three-unit примера — три jobs и три verified originals в папке проекта;
-source text records не меняются. Double click/lost response/reload не дублируют batch; restart после
-каждого parent и перед sheet сохраняет готовые results. После выключения ComfyUI тот же набор
-читается из рабочего root в приложении. Desktop screenshot изменённой страницы и проверки
-фиксируются в evidence index. Exact selection/promotion принимается отдельно на шаге 8.
+**Порядок сборки:** 7.1 private admission/wait → 7.2 исполняемый batch → 7.3 backend-команда,
+публичная проекция и кнопка. API сохраняет command/work и возвращает receipt; worker исполняет.
+
+- [x] **7.1 · Private backend: принять image execution и сохранить группу/wait.**
+  - [x] Закрепить exact saved Wardrobe V2, applied Story authority и frozen settings/connection в том же project.
+  - [x] Сохранить полный N, порядок и зависимости; атомарно принять execution/group/start work.
+  - [x] Закрепить один durable graph wait; duplicate с тем же project/client key и restart возвращают прежние identities, конфликтующие pins отклоняются.
+  - [x] Регистрация не отправляет prompt/upload и не готовит будущие unit payloads/seeds.
+  Дедупликация логического перехода при новом delivery key и публичная кнопка входят в 7.3.
+  [Контракт](backend/artifacts.md#accepted-image-execution-and-group-wait),
+  [evidence](../test-results/README.md#comfyui-step-71--accepted-image-execution-and-durable-wait--9-october-2026).
+
+- [ ] **7.2 · Worker: последовательно выполнить принятую группу и собрать полный набор.**
+  - [ ] Исполнять N units строго в порядке плана: один provider job одновременно, следующий после verified import предыдущего.
+  - [ ] Для каждого unit сохранить job/attempt; inputs/seed/digests закрепить до submit. Self/future/missing refs отклонять; sheet использует оба exact parent originals и verified upload receipts.
+  - [ ] После restart переиспользовать готовые originals и prepared inputs; неопределённое acceptance не повторять вслепую.
+  - [ ] Атомарно сохранить terminal group result и unique wake work; ранний результат ждёт exact graph wait.
+  - [ ] Join выдаёт `batch_outputs`: immutable complete-set manifest с plan/parent lineage. Partial/failed набор показывает причину и допустимое действие.
+  - [ ] Проверить failure первого unit и sheet после обоих parents, crash result/wake до checkpoint, [explicit Retry](tools/batch-generation.md#retry-identity) с сохранением successes. Старый wake не отвечает новому wait/review.
+
+- [ ] **7.3 · Общая команда и кнопка ▶ «Продолжить» в существующем UI.**
+  - [ ] Backend-команда определяет точку продолжения по durable work/controls/outcomes и checkpoint/wait; graph задаёт маршрут, UI отправляет intent, не имя следующей ноды или произвольный resume.
+  - [ ] Незавершённую работу продолжать с frozen inputs; активную работу открывать. Committed результаты не повторять, unfinished owner calls выполняются в пределах бюджета.
+  - [ ] Human wait открывает exact review; blocked показывает allowed action. Approval, Retry и Regenerate требуют явного решения; terminal execution не переоткрывается.
+  - [ ] Для предусмотренного следующего handoff найти принятый consumer по exact source/intent; при отсутствии атомарно принять переход. Saved V2 → images использует 7.1.
+  - [ ] Double click, lost response и reload, включая новый delivery key, возвращают прежний переход/group. Conflicting source/intent и stale OCC отклоняются.
+  - [ ] Public projection связывает source с текущим consumer и возвращает доступное действие/причину недоступности; terminal статус source не скрывает предусмотренный следующий handoff. Дедупликация Continue не запрещает отдельный явно принятый Regenerate/new run из того же плана.
+  - [ ] Добавить видимую общую ▶ «Продолжить» в controls выбранного процесса, с одним command journal для Pipeline/Chat и persist-before-POST. Она доступна после saved Wardrobe plan; «Начать историю» остаётся первоначальным запуском. Во время active/delivery показывать состояние; при review/block направлять к соответствующему действию с понятной подписью.
+  - [ ] Показать `готово X / N`, причину остановки, доступное действие, guarded originals и диагностики. Images пока candidates; approval — шаг 8, полный Canvas — шаг 9.
+  - [ ] Проверить видимость/действие кнопки после terminal text + saved plan, Continue после остановки на text шаге, human wait и между image units; active/blocked/terminal без следующего handoff возвращают фактическое состояние. Approval не создаётся нажатием Play; обычный переход между units не требует кликов.
+
+- [ ] **Сквозная приёмка шага 7 в рабочем `stuff`.**
+  - [ ] Через «Продолжить» получить настоящий portrait → background → sheet: три jobs и три originals в проекте, оба references доставлены в отдельные slots.
+  - [ ] Проверить restart после каждого parent и перед sheet: готовые результаты и source text records сохраняются.
+  - [ ] Выключить ComfyUI и прочитать весь набор в приложении из рабочего data root.
+  - [ ] Снять и проверить desktop screenshot изменённой страницы; сохранить evidence в `test-results/README.md`.
 
 ### 8. Exact selection, regenerate и cancel
 
@@ -545,8 +609,8 @@ source text records не меняются. Double click/lost response/reload н�
 
 Базовая regression: `./.venv313/Scripts/python.exe -B -m unittest discover -s tests -q`, зависимости — `python -m pip check` в той же venv. UI checks — [web/README](../web/README.md#checks), с focused media/navigation cases и screenshot review по AGENTS.md. Новые tests не объявляем существующими до реализации.
 
-**Ближайшее действие после checkpoint 6Б:** 7.1 — accepted image execution/group/wait;
-затем sequential worker/join и «Продолжить» с live three-unit приёмкой в рабочем project root.
+**Ближайшее действие после checkpoint 7.1:** 7.2 — sequential worker/complete-set join;
+затем 7.3 — общая команда и кнопка ▶ «Продолжить»/status/media, с live three-unit приёмкой в рабочем project root.
 Без Comfy Cloud, GPU-install
 внутри Kinodel, WebSocket dependency, workflow editor, generic provider SDK, cloud storage и автоматического GC.
 

@@ -16,7 +16,7 @@ The first user build is local: CPython 3.13 (verified patch 3.13.15), FastAPI, P
 | worker | sole graph invocation path; claim, start, resume, recover, finalize cancellation |
 | authored graph | stage routing, typed node updates, checkpoints and interrupts |
 | node adapter | exact input preparation, bounded agent call, validation, idempotent commit |
-| Project DB | work, operations, bindings, requests, terminal outcomes, controls; private initial portrait jobs/attempts/candidates and DB18 submission facts; render group lifecycle pending |
+| Project DB | work, operations, bindings, requests, terminal outcomes, controls; private anchor jobs/attempts/candidates, submission/reference facts and DB20 accepted image groups/waits; group result/wake pending |
 | managed files | immutable validated artifact/media bytes; never scheduling |
 
 The API returns an accepted execution/request/work identity after its transaction. HTTP completion, browser disconnect, and streaming lifetime never own graph execution. Additional server workers use the server claim protocol; the local profile does not allow a second active runner.
@@ -159,7 +159,7 @@ Late provider results may remain job audit but cannot bind output or resume term
 
 ## Rendering Extension
 
-**Private anchor-unit lifecycle is implemented; graph submit/wait/join remains a target.** Immutable
+**Private anchor-unit lifecycle and image admission/group wait are implemented; sequential units and join remain a target.** Immutable
 [5A job/intent](artifacts.md#offline-portrait-job-intent) (DB16) and [5B original import](artifacts.md#offline-portrait-candidate-import)
 (DB17) retain their owners. [6A](artifacts.md#restart-safe-portrait-submission) adds only DB18 `portrait_submissions`
 and a bounded native async tick: explicit exact-wire authorization, pre-HTTP dispatch CAS, acceptance,
@@ -169,8 +169,13 @@ original dispatch deadline, and do not allocate attempts. Live import and fresh-
 reopen after user-confirmed provider shutdown passed; 6A is accepted. Preparation-only public diagnostics still cannot submit.
 
 6B verified parent bytes/rights and ordered uploads/final graph are accepted offline/mock; malformed
-provably foreign native records have private `broken_job` diagnostics. NEXT: image activation/group/wait
-(7.1). No scheduler, public render/media route, selected binding or execution change is enabled by 6A/6B.
+provably foreign native records have private `broken_job` diagnostics. Private
+[7.1 image admission/group wait](artifacts.md#accepted-image-execution-and-group-wait) adds DB20
+`image_groups` and a separate image execution, delivered by the existing runner. Accepted pins precede
+atomic execution/group/start work; one pure wait is bound to its durable checkpoint/task/interrupt.
+Settled unanswered waits are inspected without invocation. Consumer cancellation also wins races
+with sweep diagnosis. NEXT: sequential units/complete-set join (7.2).
+No public render/media route or selected binding is enabled.
 The target [Batch-generation](../tools/batch-generation.md) nodes submit durable groups
 and return refs promptly: N sequential unit/jobs inside one group/wait, without a graph per image.
 Provider ticks need no active graph invocation; job workers cannot change selected output bindings.

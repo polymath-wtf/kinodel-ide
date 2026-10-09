@@ -15,7 +15,7 @@ from backend.ownership import own_data_root
 
 DATABASE_NAME = "application.sqlite3"
 APPLICATION_ID = 0x4B494E4F  # KINO; SQLite header identity, not a business record.
-SCHEMA_VERSION = 19
+SCHEMA_VERSION = 20
 BUSY_TIMEOUT_MS = 1000
 INITIALIZING = ".kinodel-initializing-v1"
 READY = ".kinodel-ready-v1"
@@ -285,6 +285,21 @@ CREATE TABLE anchor_reference_transfers (
     state TEXT NOT NULL CHECK(state IN ('authorized','active','blocked','verified','finalized'))
 );
 """
+IMAGE_GROUP_SCHEMA = """
+CREATE TABLE image_groups (
+    group_id TEXT PRIMARY KEY NOT NULL,
+    execution_id TEXT NOT NULL UNIQUE REFERENCES executions(execution_id),
+    batch_id TEXT NOT NULL UNIQUE REFERENCES batch_input_pins(batch_id),
+    wait_id TEXT NOT NULL UNIQUE,
+    stage_id TEXT NOT NULL CHECK(stage_id='anchor-batch'),
+    activation_id TEXT NOT NULL UNIQUE, request_digest TEXT NOT NULL,
+    checkpoint_id TEXT CHECK(length(checkpoint_id) BETWEEN 1 AND 1024),
+    task_id TEXT CHECK(length(task_id) BETWEEN 1 AND 1024),
+    interrupt_id TEXT CHECK(length(interrupt_id) BETWEEN 1 AND 1024),
+    CHECK((checkpoint_id IS NULL) = (task_id IS NULL)),
+    CHECK((checkpoint_id IS NULL) = (interrupt_id IS NULL))
+);
+"""
 
 
 def _schema(db: sqlite3.Connection) -> list[tuple[str, str, str]]:
@@ -326,6 +341,8 @@ def _expected_schema(version: int) -> list[tuple[str, str, str]]:
             candidate.executescript(PORTRAIT_SUBMISSION_SCHEMA)
         if version >= 19:
             candidate.executescript(ANCHOR_REFERENCE_TRANSFER_SCHEMA)
+        if version >= 20:
+            candidate.executescript(IMAGE_GROUP_SCHEMA)
         return _schema(candidate)
 
 
@@ -352,7 +369,7 @@ def _validate(db: sqlite3.Connection) -> None:
     if db.execute("PRAGMA application_id").fetchone()[0] != APPLICATION_ID:
         raise ValueError("Unknown application database identity")
     version = db.execute("PRAGMA user_version").fetchone()[0]
-    if version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, SCHEMA_VERSION):
+    if version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, SCHEMA_VERSION):
         raise ValueError("Unsupported application database version; maintenance required")
     schema = _schema(db)
     if (schema != ([] if version == 1 else _expected_schema(version))
@@ -672,6 +689,17 @@ def open_database(root: Path) -> Iterator[sqlite3.Connection]:
                 db.execute("PRAGMA synchronous=FULL")
                 try:
                     db.executescript(f"BEGIN IMMEDIATE; {ANCHOR_REFERENCE_TRANSFER_SCHEMA} PRAGMA user_version=19;")
+                    _validate(db)
+                    db.execute("COMMIT")
+                except BaseException:
+                    if db.in_transaction:
+                        db.execute("ROLLBACK")
+                    raise
+            if db.execute("PRAGMA user_version").fetchone()[0] == 19:
+                # Image admission only; source pins and all old identities/bytes stay owned as before.
+                db.execute("PRAGMA synchronous=FULL")
+                try:
+                    db.executescript(f"BEGIN IMMEDIATE; {IMAGE_GROUP_SCHEMA} PRAGMA user_version=20;")
                     _validate(db)
                     db.execute("COMMIT")
                 except BaseException:

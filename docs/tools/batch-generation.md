@@ -1,6 +1,6 @@
 # Batch-generation: препродакшн image-ноды
 
-Статус: **8 октября 2026: [W8 принят по сокращённому критерию](../roadmap-mvp.md#wardrobe-batch-output). Saved V2 preparation и immutable 5А/5Б owners реализованы; после W8/DB14 input pins — DB15, job/intent — DB16, candidates — DB17. [Private 6А portrait lifecycle](../backend/artifacts.md#restart-safe-portrait-submission) добавляет только DB18 `portrait_submissions`, не batch activation. 6А принят: live import и fresh-process network-forbidden reopen после user-confirmed provider shutdown пройдены. NEXT: 6Б parent rights/bytes + ordered uploads/final pins, затем groups 7. Public media DTO/API, selection/assets/review и batch/media UI ещё pending**.
+Статус: **9 октября 2026: [W8 принят по сокращённому критерию](../roadmap-mvp.md#wardrobe-batch-output). Saved V2 preparation и immutable 5А/5Б owners реализованы; после W8/DB14 input pins — DB15, job/intent — DB16, candidates — DB17. [Private 6А portrait lifecycle](../backend/artifacts.md#restart-safe-portrait-submission) добавляет только DB18 `portrait_submissions`, не batch activation. 6А принят; 6Б reference transport принят offline/mock. [Private 7.1 image execution/group/wait](../backend/artifacts.md#accepted-image-execution-and-group-wait) реализован в DB20. NEXT: 7.2 sequential worker/result wake/complete-set join, затем 7.3 Continue commands/status/media. Live three-unit working `stuff` acceptance, public media DTO/API, selection/assets/review и batch/media UI ещё pending**.
 Первый потребитель — Wardrobe, следующий — Storyboard. Общие side-effect/review правила остаются в
 [Render](render.md); backend/LLM-задачи — в [Local MVP](../roadmap-mvp.md#wardrobe-batch-output),
 workflow/job/media/UI-задачи — в [ComfyUI roadmap](../roadmap-comfyui.md#wardrobe-comfyui).
@@ -66,9 +66,9 @@ data dependencies: hero_face ─┐
 ```
 
 `comfyui-gen` — видимый unit/job данного batch, со своей identity, attempt и workflow;
-не отдельный execution или HITL. Проектируемый runtime использует уже документированную целевую
-submit/wait/join boundary, не реализованный media subsystem: один group wait в LangGraph,
-persisted последовательные units в Render worker. Между картинками
+не отдельный execution или HITL. [Private 7.1](../backend/artifacts.md#accepted-image-execution-and-group-wait)
+реализует image-only execution и один group wait в LangGraph; persisted последовательные units,
+result wake и complete-set join в Render worker — NEXT 7.2. Между картинками
 нет human pauses; браузер/LLM/graph invocation не удерживаются на время рендера.
 UI-вложенность не требует динамически компилировать N LangGraph subgraphs.
 
@@ -170,7 +170,8 @@ W1–W7 остаются историческими; reset/deletion нет, Stor
 
 W8 принят по сокращённому критерию; technical saved V2-plan preparation реализована;
 Offline 5А/5Б реализованы; private 6А portrait принят с user-confirmed provider-off fresh-process reopen.
-NEXT implementation: 6Б verified parent bytes/rights, reference uploads/final graph → N jobs / полный review (шаг 7).
+6Б reference transport принят offline/mock; private 7.1 image execution/group/wait реализован.
+NEXT: 7.2 sequential worker/result wake/complete-set join, затем 7.3 Continue commands/status/media.
 Read-only preparation разрешена заранее; initial render и technical Retry не вызывают Wardrobe повторно.
 
 ## 4. Порядок, зависимости и workflow binding

@@ -1,15 +1,16 @@
 # Cinematic Pipeline
 
-Status: **Accepted MVP boundaries; full media route pending. Batch-generation preproduction updates the target image stages on 2026-10-07.** This page owns cinematic node names, handoffs and repair destinations. [JSON](cinematic.v1.json) mirrors the original V1 route (`anchor-gen`/`frames-gen`) for inspection; it is not a graph compiler, runnable configuration or compatible batch renderer. Current Wardrobe saves compact V2 as a patch in place; implemented technical batch handoff/native preparation and durable input pins use only saved validated V2. V1 runs/configs remain isolated and unsupported, without conversion/reset. Separate Story/Brief/video contracts are unaffected. [Batch contract](../tools/batch-generation.md).
+Status: **Accepted MVP boundaries; private 7.1 image execution/group/wait implemented in DB20. NEXT: 7.2 sequential worker/result wake/complete-set join, then 7.3 Continue commands/status/media; full media route and live three-unit working `stuff` acceptance remain pending. Batch-generation preproduction updates the target image stages on 2026-10-07.** This page owns cinematic node names, handoffs and repair destinations. [JSON](cinematic.v1.json) mirrors the original V1 route (`anchor-gen`/`frames-gen`) for inspection; it is not a graph compiler, runnable configuration or compatible batch renderer. Current Wardrobe saves compact V2 as a patch in place; implemented technical batch handoff/native preparation and durable input pins use only saved validated V2. V1 runs/configs remain isolated and unsupported, without conversion/reset. Separate Story/Brief/video contracts are unaffected. [Batch contract](../tools/batch-generation.md).
 
 The original JSON remains an inspection specimen; authored `anchor-batch`/`frames-batch` scopes are disconnected.
 [W8](../roadmap-mvp.md#wardrobe-batch-output) retains the original Start/graph/digest/adapter 2 and its reduced
 acceptance; deferred full discovery/real-model harness are not PASS. W8 retained DB14; subsequent immutable
 input/job/candidate owners use DB15–17. [Private 6A portrait submission/import](../backend/artifacts.md#restart-safe-portrait-submission)
 adds only DB18 `portrait_submissions`, without rerunning Wardrobe or reopening the terminal text execution.
-6A is accepted: live import and network-forbidden reopen after user-confirmed provider shutdown passed. NEXT: verified parents
-and reference transport 6B, then image activation/groups 7. Technical completion does not select/approve media;
-no public media route or group is enabled. Runtime remains an authored Python `StateGraph`, not a JSON compiler.
+6A is accepted; 6B reference transport is accepted offline/mock.
+[Private 7.1 image execution/group/wait](../backend/artifacts.md#accepted-image-execution-and-group-wait) is implemented.
+Technical completion does not select/approve media; no public media route is enabled.
+Runtime remains an authored Python `StateGraph`, not a JSON compiler.
 
 ## Route
 

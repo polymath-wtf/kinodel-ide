@@ -146,6 +146,11 @@ class StoryRuntime:
         kwargs.setdefault("character_root", self.character_root)
         return await self._start(start_story_wardrobe, *args, **kwargs)
 
+    async def start_images(self, *args, **kwargs):
+        from backend.image_group_store import start_image_execution
+
+        return await self._start(start_image_execution, *args, **kwargs)
+
     async def _start(self, start, *args, **kwargs):
         self._open()
         task = asyncio.current_task()

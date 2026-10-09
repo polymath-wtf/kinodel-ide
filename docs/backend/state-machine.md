@@ -1,6 +1,6 @@
 # Execution State Machine
 
-Status: **Compact StoryState/local business lifecycles and private initial portrait lifecycle are implemented. Immutable 5A/5B owners remain DB16/17; [6A DB18 submission/worker](artifacts.md#restart-safe-portrait-submission) owns guarded authorization, dispatch, acceptance, block/terminal facts and output-only recovery. 6A is accepted: live import and fresh-process network-forbidden reopen after user-confirmed provider shutdown passed. NEXT: verified parents/reference transport 6B, then image activation/groups 7. Full cinematic ExecutionStateV1, public media DTO/API and selection/assets remain pending.**
+Status: **Compact StoryState/local business lifecycles and private initial portrait lifecycle are implemented. Immutable 5A/5B owners remain DB16/17; [6A DB18 submission/worker](artifacts.md#restart-safe-portrait-submission) owns guarded authorization, dispatch, acceptance, block/terminal facts and output-only recovery. 6A is accepted; 6B reference transport is accepted offline/mock. [Private 7.1 image execution/group/wait](artifacts.md#accepted-image-execution-and-group-wait) is implemented in DB20. NEXT: 7.2 sequential worker/result wake/complete-set join, then 7.3 Continue commands/status/media. Live three-unit working `stuff` acceptance, full cinematic ExecutionStateV1, public media DTO/API and selection/assets remain pending.**
 
 Deployment decision: SQLite local / PostgreSQL server. Advisory-session mechanisms refer only to server; the [local profile](../database/local-vs-hosted.md) uses one application and one active graph runner with exclusive data-directory ownership. Both must prove the same durable-outcome invariants. Internal Story saver/recovery is verified on Windows under [Local MVP step 2](../roadmap-mvp.md#step-2); full cinematic and server integration remain pending.
 
@@ -47,6 +47,8 @@ Two instances of one capability retain separate stage activations, operation ide
 The [freeze layers](artifacts.md#freeze-layers) distinguish Run/submitted Brief/profiles/resources, prepared operation refs/context and job seeds/payloads. Future generated refs need not exist at start; draft UI edits cannot rewrite a prepared layer.
 
 ## Checkpoint Projection
+
+Private 7.1 uses compact `ImageState` in `backend/image_graph.py`: project/execution IDs, group/input refs and one immutable `{wait_id, stage_id, activation_id, request_digest}` token. The runner binds the persisted checkpoint/task/interrupt; sequential results/wake/join remain 7.2. See [accepted image execution/group/wait](artifacts.md#accepted-image-execution-and-group-wait).
 
 Implement `ExecutionStateV1` as a Python `TypedDict`; boundary DTO use Pydantic. The table is the full cinematic target, not yet implemented; the internal Story graph already uses compact `StoryState` from `backend/story_graph.py` and persisted application records:
 
