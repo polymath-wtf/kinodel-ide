@@ -91,7 +91,7 @@ After Python/backend changes, stop the existing backend with Ctrl+C and relaunch
 
 Exact Story approval atomically records approval and Wardrobe activation without terminal completion. The runner invokes Wardrobe and holds resume work through a stable stop/end; a valid saved plan is required for successful terminal commit before `END`. The plan is a supporting output without another HITL gate. Applied approval is the authority in this route; a completed outcome is not required to establish Story approval.
 
-Authenticated `GET /api/executions/{execution_id}/wardrobe-plans/{artifact_id}` verifies exact compact V2 `{ref,plan}`. Projection retains `wardrobe_plan_ref` and `wardrobe_stop={work_id,reason,explanation,allowed_actions}`. Non-ready/failure stops remain blocked. Unavailable Retry uses the same pins and remaining hard maximum of two Wardrobe attempts, without replenishment; other stops require cancel/new-run. Control handlers persist work; runner drains invocation-scoped public saver writes before cancellation terminal/lock release. Guarded `/api/executions/{execution_id}/wardrobe-activity` exposes stored authoritative input V2 and config 2 after preparation, without credentials/provider payload/current environment/library lookup. Pipeline/Chat share exact saved prompts and short ordered refs. W1–W7 remain historical V1 acceptance. W8 retains its reduced acceptance; full discovery/real-model harness remain deferred. Private [6A portrait submission/import](artifacts.md#restart-safe-portrait-submission) is implemented without changing these routes. NEXT implementation: reference transport 6B, then groups 7. Public cinematic Start/render/review remain pending ([checklist](../roadmap-mvp.md#wardrobe-batch-output), [W8 evidence](../../test-results/README.md#wardrobe-w8-backend-and-final-status--7-october-2026)).
+Authenticated `GET /api/executions/{execution_id}/wardrobe-plans/{artifact_id}` verifies exact compact V2 `{ref,plan}`. Projection retains `wardrobe_plan_ref` and `wardrobe_stop={work_id,reason,explanation,allowed_actions}`. Non-ready/failure stops remain blocked. Unavailable Retry uses the same pins and remaining hard maximum of two Wardrobe attempts, without replenishment; other stops require cancel/new-run. Control handlers persist work; runner drains invocation-scoped public saver writes before cancellation terminal/lock release. Guarded `/api/executions/{execution_id}/wardrobe-activity` exposes stored authoritative input V2 and config 2 after preparation, without credentials/provider payload/current environment/library lookup. Pipeline/Chat share exact saved prompts and short ordered refs. W1–W7 remain historical V1 acceptance. W8 retains its reduced acceptance; full discovery/real-model harness remain deferred. Private [6A portrait](artifacts.md#restart-safe-portrait-submission) and [6B reference transport](artifacts.md#bounded-anchor-lifecycle-and-reference-transport) preserve these routes. NEXT: image execution/group/wait 7.1. Public cinematic Start/render/review remain pending ([checklist](../roadmap-mvp.md#wardrobe-batch-output), [W8 evidence](../../test-results/README.md#wardrobe-w8-backend-and-final-status--7-october-2026)).
 
 **Request inspection (existing shell, compact V2 reader):** double-click / Shift+Enter follows Pipeline → `wardrobe` (Wardrobe agent / Batch generation · Anchors / review) → Wardrobe agent → `wardrobe:request` (**START → Model → END → Plan**). Batch/media reviews remain disconnected; historical `cinematic.v1.json` is untouched. END is validation/save, not approval/trace. Only persisted preparation supplies frozen model/config; env/Storytell model never substitutes. Inputs show approved Story link, idea and frozen Character Bio/images once; technical refs/provenance/full authority input are collapsed. Original bytes go to the model as ordered base64 without resize/re-encoding/omission. Outputs show full copyable prompts, use_case/mode and short ordered refs, with exact plan/Story refs collapsed; all creative detail is inside prompts ([frontend contract](../frontend/webui.md#wardrobe-и-comfyui)).
 
@@ -151,7 +151,8 @@ static PNG only, 16 MiB cap, exact pinned portrait geometry up to 1024 per side.
 and exact local job/pin lineage, not provider acceptance, successful history/generation or approval;
 no public media DTO/API, selection/assets/group or media UI is enabled.
 6A is accepted: live portrait import and fresh-process network-forbidden reopen after user-confirmed provider shutdown passed.
-NEXT implementation: verified parent bytes/rights, ordered uploads/final graph 6B, then group/activation 7.
+6B anchor lifecycle/verified parents/ordered uploads/final graph is accepted offline/mock;
+NEXT implementation: image execution/group/wait 7.1.
 
 **Historical offline 5B migration note (retained):**
 
@@ -167,10 +168,16 @@ submission storage. Original SQL/rows/rowids and V3 artifact files are retained,
 remain unsupported. The exact retention fingerprint is validated after each migration/reopen;
 unknown or partially matching schemas still refuse startup. [Repair evidence](../../test-results/README.md#startup-schema-collision-repair--8-october-2026).
 
-**Current 6A storage:** DB18 adds only implemented `portrait_submissions`; the preceding DB15 repair
+**6A storage:** DB18 adds only implemented `portrait_submissions`; the preceding DB15 repair
 description is retained as its historical migration fact. Native worker/accepted intent and output-only
 recovery are internal, caller-lock-owned operations, with no public route or scheduler. The live check used
 an isolated read-only SQLite backup and copied immutable project files, not another migration of the source root.
+
+**Current 6B storage:** normal locked startup now migrates DB18→19 by adding only
+`anchor_reference_transfers`, retaining exact historical schema/rows/rowids and Wardrobe retention.
+This build verified migration in disposable roots, not working `stuff`. Private anchor APIs support
+background/sheet; explicit finalized reference pins gate sheet native authorization.
+[Contract](artifacts.md#bounded-anchor-lifecycle-and-reference-transport).
 
 ## Acceptance Gate
 

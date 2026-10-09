@@ -264,9 +264,9 @@ lineage through `read_saved_batch_input`. The original completed text execution 
 
 Caller holds the existing data-root lock. Windows file sync/SQLite FULL guarantee process-death
 recovery, not a power-loss claim. Parent metadata remains a pin, not verification of media bytes,
-rights, imported lineage or upload receipt. Initial portrait job/attempt binding is implemented below;
-zero-reference provider transport is implemented in 6A below; verified parents/final post-upload graph
-and accepted image activation/group remain steps 6B–7
+rights, imported lineage or upload receipt. Initial portrait job/attempt and zero-reference transport
+are implemented below; 6B separately verifies parents and pins the final post-upload graph.
+Accepted image activation/group remains step 7
 of the [ComfyUI roadmap](../roadmap-comfyui.md#wardrobe-comfyui).
 
 ## Offline Portrait Job Intent
@@ -319,7 +319,7 @@ It is transport provenance, not a local path or evidence of successful provider 
 
 Caller holds the root lock. A technically valid candidate is not provider acceptance/history success,
 approval, an asset or selected binding. Worker 6А proves successful declared history before import.
-Public media reads, parent rights resolver/reference transport and selection/group remain later steps.
+Public media reads and selection/group remain later steps; parent resolver/reference transport is implemented in 6B below.
 
 ## Restart-safe Portrait Submission
 
@@ -335,8 +335,10 @@ Caller holds the root OS lock and services one job at a time; caller SQL transac
 - `authorize_portrait_submission` requires expected input/wire digests and fixes acceptance time plus
   original deadline (default 15 min, max 1 h). Revision-CAS `claim_portrait_dispatch` commits potentially-sent
   **before HTTP**; only a fresh successful claim permits one POST. Reopened dispatching never means unsent.
-  Response `prompt_id`/first acceptance evidence commit before node-error/contract checks; unknown acceptance
-  stays blocked, empty history proves nothing. There is no second-attempt allocator or automatic POST retry.
+  Response `prompt_id`/first acceptance evidence commit before node-error/contract checks. A valid owned ID
+  with rejected response metadata stays `blocked/contract_error`, not terminal failed; successful-history
+  recovery remains possible. Unknown acceptance stays blocked, empty history proves nothing. There is no
+  second-attempt allocator or automatic POST retry.
 - `tick_portrait_job` performs bounded native async calls (connect 5 s, read/per-call total 15 s, tick 60 s),
   verified TLS/no proxy-env/redirect/retry, identity transfer, strict bounded JSON and a 16 MiB PNG spool
   in ≤64 KiB chunks. No SQL transaction spans await, streaming or decode. Exact native queue/history tuple,
@@ -344,21 +346,68 @@ Caller holds the root OS lock and services one job at a time; caller SQL transac
   can import. Only finite value-identical int→float at frozen schema-declared FLOAT scalars is equivalent;
   all other graph fields/types/links remain exact. Safe Windows subfolder separators normalize for metadata;
   `/view` retains actual native spelling. Candidate bytes/digest/geometry and publication remain owned by 5B.
-- `revalidate_contract=True` is explicit trusted-caller correction of a known owned-ID contract block,
-  only after full matching successful history and a safe declared descriptor. First acceptance evidence
-  remains; the original block is retained in restricted audit. Default ticks cannot clear a contract reason.
+- Malformed provably foreign queue/history records are isolated as durable `diagnostics` with
+  `kind=broken_job`, source, optional validated native ID, restricted reason and digest, without raw
+  payloads. The first 32 distinct facts are retained; repeated facts are stable. Empty diagnostics are
+  omitted from canonical serialization, preserving old 6A bodies. Own ID/history key/job/attempt/client
+  signals, including an ID discovered during matching, override foreign hints; ambiguous malformed
+  records and conflicting exact matches still block. Diagnostics never prove acceptance or success.
+  This private read supports future history UI; no public history route is activated here.
+- `revalidate_contract=True` is explicit trusted-caller correction of a `blocked/contract_error` record,
+  with a known or unknown native ID, only after one uniquely matched exact successful completed history
+  and a safe declared descriptor. A known ID/first acceptance evidence remains unchanged; an unknown
+  first ID/history evidence commits together by revision-CAS before import. Queue-only evidence, absence,
+  conflicts, provider failure and unsafe outputs do not clear the block. The original block is retained
+  in restricted audit. Default ticks cannot clear a contract reason; revalidation performs GETs only.
 - `authorize_portrait_output_recovery` grants ONE revision-guarded GET/import-only time pair ≤5 min for the
   same accepted prompt after original expiry. It never changes original acceptance/deadline/dispatch or
   permits POST; exact replay preserves the pair, expired/changed grants never renew. The inactive optional
   pair alone is omitted from canonical serialization, keeping existing DB18 bodies exact without migration.
   Successful history is rechecked before using the grant; published missing/corrupt originals never heal.
+  An expired unknown-ID revalidation can establish the ID, but cannot download a new original until the
+  separate explicit output-only grant is authorized. Old terminal failed records are not automatically reopened.
+
+[Recovery/isolation correction evidence](../../test-results/README.md#comfyui-step-6--recovery-and-isolation-corrections--9-october-2026).
 
 6A is accepted: live original import and fresh-process exact offline read passed after the user confirmed
 ComfyUI was powered off, with HTTP/socket calls patched to fail. Shutdown is user-confirmed, not agent-performed
 or independently server-probed. [Evidence](../../test-results/README.md#comfyui-step-6a--restart-safe-portrait--8-october-2026).
 Completion is technical, not approval/selection. No public route/media DTO, cinematic Start, scheduler,
-capability activation or graph/group lifecycle is enabled. NEXT: verified parent rights/bytes, ordered
-uploads/receipts/final pins (6B), then image activation/groups (7).
+capability activation or graph/group lifecycle is enabled. Reference transport is implemented below;
+image activation/groups remain step 7.
+
+## Bounded Anchor Lifecycle And Reference Transport
+
+6B.1–6B.3 are implemented and accepted offline/mock. Existing DB18 tables and portrait-only APIs
+retain exact 6A identities/canonical bytes. Explicit anchor-unit APIs additionally accept only
+background/location txt2img (`865/images[0]`) and sheet/hero-sheet (`494/images[0]`), with separate
+nonportrait identity/schema namespaces and the same initial-attempt/import/one-POST lifecycle.
+
+- `anchor_parent_resolver.resolve_sheet_parents` resolves exact ordered candidate IDs to bounded
+  original bytes, verifying digest/decode, project/job/attempt/input/endpoint ownership, completed
+  parent submissions, exact same batch generation and declared earlier dependencies. Source plan,
+  applied Story authority and cancellation are rechecked. Trusted caller owns local project access
+  and root lock; internal candidates need no creative approval and are not approved assets.
+- Additive DB18→19 adds only `anchor_reference_transfers`. `anchor_reference_store` owns explicit
+  upload authorization, two ordered role intents, unique job/role/digest names, revision-CAS claims,
+  actual receipts and remote-original verification facts. Only a fresh committed claim permits one
+  upload POST; unknown acceptance never grants reupload or a guessed receipt. Saved receipts recover
+  through GET only. Background upload follows verified portrait. Existing rows/rowids/files remain intact.
+  Reopened receipt-less `blocked_sent` returns its existing reason/revision without HTTP or another
+  mutation; a fresh dispatch marker without receipt becomes `acceptance_unknown` once.
+- `anchor_reference_worker.tick_anchor_references` sends verified original bytes with `type=input`,
+  `overwrite=false`, saves actual collision-renamed receipt before GET and checks full original digest
+  and length. Native subfolder spelling is retained for `/view`, safe normalized paths for LoadImage.
+  TLS/time/stream bounds reuse 6A; no transaction crosses HTTP or decode.
+- Final graph changes only `470.image` and `496.image`; seed/topology/schema/settings remain frozen.
+  Sheet preview/authorization requires this finalized durable record and pins its digest and ordered
+  receipts in the native wire/correlation. Before the first child dispatch, both remote originals and
+  current local authority are checked again. Missing/changed input leaves the child unsent; accepted
+  reconciliation needs no surviving remote inputs. Lost prompt response never causes blind resubmit.
+
+Recovery does not reprepare, resample, heal originals or overwrite foreign inputs. Groups, public APIs,
+selection and live three-unit sheet delivery remain step 7 onward.
+[Evidence](../../test-results/README.md#comfyui-step-6b--anchor-lifecycle-and-reference-transport--9-october-2026).
 
 ## Minimal Schemas
 
@@ -377,7 +426,7 @@ Implement and verify schemas in activation order. The wider catalog is design co
   Full discovery and the automated real-model/offline harness are deferred, not PASS. Technical handoff,
   native preparation, durable input pins, offline initial portrait job/attempt storage and original
   candidate import and private DB18 portrait submission/worker (6A) are implemented.
-  User-confirmed provider-off reopen completes 6A acceptance; NEXT implementation is verified parent transport (6B), then groups (7).
+  User-confirmed provider-off reopen completes 6A acceptance; DB19 reference transport (6B) is accepted offline/mock. NEXT: image execution/group/wait (7.1).
   Future batch FramePlan, candidate-set records and `RenderResultV1` belong to the pending media slice.
   Stable keys, `SelectedMedia` and selected slots are unchanged;
 - mode-discriminated MotionPlan under the next `img2vid/ref2vid` contract, `MontagePlanV1` and `MontageResultV1` when video/montage is enabled; original i2v `MotionPlanV1` retains its meaning;

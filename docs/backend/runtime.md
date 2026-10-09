@@ -159,18 +159,19 @@ Late provider results may remain job audit but cannot bind output or resume term
 
 ## Rendering Extension
 
-**One initial portrait lifecycle is implemented; graph submit/wait/join remains a target.** Immutable
+**Private anchor-unit lifecycle is implemented; graph submit/wait/join remains a target.** Immutable
 [5A job/intent](artifacts.md#offline-portrait-job-intent) (DB16) and [5B original import](artifacts.md#offline-portrait-candidate-import)
 (DB17) retain their owners. [6A](artifacts.md#restart-safe-portrait-submission) adds only DB18 `portrait_submissions`
 and a bounded native async tick: explicit exact-wire authorization, pre-HTTP dispatch CAS, acceptance,
 reconciliation and successful-history verified import. Ambiguous acceptance never permits another POST;
-known-ID contract revalidation and a one-shot ≤5 min GET/import-only grant are explicit, preserve the
+known/unknown-ID successful-history contract revalidation and a one-shot ≤5 min GET/import-only grant are explicit, preserve the
 original dispatch deadline, and do not allocate attempts. Live import and fresh-process network-forbidden
 reopen after user-confirmed provider shutdown passed; 6A is accepted. Preparation-only public diagnostics still cannot submit.
 
-NEXT implementation: verified parent bytes/rights and ordered uploads/final graph (6B), then image
-activation/group/wait (7). No scheduler, public render/media route, selected binding or execution change
-is enabled by 6A. The target [Batch-generation](../tools/batch-generation.md) nodes submit durable groups
+6B verified parent bytes/rights and ordered uploads/final graph are accepted offline/mock; malformed
+provably foreign native records have private `broken_job` diagnostics. NEXT: image activation/group/wait
+(7.1). No scheduler, public render/media route, selected binding or execution change is enabled by 6A/6B.
+The target [Batch-generation](../tools/batch-generation.md) nodes submit durable groups
 and return refs promptly: N sequential unit/jobs inside one group/wait, without a graph per image.
 Provider ticks need no active graph invocation; job workers cannot change selected output bindings.
 

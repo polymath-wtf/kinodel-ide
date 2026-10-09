@@ -206,14 +206,69 @@ class PortraitWorkerTests(fixtures.WardrobeFixtures, unittest.IsolatedAsyncioTes
     async def test_response_id_commits_before_node_errors_or_later_bad_response_contract(self):
         async with self.committed() as (db, ref):
             original = self.job(db, ref)
-            for post in ({'prompt_id': 'prompt-1', 'number': 1, 'node_errors': {'865': {'errors': ['private-token']}}},
-                         {'prompt_id': 'prompt-1', 'number': 'bad', 'node_errors': {}}, {'prompt_id': 'prompt-1'}):
-                record = self.reset(db, original)
-                result = await self.tick(db, record, self.server(db, record, post=post))
-                self.assertEqual((result.state, result.prompt_id, result.reason), ('failed', 'prompt-1', 'contract_error'))
-                self.assertIsNotNone(result.acceptance_evidence)
-                self.assertNotIn('private-token', result.model_dump_json())
-                self.assertEqual(await self.tick(db, result, lambda _: self.fail('Failed HTTP')), result)
+            for status, post in (
+                (200, {'prompt_id': 'prompt-1', 'number': 1, 'node_errors': {'865': {'errors': ['private-token']}}}),
+                (200, {'prompt_id': 'prompt-1', 'number': 'bad', 'node_errors': {}}),
+                (200, {'prompt_id': 'prompt-1', 'number': True, 'node_errors': {}}),
+                (200, {'prompt_id': 'prompt-1', 'number': 1, 'node_errors': []}),
+                (200, {'prompt_id': 'prompt-1'}),
+                (503, {'prompt_id': 'prompt-1', 'number': 1, 'node_errors': {}}),
+            ):
+                with self.subTest(status=status, post=post):
+                    record = self.reset(db, original)
+                    def handle(request):
+                        self.assertFalse(db.in_transaction)
+                        self.assertEqual((request.method, request.url.path), ('POST', '/native/prompt'))
+                        self.calls.append(request)
+                        return response(post, status=status)
+                    result = await self.tick(db, record, handle)
+                    self.assertEqual((result.state, result.prompt_id, result.reason), ('blocked', 'prompt-1', 'contract_error'))
+                    assert result.acceptance_evidence is not None
+                    self.assertEqual(result.acceptance_evidence.kind, 'prompt_response')
+                    self.assertEqual(result.acceptance_evidence.digest, sha256_digest(encoded(post)))
+                    self.assertEqual(result.evidence, result.acceptance_evidence)
+                    self.assertNotIn('private-token', result.model_dump_json())
+                    self.assertEqual(await self.tick(db, result, lambda _: self.fail('Sticky block HTTP')), result)
+
+    async def test_owned_response_contract_block_reopens_and_revalidates_without_second_post(self):
+        async with self.committed() as (db, ref):
+            original = self.job(db, ref)
+            post = {'prompt_id': 'prompt-1', 'number': 'malformed-metadata', 'node_errors': {}}
+            actual_accept = submissions.record_portrait_acceptance
+            def inspect_acceptance(*args, **kwargs):
+                accepted = actual_accept(*args, **kwargs)
+                self.assertEqual((accepted.state, accepted.prompt_id, accepted.reason), ('accepted', 'prompt-1', None))
+                self.assertEqual(submissions.read_portrait_submission(db, original.preview.job_id,
+                    expected_unit_digest=original.preview.unit_input_digest,
+                    expected_wire_digest=original.preview.wire_digest), accepted)
+                return accepted
+            with patch.object(submissions, 'record_portrait_acceptance', side_effect=inspect_acceptance):
+                blocked = await self.tick(db, original, self.server(db, original, post=post))
+            self.assertEqual((blocked.state, blocked.reason, blocked.prompt_id), ('blocked', 'contract_error', 'prompt-1'))
+            assert blocked.acceptance_evidence is not None
+            self.assertEqual(blocked.acceptance_evidence.digest, sha256_digest(encoded(post)))
+            self.assertEqual(blocked.evidence, blocked.acceptance_evidence)
+        with database.open_database(self.root) as db:
+            restored = submissions.read_portrait_submission(db, blocked.preview.job_id,
+                expected_unit_digest=blocked.preview.unit_input_digest, expected_wire_digest=blocked.preview.wire_digest)
+            self.assertEqual(restored, blocked)
+            self.assertEqual(await self.tick(db, restored, lambda _: self.fail('Offline default HTTP')), restored)
+            self.assertEqual(len(self.calls), 1)
+            completed = await self.tick(db, restored, self.server(db, restored), revalidate_contract=True)
+            self.assertEqual((completed.state, completed.reason, completed.prompt_id), ('completed', None, 'prompt-1'))
+            self.assertEqual(completed.acceptance_evidence, restored.acceptance_evidence)
+            self.assertEqual(completed.preview, original.preview)
+            self.assertEqual((completed.accepted_at_ms, completed.deadline_ms, completed.dispatched_at_ms),
+                             (original.accepted_at_ms, original.deadline_ms, blocked.dispatched_at_ms))
+            self.assertEqual((completed.output_recovery_authorized_at_ms, completed.output_recovery_deadline_ms), (None, None))
+            assert completed.evidence is not None
+            self.assertEqual(completed.evidence.digest, sha256_digest(encoded(history(original.preview)['prompt-1'])))
+            assert completed.candidate_id is not None
+            candidate = candidates.read_portrait_candidate(db, completed.candidate_id,
+                expected_unit_digest=original.preview.unit_input_digest)
+            self.assertEqual(self.path(candidate).read_bytes(), png())
+            self.assertEqual([(request.method, request.url.path) for request in self.calls], [
+                ('POST', '/native/prompt'), ('GET', '/native/queue'), ('GET', '/native/history/prompt-1'), ('GET', '/native/view')])
 
     async def test_lost_response_queue_then_history_recovers_without_second_post(self):
         async with self.committed() as (db, ref):
@@ -261,6 +316,203 @@ class PortraitWorkerTests(fixtures.WardrobeFixtures, unittest.IsolatedAsyncioTes
                 'queue_running': [good, prompt_tuple(original.preview, 'prompt-2')], 'queue_pending': []}, histories={}))
             self.assertEqual((conflict.state, conflict.reason), ('blocked', 'contract_error'))
             self.assertEqual(sum(r.method == 'POST' for r in self.calls), 0)
+
+    def foreign_tuple(self, preview, prompt_id='foreign-1'):
+        item = prompt_tuple(preview, prompt_id)
+        item[3]['kinodel_portrait_v1'].update(job_id=ZERO, attempt_id=ZERO)
+        item[3]['client_id'] = 'foreign-client'
+        return item
+
+    async def test_broken_foreign_queue_and_history_do_not_poison_owned_import_and_reopen(self):
+        async with self.committed() as (db, ref):
+            original = self.job(db, ref)
+            record = self.accepted(db, original)
+            bad_queue = self.foreign_tuple(record.preview)
+            bad_queue[0] = 'private-token C:\\private\\queue.png'
+            bad_history = {'private': 'https://private.test/token', 'prompt': self.foreign_tuple(record.preview, 'foreign-2')[:4]}
+            queue = {'queue_running': [bad_queue, prompt_tuple(record.preview)], 'queue_pending': []}
+            histories = {**history(record.preview), 'foreign-2': bad_history,
+                         'foreign-3': {**history(record.preview, 'foreign-3')['foreign-3'],
+                                       'prompt': self.foreign_tuple(record.preview, 'foreign-3')}}
+            # Existing candidate identity/original must be reused, not downloaded again.
+            candidate = candidates.import_portrait_candidate(db, record.preview.job_id, record.preview.attempt_id,
+                expected_unit_digest=record.preview.unit_input_digest, stream=io.BytesIO(png()), descriptor=dict(
+                    node_id='865', history_key='images', index=0, filename='portrait.png', subfolder='',
+                    type='output', mime_type='image/png'))
+            completed = await self.tick(db, record, self.server(db, record, queue=queue, histories=histories,
+                media=lambda: self.fail('Downloaded existing candidate')))
+            self.assertEqual((completed.state, completed.candidate_id), ('completed', candidate.candidate_id))
+            self.assertEqual([(d.kind, d.source, d.prompt_id, d.reason) for d in completed.diagnostics], [
+                ('broken_job', 'queue', 'foreign-1', 'native_tuple'),
+                ('broken_job', 'history', 'foreign-2', 'native_tuple')])
+            self.assertEqual(completed.diagnostics[0].digest, sha256_digest(encoded(bad_queue)))
+            self.assertEqual(completed.diagnostics[1].digest,
+                             sha256_digest(encoded({'key': 'foreign-2', 'record': bad_history})))
+            for private in ('private-token', 'C:\\private', 'https://private.test/token'):
+                self.assertNotIn(private, completed.model_dump_json())
+            self.assertEqual(completed.acceptance_evidence, record.acceptance_evidence)
+            self.assertEqual(completed.preview, original.preview)
+            self.assertEqual(self.path(candidate).read_bytes(), png())
+        with database.open_database(self.root) as db:
+            restored = submissions.read_portrait_submission(db, completed.preview.job_id,
+                expected_unit_digest=completed.preview.unit_input_digest, expected_wire_digest=completed.preview.wire_digest)
+            self.assertEqual(restored, completed)
+            self.assertEqual(await self.tick(db, restored, lambda _: self.fail('Offline diagnostic HTTP')), restored)
+            self.assertTrue(all(r.method == 'GET' for r in self.calls))
+
+    async def test_foreign_diagnostics_replay_stable_unknown_dispatch_never_proves_acceptance(self):
+        async with self.committed() as (db, ref):
+            record = self.dispatched(db, self.job(db, ref))
+            foreign = self.foreign_tuple(record.preview)[:4]
+            queue = {'queue_running': [foreign, foreign], 'queue_pending': []}
+            first = await self.tick(db, record, self.server(db, record, queue=queue, histories={}))
+            self.assertEqual((first.state, first.reason, first.prompt_id), ('blocked', 'acceptance_unknown', None))
+            self.assertEqual(len(first.diagnostics), 1)
+            row = submissions._row(db, first.preview.job_id)
+            replayed = await self.tick(db, first, self.server(db, first, queue=queue, histories={}))
+            self.assertEqual(replayed, first)
+            self.assertEqual(submissions._row(db, first.preview.job_id), row)
+            completed = await self.tick(db, replayed, self.server(db, replayed))
+            self.assertEqual(completed.state, 'completed')
+            self.assertEqual(completed.diagnostics, first.diagnostics)
+            self.assertFalse(any(r.method == 'POST' for r in self.calls))
+
+    async def test_malformed_own_related_or_identity_free_records_never_hide_as_foreign(self):
+        async with self.committed() as (db, ref):
+            original = self.job(db, ref)
+            cases = [('own_id', True), ('own_job', True), ('own_attempt', True), ('other_namespace', True),
+                     ('own_client', True), ('no_identity', True), ('unknown_foreign_id_only', False),
+                     ('unknown_partial_foreign_correlation', False)]
+            for name, known in cases:
+                with self.subTest(name=name):
+                    record = (self.accepted if known else self.dispatched)(db, self.reset(db, original))
+                    item = self.foreign_tuple(record.preview)[:4]
+                    if name == 'own_id': item[1] = 'prompt-1'
+                    if name == 'own_job': item[3]['kinodel_portrait_v1']['job_id'] = record.preview.job_id
+                    if name == 'own_attempt': item[3]['kinodel_portrait_v1']['attempt_id'] = record.preview.attempt_id
+                    if name == 'other_namespace': item[3]['kinodel_anchor_unit_v1'] = {'job_id': record.preview.job_id}
+                    if name == 'own_client': item[3]['client_id'] = json.loads(record.preview.wire_body)['client_id']
+                    if name == 'no_identity': item = []
+                    if name == 'unknown_foreign_id_only': item[3] = {}
+                    if name == 'unknown_partial_foreign_correlation': del item[3]['kinodel_portrait_v1']['attempt_id']
+                    result = await self.tick(db, record, self.server(db, record,
+                        queue={'queue_running': [item], 'queue_pending': []}))
+                    self.assertEqual((result.state, result.reason), ('blocked', 'contract_error'))
+                    self.assertEqual(result.diagnostics, [])
+                    self.assertEqual(await self.tick(db, result, lambda _: self.fail('Sticky contract HTTP')), result)
+            self.assertFalse(any(r.method == 'POST' or r.url.path.endswith('/view') for r in self.calls))
+
+    async def test_history_key_and_discovered_owned_id_override_malformed_foreign_hints(self):
+        async with self.committed() as (db, ref):
+            original = self.job(db, ref)
+            for name in ('own_key', 'own_tuple_id', 'discovered_id', 'foreign_only_own_route', 'foreign_shape'):
+                with self.subTest(name=name):
+                    record = (self.dispatched if name == 'discovered_id' else self.accepted)(db, self.reset(db, original))
+                    item = self.foreign_tuple(record.preview)[:4]
+                    if name in ('own_tuple_id', 'discovered_id'): item[1] = 'prompt-1'
+                    key = 'prompt-1' if name == 'own_key' else item[1]
+                    histories = {key: {'prompt': item}}
+                    if name == 'discovered_id': histories = history(record.preview)
+                    if name == 'foreign_only_own_route':
+                        histories = history(record.preview, 'foreign-1')
+                        histories['foreign-1']['prompt'] = self.foreign_tuple(record.preview)
+                    if name == 'foreign_shape': histories = {'foreign-1': {'private': 'private-token'}}
+                    queue = {'queue_running': [item] if name == 'discovered_id' else [], 'queue_pending': []}
+                    result = await self.tick(db, record, self.server(db, record, queue=queue, histories=histories))
+                    self.assertEqual(result.state, 'blocked')
+                    self.assertEqual(result.reason, 'history_unavailable' if name in ('foreign_only_own_route', 'foreign_shape') else 'contract_error')
+                    self.assertEqual(len(result.diagnostics), 1 if name == 'foreign_shape' else 0)
+            self.assertFalse(any(r.method == 'POST' or r.url.path.endswith('/view') for r in self.calls))
+
+    async def test_broken_foreign_diagnostic_survives_later_owned_conflict_and_top_level_stays_strict(self):
+        async with self.committed() as (db, ref):
+            original = self.job(db, ref)
+            record = self.dispatched(db, original)
+            foreign = self.foreign_tuple(record.preview)[:4]
+            result = await self.tick(db, record, self.server(db, record, queue={'queue_running': [foreign,
+                prompt_tuple(record.preview), prompt_tuple(record.preview, 'prompt-2')], 'queue_pending': []}, histories={}))
+            self.assertEqual((result.state, result.reason, result.prompt_id), ('blocked', 'contract_error', None))
+            self.assertEqual(len(result.diagnostics), 1)
+            for queue, histories in (([], {}), ({'queue_running': [], 'queue_pending': [], 'extra': []}, {}),
+                                     ({'queue_running': [], 'queue_pending': []}, [])):
+                record = self.dispatched(db, self.reset(db, original))
+                result = await self.tick(db, record, self.server(db, record, queue=queue, histories=histories))
+                self.assertEqual((result.state, result.reason), ('blocked', 'contract_error'))
+                self.assertEqual(result.diagnostics, [])
+
+    async def test_foreign_history_bad_status_and_identity_are_diagnostic_not_success(self):
+        async with self.committed() as (db, ref):
+            record = self.accepted(db, self.job(db, ref))
+            foreign = history(record.preview, 'foreign-1')['foreign-1']
+            foreign['prompt'] = self.foreign_tuple(record.preview)
+            foreign['status'] = {'private': 'private-token'}
+            identity = {'prompt': self.foreign_tuple(record.preview, 'foreign-3')}
+            histories = {**history(record.preview), 'foreign-1': foreign, 'foreign-2': identity}
+            completed = await self.tick(db, record, self.server(db, record, histories=histories))
+            self.assertEqual(completed.state, 'completed')
+            self.assertEqual([(d.reason, d.prompt_id) for d in completed.diagnostics], [
+                ('history_status', 'foreign-1'), ('history_identity', 'foreign-3')])
+            self.assertNotIn('private-token', completed.model_dump_json())
+
+    async def test_valid_nonmatch_owned_signals_block_queue_and_history(self):
+        async with self.committed() as (db, ref):
+            original = self.job(db, ref)
+            for source, known, signal in (('queue', True, 'client'), ('history', True, 'job'),
+                                           ('queue', False, 'attempt'), ('history', False, 'client'),
+                                           ('queue', False, 'discovered_id')):
+                with self.subTest(source=source, known=known, signal=signal):
+                    record = (self.accepted if known else self.dispatched)(db, self.reset(db, original))
+                    item = self.foreign_tuple(record.preview)
+                    if signal == 'client': item[3]['client_id'] = json.loads(record.preview.wire_body)['client_id']
+                    elif signal == 'discovered_id': item[1] = 'prompt-1'
+                    else: item[3]['kinodel_anchor_unit_v1'] = {signal + '_id': getattr(record.preview, signal + '_id')}
+                    queue = {'queue_running': [item] if source == 'queue' else [], 'queue_pending': []}
+                    if signal == 'discovered_id': queue['queue_running'].insert(0, prompt_tuple(record.preview))
+                    histories = history(record.preview)
+                    if source == 'history':
+                        histories.update(history(record.preview, 'foreign-1'))
+                        histories['foreign-1']['prompt'] = item
+                    result = await self.tick(db, record, self.server(db, record, queue=queue, histories=histories))
+                    self.assertEqual((result.state, result.reason), ('blocked', 'contract_error'))
+                    self.assertEqual(result.prompt_id, record.prompt_id)
+                    self.assertEqual(result.diagnostics, [])
+                    self.assertEqual(await self.tick(db, result, lambda _: self.fail('Sticky contract HTTP')), result)
+            self.assertFalse(any(r.method == 'POST' or r.url.path.endswith('/view') for r in self.calls))
+
+    async def test_discovered_owned_id_cleans_quarantine_before_every_later_protocol_exit(self):
+        async with self.committed() as (db, ref):
+            original = self.job(db, ref)
+            for source, trailing_error in (('queue', False), ('queue', True), ('history', True), ('queue-reversed', True)):
+                with self.subTest(source=source, trailing_error=trailing_error):
+                    record = self.dispatched(db, self.reset(db, original))
+                    queue = {'queue_running': [self.foreign_tuple(record.preview, 'foreign-keep')[:4],
+                        self.foreign_tuple(record.preview, 'prompt-1')[:4]], 'queue_pending': []}
+                    histories = {}
+                    if source.startswith('queue'):
+                        if source == 'queue-reversed': queue['queue_running'].insert(1, prompt_tuple(record.preview))
+                        else: queue['queue_running'].append(prompt_tuple(record.preview))
+                        if trailing_error: queue['queue_running'].append([])
+                    else:
+                        histories = {**history(record.preview), 'zzz-ambiguous': {}}
+                    result = await self.tick(db, record, self.server(db, record, queue=queue, histories=histories))
+                    self.assertEqual((result.state, result.reason, result.prompt_id), ('blocked', 'contract_error', None))
+                    self.assertEqual([d.prompt_id for d in result.diagnostics], ['foreign-keep'])
+                    self.assertEqual(submissions.read_portrait_submission(db, result.preview.job_id,
+                        expected_unit_digest=result.preview.unit_input_digest, expected_wire_digest=result.preview.wire_digest), result)
+                    self.assertEqual(await self.tick(db, result, lambda _: self.fail('Sticky contract HTTP')), result)
+            self.assertTrue(all(r.method == 'GET' for r in self.calls))
+
+    async def test_valid_nonkinodel_records_without_correlation_do_not_block_unknown_owned_import(self):
+        async with self.committed() as (db, ref):
+            record = self.dispatched(db, self.job(db, ref))
+            item = prompt_tuple(record.preview, 'nonkinodel-1')
+            item[3] = {}  # Absence of correlation is not an explicit own signal on a valid tuple.
+            histories = {**history(record.preview), **history(record.preview, 'nonkinodel-1')}
+            histories['nonkinodel-1']['prompt'] = item
+            result = await self.tick(db, record, self.server(db, record,
+                queue={'queue_running': [item], 'queue_pending': []}, histories=histories))
+            self.assertEqual((result.state, result.prompt_id, result.diagnostics), ('completed', 'prompt-1', []))
+            self.assertFalse(any(r.method == 'POST' for r in self.calls))
 
     async def test_known_history_identity_graph_correlation_client_and_output_checks(self):
         async with self.committed() as (db, ref):
@@ -561,6 +813,188 @@ class PortraitWorkerTests(fixtures.WardrobeFixtures, unittest.IsolatedAsyncioTes
             self.assertEqual((result.state, result.reason, result.prompt_id), ('blocked', 'deadline_exceeded', 'prompt-1'))
             self.assertEqual(result.deadline_ms, blocked.deadline_ms)
             self.assertFalse(any(r.method == 'POST' or r.url.path.endswith('/view') for r in self.calls))
+
+    async def test_unknown_contract_revalidation_reopens_sticky_then_imports_unique_safe_history_get_only(self):
+        async with self.committed() as (db, ref):
+            original = self.job(db, ref)
+            dispatched = self.dispatched(db, original)
+            blocked = await self.tick(db, dispatched, self.server(db, dispatched, queue={
+                'queue_running': [prompt_tuple(original.preview)[:4]], 'queue_pending': []}))
+            self.assertEqual((blocked.state, blocked.reason, blocked.prompt_id, blocked.acceptance_evidence),
+                             ('blocked', 'contract_error', None, None))
+        with database.open_database(self.root) as db:
+            restored = submissions.read_portrait_submission(db, blocked.preview.job_id,
+                expected_unit_digest=blocked.preview.unit_input_digest, expected_wire_digest=blocked.preview.wire_digest)
+            self.assertEqual(restored, blocked)
+            self.assertEqual(await self.tick(db, restored, lambda _: self.fail('Default unknown contract HTTP')), restored)
+            self.calls.clear()
+            queue = {'queue_running': [self.foreign_tuple(restored.preview)[:4], prompt_tuple(restored.preview)],
+                     'queue_pending': []}
+            handle = self.server(db, restored, queue=queue)
+            proof_digest = sha256_digest(encoded(history(restored.preview)['prompt-1']))
+            def inspect_view(request):
+                if request.url.path.endswith('/view'):
+                    saved = submissions.read_portrait_submission(db, restored.preview.job_id,
+                        expected_unit_digest=restored.preview.unit_input_digest,
+                        expected_wire_digest=restored.preview.wire_digest)
+                    self.assertEqual((saved.state, saved.reason, saved.prompt_id), ('accepted', None, 'prompt-1'))
+                    self.assertEqual(saved.acceptance_evidence, saved.evidence)
+                    assert saved.acceptance_evidence is not None
+                    self.assertEqual((saved.acceptance_evidence.kind, saved.acceptance_evidence.digest), ('history', proof_digest))
+                    self.assertEqual(db.execute('SELECT COUNT(*) FROM portrait_candidates').fetchone(), (0,))
+                return handle(request)
+            completed = await self.tick(db, restored, inspect_view, revalidate_contract=True)
+            self.assertEqual((completed.state, completed.reason, completed.prompt_id), ('completed', None, 'prompt-1'))
+            self.assertEqual(completed.acceptance_evidence, completed.evidence)
+            self.assertEqual(completed.preview, original.preview)
+            self.assertEqual((completed.accepted_at_ms, completed.deadline_ms, completed.dispatched_at_ms),
+                             (original.accepted_at_ms, original.deadline_ms, blocked.dispatched_at_ms))
+            self.assertEqual((completed.output_recovery_authorized_at_ms, completed.output_recovery_deadline_ms), (None, None))
+            self.assertEqual([d.prompt_id for d in completed.diagnostics], ['foreign-1'])
+            assert completed.candidate_id is not None
+            candidate = candidates.read_portrait_candidate(db, completed.candidate_id,
+                expected_unit_digest=original.preview.unit_input_digest)
+            self.assertEqual(self.path(candidate).read_bytes(), png())
+            self.assertEqual([(r.method, r.url.path) for r in self.calls], [
+                ('GET', '/native/queue'), ('GET', '/native/history'), ('GET', '/native/view')])
+
+    async def test_unknown_contract_revalidation_rejects_nonunique_unsuccessful_unsafe_or_unowned_proof(self):
+        async with self.committed() as (db, ref):
+            original = self.job(db, ref)
+            for change in ('queue_only', 'absence', 'multiple_history', 'multiple_queue', 'graph', 'correlation',
+                           'client', 'namespace', 'output_nodes', 'history_id', 'provider_error', 'interrupted',
+                           'execution_error', 'incomplete', 'missing_output', 'multiple_outputs', 'unsafe', 'foreign',
+                           'owned_foreign_hint', 'discovered_owned_quarantine'):
+                with self.subTest(change=change):
+                    blocked = submissions.block_portrait_submission(db, original.preview.job_id,
+                        **self.args(self.dispatched(db, self.reset(db, original))), reason='contract_error')
+                    queue = {'queue_running': [], 'queue_pending': []}
+                    native = history(blocked.preview)
+                    item = native['prompt-1']
+                    if change == 'queue_only': queue['queue_running'] = [prompt_tuple(blocked.preview)]
+                    if change in ('queue_only', 'absence'): native = {}
+                    if change == 'multiple_history': native.update(history(blocked.preview, 'prompt-2'))
+                    if change == 'multiple_queue': queue['queue_running'] = [prompt_tuple(blocked.preview, 'prompt-2')]
+                    if change == 'graph': item['prompt'][2]['856']['inputs']['seed'] += 1
+                    if change == 'correlation': item['prompt'][3]['kinodel_portrait_v1']['input_digest'] = ZERO
+                    if change == 'client': item['prompt'][3]['client_id'] = 'other'
+                    if change == 'namespace': item['prompt'][3].pop('kinodel_portrait_v1')
+                    if change == 'output_nodes': item['prompt'][4] = ['999']
+                    if change == 'history_id': item['prompt'][1] = 'other'
+                    if change == 'provider_error': item['status']['status_str'] = 'error'
+                    if change in ('interrupted', 'execution_error'):
+                        item['status']['messages'].append(['execution_interrupted' if change == 'interrupted' else 'execution_error', {}])
+                    if change == 'incomplete': item['status']['completed'] = False
+                    if change == 'missing_output': item['outputs'] = {}
+                    if change == 'multiple_outputs': item['outputs']['865']['images'] *= 2
+                    if change == 'unsafe': item['outputs']['865']['images'][0]['filename'] = '../evil.png'
+                    if change == 'foreign': item['prompt'] = self.foreign_tuple(blocked.preview, 'prompt-1')
+                    if change == 'owned_foreign_hint':
+                        item['prompt'] = self.foreign_tuple(blocked.preview, 'prompt-1')[:4]
+                        item['prompt'][3]['kinodel_anchor_unit_v1'] = {'attempt_id': blocked.preview.attempt_id}
+                    if change == 'discovered_owned_quarantine':
+                        queue['queue_running'] = [self.foreign_tuple(blocked.preview, 'prompt-1')[:4]]
+                    with patch.object(candidates, 'import_anchor_unit_candidate', side_effect=AssertionError('Imported unproved ID')):
+                        result = await self.tick(db, blocked, self.server(db, blocked, queue=queue, histories=native),
+                                                 revalidate_contract=True)
+                    self.assertEqual(result, blocked)
+                    self.assertEqual(submissions._row(db, blocked.preview.job_id)[7], None)
+                    self.assertEqual(db.execute('SELECT COUNT(*) FROM portrait_candidates').fetchone(), (0,))
+            self.assertTrue(all(r.method == 'GET' and not r.url.path.endswith('/view') for r in self.calls))
+
+    async def test_unknown_contract_revalidation_expiry_learns_id_without_download_then_explicit_grant(self):
+        async with self.committed() as (db, ref):
+            original = self.job(db, ref)
+            blocked = submissions.block_portrait_submission(db, original.preview.job_id,
+                **self.args(self.dispatched(db, original)), reason='contract_error')
+            now = blocked.deadline_ms + 1
+            with self.assertRaises(ValueError):
+                submissions.authorize_portrait_output_recovery(db, blocked.preview.job_id, **self.args(blocked), now_ms=now)
+            learned = await self.tick(db, blocked, self.server(db, blocked), revalidate_contract=True, now=now)
+            self.assertEqual((learned.state, learned.reason, learned.prompt_id), ('blocked', 'deadline_exceeded', 'prompt-1'))
+            assert learned.acceptance_evidence is not None
+            self.assertEqual(learned.acceptance_evidence.kind, 'history')
+            self.assertEqual(learned.acceptance_evidence, learned.evidence)
+            self.assertEqual(learned.preview, original.preview)
+            self.assertEqual(learned.deadline_ms, original.deadline_ms)
+            self.assertIsNone(learned.output_recovery_deadline_ms)
+            self.assertFalse(any(r.url.path.endswith('/view') for r in self.calls))
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM portrait_candidates').fetchone(), (0,))
+        with database.open_database(self.root) as db:
+            restored = submissions.read_portrait_submission(db, learned.preview.job_id,
+                expected_unit_digest=learned.preview.unit_input_digest, expected_wire_digest=learned.preview.wire_digest)
+            granted = submissions.authorize_portrait_output_recovery(db, restored.preview.job_id, **self.args(restored), now_ms=now + 1)
+            completed = await self.tick(db, granted, self.server(db, granted), now=now + 2)
+            self.assertEqual(completed.state, 'completed')
+            self.assertEqual(completed.acceptance_evidence, learned.acceptance_evidence)
+            self.assertEqual(completed.preview, original.preview)
+            self.assertEqual(completed.deadline_ms, original.deadline_ms)
+            self.assertEqual(completed.output_recovery_deadline_ms, granted.output_recovery_deadline_ms)
+            self.assertEqual([r.url.path for r in self.calls], [
+                '/native/queue', '/native/history', '/native/queue', '/native/history/prompt-1', '/native/view'])
+            self.assertTrue(all(r.method == 'GET' for r in self.calls))
+
+    async def test_unknown_contract_revalidation_committed_history_reopens_after_preimport_cancellation(self):
+        async with self.committed() as (db, ref):
+            original = self.job(db, ref)
+            blocked = submissions.block_portrait_submission(db, original.preview.job_id,
+                **self.args(self.dispatched(db, original)), reason='contract_error')
+            with patch.object(self.worker, '_finish', side_effect=asyncio.CancelledError), self.assertRaises(asyncio.CancelledError):
+                await self.tick(db, blocked, self.server(db, blocked), revalidate_contract=True)
+            committed = submissions.read_portrait_submission(db, blocked.preview.job_id,
+                expected_unit_digest=blocked.preview.unit_input_digest, expected_wire_digest=blocked.preview.wire_digest)
+            self.assertEqual((committed.state, committed.reason, committed.prompt_id), ('accepted', None, 'prompt-1'))
+            assert committed.acceptance_evidence is not None
+            self.assertEqual(committed.acceptance_evidence.kind, 'history')
+            self.assertEqual(committed.acceptance_evidence, committed.evidence)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM portrait_candidates').fetchone(), (0,))
+        with database.open_database(self.root) as db:
+            restored = submissions.read_portrait_submission(db, committed.preview.job_id,
+                expected_unit_digest=committed.preview.unit_input_digest, expected_wire_digest=committed.preview.wire_digest)
+            self.assertEqual(restored, committed)
+            completed = await self.tick(db, restored, self.server(db, restored))
+            self.assertEqual(completed.state, 'completed')
+            self.assertEqual(completed.acceptance_evidence, committed.acceptance_evidence)
+            self.assertEqual([r.url.path for r in self.calls], [
+                '/native/queue', '/native/history', '/native/queue', '/native/history/prompt-1', '/native/view'])
+            self.assertTrue(all(r.method == 'GET' for r in self.calls))
+
+    async def test_unknown_contract_revalidation_revision_drift_at_reads_acceptance_and_import_cannot_overwrite(self):
+        async with self.committed() as (db, ref):
+            original = self.job(db, ref)
+            for stage in ('queue', 'history', 'acceptance', 'finish', 'view'):
+                with self.subTest(stage=stage):
+                    blocked = submissions.block_portrait_submission(db, original.preview.job_id,
+                        **self.args(self.dispatched(db, self.reset(db, original))), reason='contract_error')
+                    moved = []
+                    def drift(record):
+                        moved.append(submissions.record_submission_diagnostics(db, record.preview.job_id, **self.args(record),
+                            diagnostics=[dict(kind='broken_job', source='queue', prompt_id='foreign-1', reason='native_tuple',
+                                              digest=sha256_digest(b'concurrent diagnostic'))]))
+                    handle = self.server(db, blocked)
+                    def handler(request):
+                        if request.url.path.endswith('/' + stage):
+                            record = submissions.read_portrait_submission(db, blocked.preview.job_id,
+                                expected_unit_digest=blocked.preview.unit_input_digest, expected_wire_digest=blocked.preview.wire_digest)
+                            drift(record)
+                        return handle(request)
+                    actual_accept, actual_finish = submissions.record_portrait_acceptance, self.worker._finish
+                    def accept(*args, **kwargs):
+                        if stage == 'acceptance': drift(blocked)
+                        return actual_accept(*args, **kwargs)
+                    async def finish(db, client, record, *args):
+                        if stage == 'finish': drift(record)
+                        return await actual_finish(db, client, record, *args)
+                    with patch.object(submissions, 'record_portrait_acceptance', side_effect=accept), \
+                         patch.object(self.worker, '_finish', side_effect=finish), self.assertRaises(ValueError):
+                        await self.tick(db, blocked, handler, revalidate_contract=True)
+                    self.assertEqual(len(moved), 1)
+                    saved = submissions.read_portrait_submission(db, blocked.preview.job_id,
+                        expected_unit_digest=blocked.preview.unit_input_digest, expected_wire_digest=blocked.preview.wire_digest)
+                    self.assertEqual(saved, moved[0])
+                    self.assertEqual(saved.prompt_id, 'prompt-1' if stage in ('finish', 'view') else None)
+                    self.assertEqual(db.execute('SELECT COUNT(*) FROM portrait_candidates').fetchone(), (0,))
+            self.assertTrue(all(r.method == 'GET' for r in self.calls))
 
     async def test_durable_output_grant_expired_original_same_prompt_reopens_completes_one_old_post(self):
         async with self.committed() as (db, ref):

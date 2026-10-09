@@ -73,10 +73,18 @@ Edit scope: allowed files/modules, including tests; read-only for research.
 Context: relevant contracts, known entry points and accepted decisions.
 Invariants: behavior and boundaries that must remain valid.
 Acceptance: observable completion criteria.
-Verify: exact check commands, or ask the worker to identify applicable checks.
+Verify: smallest focused checks plus affected regressions; name the risk each checks. Reuse existing passing evidence.
 Stop if: требуется менять shared-контракт или lifecycle runner.
 Return: changed files/findings, check results and unresolved issues.
 ```
+
+### Verification Scope
+
+These rules apply to the primary agent and every subagent.
+
+- Run only checks for changed behavior and affected regressions; keep data-preservation and no-duplicate-effect checks where relevant.
+- Reuse passing evidence across agents. Repeat or broaden checks only for a concrete new risk/change; state why. Full suites require a release gate or broad impact.
+- Documentation-only and trivial edits need no runtime tests. Do not duplicate existing coverage.
 
 ### Framework Documentation
 

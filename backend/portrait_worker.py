@@ -1,4 +1,4 @@
-"""One bounded native portrait tick; not a scheduler, public route or graph runner.
+"""One bounded native anchor tick; not a scheduler, public route or graph runner.
 
 Caller owns the data-root OS lock and services one job at a time. Only a freshly
 committed dispatch CAS permits POST, once. Restart/timeout/empty history never prove
@@ -75,7 +75,7 @@ def _args(record) -> dict[str, Any]:
 
 
 def _fresh(db, record):
-    current = store.read_portrait_submission(db, record.preview.job_id,
+    current = store.read_anchor_unit_submission(db, record.preview.job_id,
         expected_unit_digest=record.preview.unit_input_digest, expected_wire_digest=record.preview.wire_digest)
     if current != record:
         raise PortraitWorkerError('revision_conflict')
@@ -85,7 +85,7 @@ def _block(db, record, reason):
     _fresh(db, record)
     if record.state == 'blocked' and record.reason == reason:
         return record
-    return store.block_portrait_submission(db, record.preview.job_id, **_args(record), reason=reason)
+    return store.block_anchor_unit_submission(db, record.preview.job_id, **_args(record), reason=reason)
 
 
 def _output_deadline(record, now):
@@ -198,56 +198,133 @@ def _match(item, record, output, schemas=None):
     except ValueError:
         raise _ProtocolError('native_prompt_id') from None
     wire = json.loads(record.preview.wire_body)
-    expected = wire['extra_data']['kinodel_portrait_v1']
-    correlation = item[3].get('kinodel_portrait_v1')
+    namespace = ('kinodel_anchor_unit_v1' if isinstance(record.preview, store.AnchorUnitSubmissionPreviewV1)
+                 else 'kinodel_portrait_v1')
+    expected = wire['extra_data'][namespace]
+    correlation = item[3].get(namespace)
     exact = (_observed_graph_digest(item[2], wire['prompt'], schemas or {}) == record.preview.graph_digest
              and correlation == expected and item[4] == [output['node_id']]
              and ('client_id' not in item[3] or item[3]['client_id'] == wire['client_id']))
-    related = type(correlation) is dict and (
-        correlation.get('job_id') == expected['job_id'] or correlation.get('attempt_id') == expected['attempt_id'])
-    if not exact and (prompt_id == record.prompt_id or related):
+    if not exact and _has_owned_signal(item, record):
         raise _ProtocolError('correlation_conflict')
     if exact and record.prompt_id is not None and prompt_id != record.prompt_id:
         raise _ProtocolError('multiple_prompt_ids')
     return prompt_id if exact else None
 
 
-def _matches(queue, history, record, output, schemas=None):
+def _native_ids(item, history_key=None):
+    identifiers = []
+    for value in (item[1] if type(item) is list and len(item) > 1 else None, history_key):
+        try:
+            identifier = TypeAdapter(store.PromptId).validate_python(value, strict=True)
+        except ValueError:
+            continue
+        if identifier not in identifiers:
+            identifiers.append(identifier)
+    return identifiers
+
+
+def _has_owned_signal(item: Any, record: store.PortraitSubmissionV1, history_key: Any = None) -> bool:
+    """Explicit native identity/correlation only; missing identity is not an own signal."""
+    if record.prompt_id is not None and record.prompt_id in _native_ids(item, history_key):
+        return True
+    extra = item[3] if type(item) is list and len(item) > 3 and type(item[3]) is dict else {}
+    correlations = [extra.get(name) for name in ('kinodel_portrait_v1', 'kinodel_anchor_unit_v1')]
+    return (extra.get('client_id') == json.loads(record.preview.wire_body)['client_id'] or any(
+            type(value) is dict and (value.get('job_id') == record.preview.job_id
+                or value.get('attempt_id') == record.preview.attempt_id) for value in correlations))
+
+
+def _definitely_unrelated(item, record, history_key=None):
+    """Inspect available identity BEFORE ignoring broken shape; own signals always win."""
+    if _has_owned_signal(item, record, history_key):
+        return False
+    identifiers = _native_ids(item, history_key)
+    if record.prompt_id is not None and identifiers:
+        return True  # Every validated available native ID is disjoint from the immutable owned ID.
+    # An unknown owned prompt ID cannot be distinguished by a foreign-looking native ID alone.
+    # Require a complete valid disjoint job/attempt pair; one missing identity stays ambiguous.
+    extra = item[3] if type(item) is list and len(item) > 3 and type(item[3]) is dict else {}
+    for value in (extra.get(name) for name in ('kinodel_portrait_v1', 'kinodel_anchor_unit_v1')):
+        if type(value) is not dict:
+            continue
+        try:
+            TypeAdapter(store.ExactDigest).validate_python(value.get('job_id'), strict=True)
+            TypeAdapter(store.ExactDigest).validate_python(value.get('attempt_id'), strict=True)
+        except ValueError:
+            continue
+        return True
+    return False
+
+
+def _matches(queue, history, record, output, schemas=None, *, diagnostics):
     if (type(queue) is not dict or set(queue) != {'queue_running', 'queue_pending'}
             or any(type(queue[key]) is not list for key in queue)
             or type(history) is not dict
             or len(history) + sum(len(values) for values in queue.values()) > MAX_NATIVE_RECORDS):
         raise _ProtocolError('native_shape')
-    matches = {}
-    for item in [*queue['queue_running'], *queue['queue_pending']]:
-        prompt_id = _match(item, record, output, schemas)
-        if prompt_id is not None:
+    matches, quarantined = {}, []
+    entries = [('queue', None, item) for item in [*queue['queue_running'], *queue['queue_pending']]]
+    entries.extend(('history', key, native) for key, native in history.items())
+    for source, key, native in entries:
+        item = native if source == 'queue' else native.get('prompt') if type(native) is dict else None
+        identifiers = _native_ids(item, key)
+        owned_signal = _has_owned_signal(item, record, key) or any(identifier in matches for identifier in identifiers)
+        if owned_signal:
+            conflicting = [diagnostic for diagnostic, previous_ids in quarantined
+                           if any(identifier in previous_ids for identifier in identifiers)]
+            if conflicting:
+                # Clean immediately, before tuple/history validation or any later scan error.
+                diagnostics[:] = [diagnostic for diagnostic in diagnostics if diagnostic not in conflicting]
+                raise _ProtocolError('correlation_conflict')
+        try:
+            if source == 'history' and (type(native) is not dict or 'prompt' not in native):
+                raise _ProtocolError('history_shape')
+            prompt_id = _match(item, record, output, schemas)
+            if prompt_id is None and owned_signal:
+                raise _ProtocolError('correlation_conflict')
+            if source == 'history':
+                assert type(item) is list  # _match validated the complete native tuple.
+                if key != item[1]:
+                    raise _ProtocolError('history_identity')
+                if prompt_id is None:
+                    _history_status(native)  # Foreign history still needs a well-formed native status.
+        except _ProtocolError as error:
+            if (error.code not in ('native_tuple', 'native_prompt_id', 'history_shape', 'history_identity', 'history_status')
+                    or owned_signal or not _definitely_unrelated(item, record, key)):
+                raise
+            diagnostic = store.SubmissionDiagnosticV1(kind='broken_job', source=source,
+                prompt_id=identifiers[0] if identifiers else None, reason=error.code,
+                digest=sha256_digest(_canonical(native if source == 'queue' else {'key': key, 'record': native})))
+            quarantined.append((diagnostic, identifiers))
+            if diagnostic not in diagnostics and len(diagnostics) < store.MAX_SUBMISSION_DIAGNOSTICS:
+                diagnostics.append(diagnostic)
+            continue
+        if prompt_id is None:
+            continue  # Valid unrelated records are not broken_job diagnostics.
+        if source == 'queue':
             if prompt_id in matches and matches[prompt_id][1] != item:
                 raise _ProtocolError('conflicting_queue_records')
             matches[prompt_id] = ('queue', item, None)
-    for key, native in history.items():
-        if type(native) is not dict or 'prompt' not in native:
-            raise _ProtocolError('history_shape')
-        item = native['prompt']
-        prompt_id = _match(item, record, output, schemas)
-        if key != item[1]:
-            raise _ProtocolError('history_identity')
-        if record.prompt_id is not None and key != record.prompt_id:
-            raise _ProtocolError('unexpected_history_id')
-        if prompt_id is not None:
+        else:
             matches[prompt_id] = ('history', native, native)
     if len(matches) > 1:
         raise _ProtocolError('multiple_prompt_ids')
     return next(iter(matches.items())) if matches else None
 
 
-def _outcome(native, output):
+def _history_status(native):
     status = native.get('status')
     if (type(status) is not dict or status.get('status_str') not in ('success', 'error')
             or type(status.get('completed')) is not bool or type(status.get('messages')) is not list
             or any(type(message) is not list or len(message) != 2 or type(message[0]) is not str
                    or type(message[1]) is not dict for message in status['messages'])):
         raise _ProtocolError('history_status')
+    return status
+
+
+def _outcome(native, output):
+    status = _history_status(native)
     if status['status_str'] == 'error':
         return None  # Exact native history proves provider failure; not absence/eviction.
     if not status['completed'] or any(message[0] in ('execution_error', 'execution_interrupted')
@@ -274,9 +351,22 @@ async def _submit(db, client, record, clock):
     _fresh(db, record)
     now = _now(clock)
     if now >= record.deadline_ms:
-        return store.fail_portrait_submission(db, record.preview.job_id, **_args(record), reason='deadline_exceeded')
+        return store.fail_anchor_unit_submission(db, record.preview.job_id, **_args(record), reason='deadline_exceeded')
+    if isinstance(record, store.SheetSubmissionV1):
+        from backend import anchor_reference_worker as references
+        try:
+            await references.verify_sheet_remote_inputs(db, client, record, clock)
+        except references.AnchorReferenceWorkerError:
+            # Definitely-unsent readiness failure, not a post-dispatch blocked fact.
+            raise PortraitWorkerError('sheet_reference_readiness') from None
+        _fresh(db, record)
+        now = _now(clock)
+        if now >= record.deadline_ms:
+            return store.fail_anchor_unit_submission(db, record.preview.job_id, **_args(record), reason='deadline_exceeded')
     # This successful new CAS, not the returned/reopened state, is the ONE send permission.
-    dispatched = store.claim_portrait_dispatch(db, record.preview.job_id, **_args(record), now_ms=now)
+    claim = (store.claim_portrait_dispatch if type(record) is store.PortraitSubmissionV1
+             else store.claim_anchor_unit_dispatch)
+    dispatched = claim(db, record.preview.job_id, **_args(record), now_ms=now)
     try:
         status, value = await _json(client, 'prompt', dispatched, clock, post=True)
         if type(value) is not dict:
@@ -288,11 +378,13 @@ async def _submit(db, client, record, clock):
     except (*HTTP_ERRORS, _ProtocolError):
         return _block(db, dispatched, 'acceptance_unknown')
     _fresh(db, dispatched)
-    accepted = store.record_portrait_acceptance(db, record.preview.job_id, **_args(dispatched),
+    accept = (store.record_portrait_acceptance if type(record) is store.PortraitSubmissionV1
+              else store.record_anchor_unit_acceptance)
+    accepted = accept(db, record.preview.job_id, **_args(dispatched),
         prompt_id=prompt_id, evidence=_evidence(dispatched, 'prompt_response', prompt_id, value))
     if (not 200 <= status < 300 or not _number(value.get('number'))
             or type(value.get('node_errors')) is not dict or value['node_errors']):
-        return store.fail_portrait_submission(db, record.preview.job_id, **_args(accepted), reason='contract_error')
+        return _block(db, accepted, 'contract_error')
     return accepted
 
 
@@ -304,7 +396,7 @@ async def _finish(db, client, record, clock, descriptor, proof, native_subfolder
     import_args = dict(expected_unit_digest=record.preview.unit_input_digest, descriptor=descriptor)
     if row is not None:
         try:
-            candidate = candidates.import_portrait_candidate(db, record.preview.job_id, record.preview.attempt_id, **import_args)
+            candidate = candidates.import_anchor_unit_candidate(db, record.preview.job_id, record.preview.attempt_id, **import_args)
         except (OSError, ValueError, LookupError):
             if row[1] == 'published':
                 return _block(db, record, 'output_invalid')  # NEVER fetch bytes to heal published originals.
@@ -328,7 +420,7 @@ async def _finish(db, client, record, clock, descriptor, proof, native_subfolder
                 if now >= _output_deadline(record, now):
                     return _block(db, record, 'deadline_exceeded')
                 spool.seek(0)
-                candidate = candidates.import_portrait_candidate(db, record.preview.job_id,
+                candidate = candidates.import_anchor_unit_candidate(db, record.preview.job_id,
                     record.preview.attempt_id, stream=cast(BinaryIO, spool), **import_args)
         except (*HTTP_ERRORS, _ProtocolError, OSError):
             now = _now(clock)
@@ -339,36 +431,44 @@ async def _finish(db, client, record, clock, descriptor, proof, native_subfolder
             _fresh(db, record)
             return _block(db, record, 'output_invalid')
     _fresh(db, record)
-    return store.complete_portrait_submission(db, record.preview.job_id, **_args(record),
+    complete = (store.complete_portrait_submission if type(record) is store.PortraitSubmissionV1
+                else store.complete_anchor_unit_submission)
+    return complete(db, record.preview.job_id, **_args(record),
         candidate_id=candidate.candidate_id, evidence=proof)
 
 
 async def _reconcile(db, client, record, clock, output, schemas, *, revalidate_contract=False):
+    diagnostics = []
     try:
         _, queue = await _json(client, 'queue', record, clock)
         _fresh(db, record)
         route = 'history/' + quote(record.prompt_id, safe='') if record.prompt_id else 'history'
         _, history = await _json(client, route, record, clock)
-        matched = _matches(queue, history, record, output, schemas)
+        matched = _matches(queue, history, record, output, schemas, diagnostics=diagnostics)
     except HTTP_ERRORS:
         if revalidate_contract:
             return record
         return _block(db, record, 'history_unavailable' if record.prompt_id else 'acceptance_unknown')
     except _ProtocolError as error:
         if revalidate_contract:
-            return record
+            return _save_diagnostics(db, record, diagnostics)
         if error.code == 'http_status':
             return _block(db, record, 'history_unavailable' if record.prompt_id else 'acceptance_unknown')
-        return _block(db, record, 'contract_error')
+        return _save_diagnostics(db, _block(db, record, 'contract_error'), diagnostics)
     _fresh(db, record)
     if matched is None:
         if revalidate_contract:
-            return record
-        return _block(db, record, 'history_unavailable' if record.prompt_id else 'acceptance_unknown')
+            return _save_diagnostics(db, record, diagnostics)
+        return _save_diagnostics(db, _block(db, record, 'history_unavailable' if record.prompt_id else 'acceptance_unknown'), diagnostics)
     prompt_id, (kind, native, completed_history) = matched
     proof = _evidence(record, kind, prompt_id, native)
+    accept = (store.record_portrait_acceptance if type(record) is store.PortraitSubmissionV1
+              else store.record_anchor_unit_acceptance)
     if record.state in ('dispatching', 'blocked') and not revalidate_contract:
-        record = store.record_portrait_acceptance(db, record.preview.job_id, **_args(record), prompt_id=prompt_id, evidence=proof)
+        record = accept(db, record.preview.job_id, **_args(record), prompt_id=prompt_id, evidence=proof)
+    # Dispatching revision=1 is a fixed SQL contract. Persist diagnostics only after
+    # independent matching acceptance or a fail-closed block, never invent either fact.
+    record = _save_diagnostics(db, record, diagnostics)
     if completed_history is None:
         if revalidate_contract:
             return record
@@ -382,47 +482,60 @@ async def _reconcile(db, client, record, clock, output, schemas, *, revalidate_c
     if descriptor is None:
         if revalidate_contract:
             return record  # Failure is not successful contract revalidation.
-        return store.fail_portrait_submission(db, record.preview.job_id, **_args(record), reason='provider_failed', evidence=proof)
+        return store.fail_anchor_unit_submission(db, record.preview.job_id, **_args(record), reason='provider_failed', evidence=proof)
     if revalidate_contract:
-        record = store.record_portrait_acceptance(db, record.preview.job_id, **_args(record),
+        record = accept(db, record.preview.job_id, **_args(record),
             prompt_id=prompt_id, evidence=proof, revalidate_contract=True)
     native_subfolder = completed_history['outputs'][output['node_id']][output['history_key']][0]['subfolder']
     return await _finish(db, client, record, clock, descriptor, proof, native_subfolder)
 
 
-async def tick_portrait_job(db: sqlite3.Connection, job_id: str, *, expected_unit_digest: str,
-                           expected_wire_digest: str, expected_revision: int,
-                           revalidate_contract: bool = False,
-                           transport: httpx.AsyncBaseTransport | None = None,
-                           clock_ms: Callable[[], int] = _clock) -> store.PortraitSubmissionV1:
-    """Advance one explicitly authorized initial portrait and return promptly.
+def _save_diagnostics(db, record, diagnostics):
+    _fresh(db, record)
+    if not diagnostics:
+        return record
+    return store.record_submission_diagnostics(db, record.preview.job_id, **_args(record), diagnostics=diagnostics)
 
-    Authorized tick: at most ONE POST, no polling. Later ticks: at most two bounded
-    queue/history GETs and one bounded /view. No sleep, automatic POST retry, fallback,
-    live registry/schema lookup, browser wait, global queue/cancel or execution change.
+
+async def tick_anchor_unit_job(db: sqlite3.Connection, job_id: str, *, expected_unit_digest: str,
+                           expected_wire_digest: str, expected_revision: int,
+                            revalidate_contract: bool = False,
+                            transport: httpx.AsyncBaseTransport | None = None,
+                            clock_ms: Callable[[], int] = _clock,
+                            _portrait_only: bool = False) -> store.PortraitSubmissionV1:
+    """Advance one authorized portrait/background or exact finalized-reference sheet.
+
+    Authorized sheet tick: at most two remote-original GETs before a conditional ONE POST;
+    other authorized ticks: at most ONE POST, no polling. Later/revalidation ticks:
+    at most two bounded queue/history GETs and one bounded /view, never POST/upload.
+    No sleep, automatic POST retry, fallback, live registry/schema lookup, browser wait,
+    global queue/cancel or execution change.
     After expiry, only read-only reconciliation/exact already-staged candidate recovery
     is allowed unless a separately persisted one-shot output-only grant permits GET/import.
     That grant never changes the accepted dispatch deadline or permits another POST.
-    ``revalidate_contract=True`` is trusted caller opt-in for an already-known
-    blocked contract only. It clears the reason after matching successful history
-    and a strict safe declared descriptor, never from queue/absence/failure alone.
+    ``revalidate_contract=True`` is trusted caller opt-in for an existing blocked
+    contract with known OR unknown prompt ID only. One unique exact successful
+    completed history and a strict safe declared descriptor commit the ID/first
+    evidence before import, never from queue/absence/failure alone.
     """
-    record = store.read_portrait_submission(db, job_id, expected_unit_digest=expected_unit_digest,
+    # The shared load requires finalized sheet pins even for direct worker calls, before HTTP.
+    reader = store.read_portrait_submission if _portrait_only else store.read_anchor_unit_submission
+    record = reader(db, job_id, expected_unit_digest=expected_unit_digest,
                                            expected_wire_digest=expected_wire_digest)
     TypeAdapter(store.Revision).validate_python(expected_revision, strict=True)
     if record.revision != expected_revision:
         raise PortraitWorkerError('revision_conflict')
     if type(revalidate_contract) is not bool:
         raise PortraitWorkerError('invalid_revalidation_authorization')
-    if revalidate_contract and not (record.state == 'blocked' and record.reason == 'contract_error' and record.prompt_id is not None):
+    if revalidate_contract and not (record.state == 'blocked' and record.reason == 'contract_error'):
         raise PortraitWorkerError('revalidation_requires_owned_contract_block')
     if record.state in ('completed', 'failed'):
         return record
     if record.reason == 'contract_error' and not revalidate_contract:
         return _block(db, record, 'contract_error')
     if record.state == 'authorized' and _now(clock_ms) >= record.deadline_ms:
-        return store.fail_portrait_submission(db, record.preview.job_id, **_args(record), reason='deadline_exceeded')
-    job = render_job_store.read_portrait_job(db, job_id, expected_unit_digest=expected_unit_digest)
+        return store.fail_anchor_unit_submission(db, record.preview.job_id, **_args(record), reason='deadline_exceeded')
+    job = render_job_store.read_anchor_unit_job(db, job_id, expected_unit_digest=expected_unit_digest)
     image = json.loads(job.prepared_input.image_pin_json)
     output = image['expected_output']
     try:
@@ -447,3 +560,14 @@ async def tick_portrait_job(db: sqlite3.Connection, job_id: str, *, expected_uni
         raise
     except (ValueError, *HTTP_ERRORS):
         raise PortraitWorkerError('client_or_durable_integrity') from None
+
+
+async def tick_portrait_job(db: sqlite3.Connection, job_id: str, *, expected_unit_digest: str,
+                           expected_wire_digest: str, expected_revision: int,
+                           revalidate_contract: bool = False,
+                           transport: httpx.AsyncBaseTransport | None = None,
+                           clock_ms: Callable[[], int] = _clock) -> store.PortraitSubmissionV1:
+    """Accepted 6A portrait-only entrypoint; reuse the exact bounded tick implementation."""
+    return await tick_anchor_unit_job(db, job_id, expected_unit_digest=expected_unit_digest,
+        expected_wire_digest=expected_wire_digest, expected_revision=expected_revision,
+        revalidate_contract=revalidate_contract, transport=transport, clock_ms=clock_ms, _portrait_only=True)

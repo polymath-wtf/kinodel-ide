@@ -1,4 +1,4 @@
-"""Offline technical PNG candidates for ONE initial zero-reference portrait attempt.
+"""Offline technical PNG candidates for ONE initial pinned anchor-unit attempt.
 
 Caller holds the data-root OS lock. This imports original bytes, not provider
 acceptance/history success, approval, selected assets or graph effects. A future
@@ -99,6 +99,11 @@ class _CandidateMetadataV1(DomainModel):
     staging_name: Annotated[str, Field(min_length=47, max_length=47, pattern=r'^\.candidate-[0-9a-f]{32}\.tmp$')]
 
 
+class _AnchorUnitCandidateMetadataV1(_CandidateMetadataV1):
+    schema_id: Literal['comfyui_anchor_unit_candidate']
+    kind: Literal['background', 'sheet']
+
+
 @dataclass(frozen=True, repr=False)
 class PortraitCandidateV1:
     candidate_id: str
@@ -117,6 +122,10 @@ class PortraitCandidateV1:
     metadata_body: bytes
 
 
+AnchorUnitCandidateV1 = PortraitCandidateV1
+AnchorUnitOutputDescriptorV1 = PortraitOutputDescriptorV1
+
+
 def _binding_rows(db, job_id, batch_id, unit_key):
     return (render_job_store._row(db, job_id), batch_store._batch_row(db, batch_id),
             batch_store._unit_row(db, batch_id, unit_key))
@@ -124,7 +133,7 @@ def _binding_rows(db, job_id, batch_id, unit_key):
 
 def _context(db, job_id, attempt_id, expected_unit_digest):
     TypeAdapter(ExactDigest).validate_python(attempt_id, strict=True)
-    job = render_job_store.read_portrait_job(db, job_id, expected_unit_digest=expected_unit_digest)
+    job = render_job_store.read_anchor_unit_job(db, job_id, expected_unit_digest=expected_unit_digest)
     if job.attempt_id != attempt_id:
         raise ValueError('Candidate attempt conflicts with initial portrait intent')
     intent = json.loads(job.intent_body)
@@ -152,17 +161,21 @@ def _descriptor(value, image):
     return descriptor
 
 
-def _candidate_id(job_id, attempt_id, descriptor):
-    return _identity('kinodel.comfyui-portrait-candidate.v1', job_id, attempt_id,
+def _candidate_id(job_id, attempt_id, descriptor, kind='portrait'):
+    namespace = ('kinodel.comfyui-portrait-candidate.v1' if kind == 'portrait'
+                 else 'kinodel.comfyui-anchor-unit-candidate.v1')
+    return _identity(namespace, job_id, attempt_id,
                      descriptor.node_id, descriptor.history_key, str(descriptor.index))
 
 
 def _metadata(context, descriptor, digest, byte_length, staging_name):
     job, intent, connection, image, _ = context
-    identity = _candidate_id(job.job_id, job.attempt_id, descriptor)
+    identity = _candidate_id(job.job_id, job.attempt_id, descriptor, job.kind)
     uri = (f"kinodel://projects/{intent['project_id']}/attempts/{job.job_id[7:]}/"
            f'{identity[7:]}.{digest[7:]}.png')
-    return _CandidateMetadataV1(schema_version='1', candidate_id=identity, project_id=intent['project_id'],
+    model, fields = (_CandidateMetadataV1, {}) if job.kind == 'portrait' else (
+        _AnchorUnitCandidateMetadataV1, dict(schema_id='comfyui_anchor_unit_candidate', kind=job.kind))
+    return model(**fields, schema_version='1', candidate_id=identity, project_id=intent['project_id'],
         batch_id=intent['batch_id'], job_id=job.job_id, attempt_id=job.attempt_id, unit_key=intent['unit_key'],
         unit_input_digest=intent['unit_input_digest'], intent_digest=job.intent_digest,
         connection=connection.connection, endpoint_digest=connection.endpoint_digest, descriptor=descriptor,
@@ -181,7 +194,7 @@ def _restore(db, row, expected_unit_digest):
     if type(value) is not str or not 0 < len(value) <= MAX_METADATA_BYTES:
         raise ValueError('Invalid candidate metadata size')
     body = value.encode('utf-8')
-    metadata = _CandidateMetadataV1.model_validate_json(body)
+    metadata = TypeAdapter(_CandidateMetadataV1 | _AnchorUnitCandidateMetadataV1).validate_json(body)
     if canonical_json(metadata, max_bytes=MAX_METADATA_BYTES) != body or sha256_digest(body) != row[5]:
         raise ValueError('Candidate metadata is noncanonical or corrupt')
     context = _context(db, metadata.job_id, metadata.attempt_id, expected_unit_digest)
@@ -510,8 +523,8 @@ def _publish(path, metadata, supplied=None):
     _verify(path, metadata.width, metadata.height, **verify_args)
 
 
-def read_portrait_candidate(db: sqlite3.Connection, candidate_id: str, *,
-                            expected_unit_digest: str) -> PortraitCandidateV1:
+def read_anchor_unit_candidate(db: sqlite3.Connection, candidate_id: str, *,
+                               expected_unit_digest: str) -> AnchorUnitCandidateV1:
     """Read only published SQL; verify original bytes and immutable offline lineage."""
     _committed(db)
     TypeAdapter(ExactDigest).validate_python(candidate_id, strict=True)
@@ -524,7 +537,40 @@ def read_portrait_candidate(db: sqlite3.Connection, candidate_id: str, *,
     return _record(metadata, body)
 
 
-def import_portrait_candidate(db: sqlite3.Connection, job_id: str, attempt_id: str, *,
+def read_anchor_unit_candidate_original(db: sqlite3.Connection, candidate_id: str, *,
+        expected_unit_digest: str) -> tuple[AnchorUnitCandidateV1, bytes]:
+    """Return bounded VERIFIED ORIGINAL bytes, never a caller/provider-selected path.
+
+    Caller holds the root lock. Capture identity before PNG verification, then
+    check the same opened inode/timestamps on the bounded read and hash its returned
+    bytes again. A replacement after metadata/media validation is not adopted.
+    """
+    _committed(db)
+    TypeAdapter(ExactDigest).validate_python(candidate_id, strict=True)
+    TypeAdapter(ExactDigest).validate_python(expected_unit_digest, strict=True)
+    row = _row(db, candidate_id)
+    if row is None or row[8] != 'published':
+        raise LookupError('Anchor candidate is not published')
+    metadata, body, path, _ = _restore(db, row, expected_unit_digest)
+    expected = _info(path)
+    _verify(path, metadata.width, metadata.height, digest=metadata.digest, byte_length=metadata.byte_length)
+    original = bytearray()
+    checksum = hashlib.sha256()
+    with path.open('rb') as source:
+        _same_file(path, source, expected)
+        while data := source.read(STREAM_CHUNK_BYTES):
+            if len(original) + len(data) > MAX_PNG_BYTES:
+                raise ValueError('Candidate original exceeds byte cap')
+            original.extend(data)
+            checksum.update(data)
+        _same_file(path, source, expected)
+    if (len(original) != metadata.byte_length or 'sha256:' + checksum.hexdigest() != metadata.digest
+            or _row(db, candidate_id) != row):
+        raise ValueError('Candidate original/metadata changed during verified read')
+    return _record(metadata, body), bytes(original)
+
+
+def import_anchor_unit_candidate(db: sqlite3.Connection, job_id: str, attempt_id: str, *,
         expected_unit_digest: str, descriptor: PortraitOutputDescriptorV1 | dict,
         stream: BinaryIO | None = None) -> PortraitCandidateV1:
     """Import a bounded original, or finish an exact reserved publication offline.
@@ -537,7 +583,7 @@ def import_portrait_candidate(db: sqlite3.Connection, job_id: str, attempt_id: s
     _committed(db)
     context = _context(db, job_id, attempt_id, expected_unit_digest)
     declared = _descriptor(descriptor, context[3])
-    identity = _candidate_id(job_id, attempt_id, declared)
+    identity = _candidate_id(job_id, attempt_id, declared, context[0].kind)
     intent = context[1]
     directory = _root(db) / 'projects' / intent['project_id'] / 'attempts' / job_id[7:]
     row = _row(db, identity)
@@ -550,7 +596,7 @@ def import_portrait_candidate(db: sqlite3.Connection, job_id: str, attempt_id: s
             raise ValueError('Candidate descriptor conflicts with original provenance')
         if row[8] == 'published':
             # Fail before reading new bytes: reimport is never a missing-original repair.
-            record = read_portrait_candidate(db, identity, expected_unit_digest=expected_unit_digest)
+            record = read_anchor_unit_candidate(db, identity, expected_unit_digest=expected_unit_digest)
             if stream is None:
                 return record
     else:
@@ -597,8 +643,29 @@ def import_portrait_candidate(db: sqlite3.Connection, job_id: str, attempt_id: s
                 "metadata_digest=? AND metadata_body=? AND uri=? AND publication_state='reserved'", row[:8])
             if changed.rowcount != 1:
                 raise ValueError('Candidate reservation changed during publication')
-        return read_portrait_candidate(db, identity, expected_unit_digest=expected_unit_digest)
+        return read_anchor_unit_candidate(db, identity, expected_unit_digest=expected_unit_digest)
     finally:
         # Do not delete the SQL-pinned original on failure; it is the recovery source.
         if fresh is not None and (metadata is None or not reserved or fresh.name != metadata.staging_name):
             _unlink_owned(fresh, owned)
+
+
+def read_portrait_candidate(db: sqlite3.Connection, candidate_id: str, *,
+                            expected_unit_digest: str) -> PortraitCandidateV1:
+    """Legacy 5B entrypoint remains strictly zero-reference hero-face portrait only."""
+    _committed(db)
+    TypeAdapter(ExactDigest).validate_python(candidate_id, strict=True)
+    row = _row(db, candidate_id)
+    if row is None or row[8] != 'published':
+        raise LookupError('Portrait candidate is not published')
+    render_job_store.read_portrait_job(db, row[1], expected_unit_digest=expected_unit_digest)
+    return read_anchor_unit_candidate(db, candidate_id, expected_unit_digest=expected_unit_digest)
+
+
+def import_portrait_candidate(db: sqlite3.Connection, job_id: str, attempt_id: str, *,
+        expected_unit_digest: str, descriptor: PortraitOutputDescriptorV1 | dict,
+        stream: BinaryIO | None = None) -> PortraitCandidateV1:
+    """Legacy portrait-only boundary; original IDs, bytes and metadata remain exact."""
+    render_job_store.read_portrait_job(db, job_id, expected_unit_digest=expected_unit_digest)
+    return import_anchor_unit_candidate(db, job_id, attempt_id, expected_unit_digest=expected_unit_digest,
+                                        descriptor=descriptor, stream=stream)

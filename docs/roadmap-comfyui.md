@@ -1,17 +1,18 @@
 # ComfyUI Local: поэтапная интеграция
 
-Обновлено: **8 октября 2026**.
+Обновлено: **9 октября 2026**.
 
 - Шаги 1–3 реализованы: read-only подключение, image preparation и production settings/draft diagnostics.
 - Preparation-граница шага 4 завершена: exact saved V2 handoff, guarded preparation API, native preparation
   и durable input pins реализованы. Offline portrait job/initial attempt storage (5А, DB16) и
   verified original candidate import (5Б, DB17) реализованы. 6А (DB18) реализован и принят: один live portrait
   импортирован; fresh-process offline reopen после подтверждённого пользователем выключения ComfyUI пройден с запрещённой сетью.
-  NEXT implementation — verified parents/reference transport (6Б), затем image activation/groups (7).
+   6Б.1–6Б.3 реализованы и приняты offline/mock (DB19): anchor lifecycle, verified parents,
+   ordered uploads и final graph. NEXT — image activation/group (7.1).
   [Граница готовности](#wardrobe-comfyui).
 - Вход новой генерации — только exact сохранённый validated compact Wardrobe V2 `batch_prompt`; [W8 принят по сокращённому критерию автора](roadmap-mvp.md#wardrobe-batch-output). Compact result — patch in place текущего V2; V1 изолирован, consumption bridge не строим.
 - Public cinematic Run, batch/group lifecycle и публичный media-путь ещё не реализованы;
-  private lifecycle одного начального zero-reference portrait реализован в 6А.
+   private anchor-unit lifecycle реализован в 6А–6Б; live reference delivery ещё не проверена.
 
 Это детализация генерации через ComfyUI из [Local MVP, шаг 4](roadmap-mvp.md#remaining-steps):
 сохранённые планы агентов → workflow/job → проверенные изображения/видео → выбор автора.
@@ -26,20 +27,69 @@ Storyboard batch — полного workflow viewer; итоговые требо
 
 [Результаты проверок](../test-results/README.md).
 
+## Checkpoint после 6Б
+
+**6Б.1–6Б.3 приняты offline/mock, 9 октября 2026.** Background и sheet имеют durable initial
+job/attempt/import; resolver проверяет оба exact completed parent originals и source authority;
+ordered upload intent/receipts/remote bytes закрепляются до final graph и отдельного sheet authorization.
+Additive DB19 добавляет только `anchor_reference_transfers`; identities/bytes 6А сохранены.
+[Evidence](../test-results/README.md#comfyui-step-6b--anchor-lifecycle-and-reference-transport--9-october-2026).
+
+После аудита шага 6 исправлены recovery/isolation границы: owned-ID response contract error остаётся
+восстановимым block; malformed provably foreign records сохраняются как `broken_job` diagnostics;
+explicit GET-only revalidation принимает единственную exact успешную completed history и при неизвестном ID;
+reference sent-block сохраняет причину/revision при reopen. [Evidence](../test-results/README.md#comfyui-step-6--recovery-and-isolation-corrections--9-october-2026).
+Повторное синхронное чтение/проверка родителей остаётся локальной возможностью упрощения, не блокером 7.1.
+
+**NEXT — 7.1:** новый image-only execution в том же project, accepted group/wait из exact saved V2.
+Затем 7.2 sequential worker/join и 7.3 «Продолжить» + status/media reads.
+Живой three-unit batch в рабочем `stuff` — приёмка шага 7; текущая сборка его не запускала
+и рабочую БД не мигрировала. Preparation-only diagnostics остаются прежними.
+
+## Checkpoint после 6А
+
+**Базовый code checkpoint:** `99e2c17` — `build: ComfyUI zbs portrait checkpoint`.
+Сверка 8 октября 2026 подтверждает завершённые preparation 4, offline storage 5А/5Б и private
+restart-safe portrait 6А в их принятых границах; [evidence](../test-results/README.md#comfyui-step-6a--restart-safe-portrait--8-october-2026).
+Рабочая БД после отдельного historical DB15 repair — DB18; repair и прежние creative records сохраняются.
+
+| Граница | Сейчас | Следующий результат |
+|---|---|---|
+| Saved compact V2 → prepared inputs | Реализовано, без повторного Wardrobe call | Использовать тот же exact saved plan в новом image execution |
+| Один portrait → verified original | 6А принят, live check на изолированной копии проекта | Не считать этот candidate результатом рабочего `stuff` |
+| Background и двух-reference sheet | Preparation есть; durable lifecycle пока portrait-only | 6Б: bounded unit records/import + verified parent transport/final graph |
+| Полный набор из приложения | Start/group/wait, commands и media reads ещё pending | 7: «Продолжить» → последовательные units → сохранённый complete-set |
+
+**Ближайший пользовательский milestone:** из сохранённого V2 плана нажать **«Продолжить»**,
+получить portrait и character-free background через txt2img, затем character sheet через img2img
+с **обоими exact images в отдельных role slots**. Это conditioning по двум references, не монтаж
+двух PNG в одну картинку. Для первого примера — три units; consumer сохраняет N и исходный порядок плана.
+
+В рабочем режиме DB, input pins и originals принадлежат выбранному data root и тому же project:
+`<data-root>/projects/<project_id>/attempts/<job_id>/<candidate_id>.<digest>.png`,
+по умолчанию `stuff/projects/...`. Originals сохраняются до review; утверждённые assets/selection — шаг 8.
+Изолированный 6А candidate и его records не переносятся в рабочую БД простым копированием PNG.
+
+**Порядок ближайшей сборки:** 6Б.1 bounded background/sheet lifecycle → 6Б.2 verified parents →
+6Б.3 ordered uploads/final graph → 7.1 image activation/group → 7.2 sequential worker/join →
+7.3 «Продолжить» + минимальные status/media reads → live three-unit приёмка в рабочем root.
+Полный Canvas/workflow viewer остаётся в шагах 9–10 и не блокирует этот milestone.
+Каждый срез реализуется и принимается отдельно; данный checkpoint фиксирует план, не запускает их.
+
 ## Что уже есть и чего не хватает
 
 | Область | Фактическое состояние |
 |---|---|
-| Текст/runtime | Compact Wardrobe V2 pure/adapter/store/runtime/API/frontend реализованы как patch in place: обычный `/api/executions/story-wardrobe/v2`, исходный exact `kinodel.story-wardrobe` v2/digest, adapter 2 и saved `batch_prompt`. [W8 принят](roadmap-mvp.md#wardrobe-batch-output) по ручной live-проверке автора и focused compact V2/offline recovery; full discovery и combined real-model/offline harness отложены, не PASS. W1–W7/W6 live — историческое V1 evidence; V1 Wardrobe изолирован. Отдельные Story routes сохраняют approve→END. [Saved V2 handoff/native preparation/durable input pins](#wardrobe-comfyui), offline storage 5А/5Б и private portrait worker 6А реализованы; NEXT implementation — 6Б. |
+| Текст/runtime | Compact Wardrobe V2 pure/adapter/store/runtime/API/frontend реализованы как patch in place: обычный `/api/executions/story-wardrobe/v2`, исходный exact `kinodel.story-wardrobe` v2/digest, adapter 2 и saved `batch_prompt`. [W8 принят](roadmap-mvp.md#wardrobe-batch-output) по ручной live-проверке автора и focused compact V2/offline recovery; full discovery и combined real-model/offline harness отложены, не PASS. W1–W7/W6 live — историческое V1 evidence; V1 Wardrobe изолирован. Отдельные Story routes сохраняют approve→END. [Saved V2 handoff/native preparation/durable input pins](#wardrobe-comfyui), offline storage 5А/5Б, private portrait 6А и anchor/reference lifecycle 6Б реализованы; NEXT — 7.1. |
 | Подключение | Backend config, явный env-file allowlist launcher и `backend/comfyui.py` подключены. Guarded API/CLI preflight проверяет выбранный workflow; private `acquire_preparation_context` передаёт installed schemas в preparation после проверки frozen connection/registry pins. |
 | Workflow | Единый SHA-pinned registry в `backend/comfyui_workflows.py`: preparation включена для portrait/background txt2img и Qwen 1/2/3 inputs; остальные кандидаты inspection-only. `backend/production.py` даёт preparation-only bundle/diagnostics, не cinematic profiles/defaults. [Mappings](tools/comfyui-tool.md#текущие-файлы-и-порты). |
-| Хранение | W8 сохранял DB14; additive DB15 добавил `batch_input_pins` / `batch_unit_input_pins`, DB16 — `render_jobs` / `render_submission_attempts`, DB17 — `portrait_candidates`. Current DB18 добавляет только `portrait_submissions`: exact authorization/wire, guarded dispatch/acceptance/result и bounded output-only recovery для одного zero-reference portrait. Immutable 5А/5Б owners и прежние rows/schema/pins сохраняются. Assets, selection, groups и публичный media-путь ещё нужны. |
+| Хранение | W8 сохранял DB14; DB15 добавил input pins, DB16 — jobs/attempts, DB17 — candidates, DB18 — submissions. Current DB19 добавляет только `anchor_reference_transfers`; новые anchor-unit APIs переиспользуют прежние таблицы, не меняя 6А identities/bytes. Assets, selection, groups и публичный media-путь ещё нужны. |
 | UI | Cinematic-карта, вложенные scopes, inspector и отдельная страница Canvas есть. Pipeline/Chat показывают exact saved Wardrobe plan, frozen inputs/config и полные копируемые prompts. Anchor render/review не подключены; Canvas пуст, provider graph unavailable. |
 | Brief | V1/text inputs сохранены. Новый BriefV2 и отдельный cinematic draft имеют image/video sizes, shot count, total/per-shot ms и video mode. Guarded diagnostics и UI draft подключены; public cinematic Start отсутствует. |
 
 **Текущие ограничения:**
 
-1. **Multi-image Qwen:** pure preparation для 1/2/3 входов реализована; upload/submit adapter и live role-delivery checks ещё предстоят.
+1. **Multi-image Qwen:** preparation для 1/2/3 входов и private two-reference sheet upload/submit реализованы; live role-delivery и batch activation ещё предстоят.
 2. **`img2vid` / `ref2vid`:** разные контракты с выбором в Brief. Img2vid использует `162:MiniMaxH3ImageToVideo.first_frame`, ref2vid — `136:MiniMaxH3ReferenceToVideo`; installed video capability ещё не проверена.
 3. **Длительность/FPS/RIFE/audio — остаётся открытым.** Новые references не исправляют timing: `132.value=5` даёт 124 исходных frames; результат RIFE ×2 при 30 FPS нельзя считать пятисекундным. Измерение и исправление — шаг 12.
 
@@ -275,7 +325,7 @@ boundary, не принятая image activation/job. [Storage contract](backend
   - [x] Привязать published prepared input к portrait job/initial attempt и immutable technical intent — 5А.
    - [x] Явно авторизовать один zero-reference portrait и закрепить native wire request/correlation до HTTP — 6А;
     technical intent 5А не является submit authorization или provider acceptance.
-   - [ ] Resolver verified parent bytes/lineage/rights и post-upload final graph/receipts — 6Б.
+   - [x] Resolver verified parent bytes/lineage/rights и post-upload final graph/receipts — 6Б.
   - [ ] Принять и сохранить отдельную image-only activation, подключить graph wait/group — шаг 7;
     diagnostic API не является Start или принятым render work.
 
@@ -351,8 +401,28 @@ diagnostic `/prepare` и preparation-only профиль сами по себе 
 - [x] Native calls используют установленный async `httpx`, verified TLS, `trust_env=False`, no redirects/retries, identity encoding и bounded strict JSON. `ComfyRunner` не является durable adapter.
 - [x] 6А download/import: strict declared PNG descriptor, безопасный Windows subfolder нормализуется для metadata, actual native spelling сохраняется в `/view` query. Bytes/time/transfer bounds, decode/geometry/digest и immutable import; filename не выбирает local destination. Invalid/partial stream и corruption не создают/не лечат candidate.
 - [x] Response ID сохраняется до проверки `node_errors`/contract failure. Lost response/restart использует только exact queue/history evidence; пустая history не доказывает unsent. Ambiguous acceptance остаётся blocked; second attempts/retry allocator отсутствуют.
-- [x] Explicit `revalidate_contract=True` разрешает исправить known-ID contract block только после full matching successful history и safe declared output. One explicit durable output-only grant ≤5 min разрешает GET/import того же accepted prompt после original expiry; original deadline/acceptance сохраняются, renewal/new POST запрещены.
-- [ ] 6Б: verified parent bytes/lineage/rights → ordered multipart `/upload/image` без overwrite → фактические `name/subfolder/type` receipts и verified remote original → exact role→LoadImage binding → final graph pin/recovery. [Upload contract](tools/comfyui-tool.md#upload--конкретный-loadimage).
+- [x] Owned-ID response contract error остаётся `blocked/contract_error`; malformed provably foreign queue/history не блокирует хорошую job и сохраняется как bounded private `broken_job` diagnostic. Own/ambiguous records и конфликт exact matches продолжают блокировать.
+- [x] Explicit `revalidate_contract=True` разрешает исправить known/unknown-ID contract block только после одной uniquely matched exact успешной completed history и safe declared output. Первый ID/evidence коммитятся до import; известные ID/first evidence сохраняются. One explicit durable output-only grant ≤5 min разрешает GET/import того же accepted prompt после original expiry; original deadline/acceptance сохраняются, renewal/new POST запрещены.
+- [x] Receipt-less reference `blocked_sent` при reopen сохраняет прежние reason/revision без HTTP/повторной загрузки; known receipt сохраняет GET-only recovery.
+- [x] 6Б: verified parent bytes/lineage/rights → ordered multipart `/upload/image` без overwrite → фактические `name/subfolder/type` receipts и verified remote original → exact role→LoadImage binding → final graph pin/recovery. Offline/mock acceptance; live role delivery — шаг 7. [Upload contract](tools/comfyui-tool.md#upload--конкретный-loadimage).
+
+**6Б — bounded-срезы до batch activation (реализованы и приняты offline/mock):**
+
+1. **6Б.1 — records/lifecycle остальных anchor units.** Явно поддержать background txt2img и
+   reference-conditioned sheet в durable job/attempt/authorization/reconcile/import пути; сейчас
+   прежние portrait-only APIs сохраняют свои ограничения; новые anchor-unit APIs принимают три exact роли.
+   Сохранить принятые 6А identities/records и no-blind-resubmit invariant. Проверить offline exact
+   create/reopen/conflicts и declared outputs для каждой роли; sheet dispatch остаётся запрещённым
+   до verified parents и final graph из 6Б.2–6Б.3. Не строить универсальный provider framework.
+2. **6Б.2 — verified parent resolver.** Для sheet проверить оба exact imported candidates:
+   original bytes/digest, project/job/input lineage, доступ/rights и разрешённую same-generation dependency.
+   Metadata pin сам по себе не доказывает bytes/rights; внутренний candidate не требует промежуточного
+   creative approval, но не выдаётся за approved asset. Missing/corrupt/чужой parent блокирует child effects.
+3. **6Б.3 — ordered uploads и final submission pin.** Сохранить upload intent/ownership,
+   фактические receipts и verified remote bytes, затем закрепить final graph с реальными LoadImage
+   bindings до child POST. Recovery сохраняет порядок ролей, names/subfolders, graph/seed и не
+   перезаписывает чужие input files. Проверить renamed name, empty/nonempty/Windows subfolder,
+   interrupted upload/download и exact replay; full live three-unit sheet — приёмка шага 7.
 
 **Приёмка:** один настоящий portrait импортирован и читается после выключения ComfyUI. Mock/fault-injection проверяет lost submit response, intent до HTTP, response до DB, history eviction/server restart и candidate publication до commit; recovery не отправляет второй prompt вслепую. Live smoke фиксирует submitted/returned size, seed, declared output и bytes/digest.
 
@@ -361,10 +431,26 @@ diagnostic `/prepare` и preparation-only профиль сами по себе 
 
 [Current contract](backend/artifacts.md#restart-safe-portrait-submission),
 [6А evidence](../test-results/README.md#comfyui-step-6a--restart-safe-portrait--8-october-2026).
-6А завершён; полный шаг 6 не закрыт: reference transport 6Б pending. NEXT implementation — 6Б, затем groups/activation 7.
+6А live и 6Б offline/mock завершены. Live two-reference sheet остаётся приёмкой шага 7;
+следующая implementation — 7.1 image execution/group/wait.
 
 ### 7. Batch-generation: последовательные jobs и один graph wait
 
+**Порядок bounded-срезов:** 7.1 accepted image execution + durable group/wait; 7.2 ordered units,
+recovery и complete-set join; 7.3 guarded continuation/status/media API и кнопка в существующем UI.
+UI request принимает command и возвращает receipt; рендер выполняет worker, не browser request.
+
+- [ ] **«Продолжить» из exact saved Wardrobe V2.** Кнопка явно принимает новый scoped image-only
+  execution в том же project с source plan/Story authority и frozen render settings. Исходный terminal
+  text execution остаётся неизменным; Wardrobe/Storytell не вызываются повторно. Lost response,
+  double click и reload повторяют один accepted command/group, не создают второй batch.
+  Незавершённый batch открывается/восстанавливается по persisted identity; successful units не
+  rerender. Blocked/failed batch показывает причину и разрешённое действие: «Продолжить» не
+  заменяет отдельную авторизацию потенциально затратного Retry или Regenerate.
+- [ ] **Минимальная поверхность первого live batch.** Показать persisted unit status, `готово X / N`
+  и доступ к verified originals через guarded Kinodel media reads, с различием candidate/approval.
+  DB и файлы сохраняются в рабочем data root, не evidence root; provider filename не выбирает
+  destination. Полная галерея Canvas/Workflow inspection подключается по шагам 9–10.
 - [ ] На новом scoped image-only graph подключить `saved wardrobe_plan V2 → anchor-batch [batch-generation] → anchor-hitl` через V2-only handoff шага 4: initial rendering потребляет exact сохранённый validated compact V2 план и его утверждённую Story, не вызывает Wardrobe повторно и не переоткрывает terminal text execution. Wardrobe вызывается для нового V2 плана только при принятом creative Revise (шаг 8). Group intent/wait identity сохраняются до submission; terminal group result и unique wake work коммитятся вместе по документированной целевой [submit/wait/join boundary](backend/runtime.md#rendering-extension), media-реализация которой ещё pending; новый runner protocol не нужен.
 - [ ] Генерировать units последовательно **строго в порядке массива**, например portrait → background → sheet с **обоими exact parent candidates**. Earlier-only validation не сортирует задания; self/future/missing refs отклоняются. Child input/seed/digests фиксируются до его submit. Один первоначальный candidate на unit; количество units приходит из плана, не hardcoded 3.
 - [ ] Каждый unit имеет отдельные job/attempt records и scope `comfyui-gen`; один provider job одновременно,
@@ -384,6 +470,14 @@ diagnostic `/prepare` и preparation-only профиль сами по себе 
   Duplicate/late старый wake не отвечает новому group wait или следующему human review.
 
 **Приёмка:** restart после любого parent и перед sheet не пересоздаёт готовые parents; sheet действительно получил portrait и background bytes в объявленные slots. Неполный набор не становится review. Group wake не отвечает следующему human wait; checkpoint содержит refs, не media.
+
+**Рабочая live-приёмка «Продолжить»:** существующий saved V2 project в рабочем `stuff` → один
+accepted image execution/group → portrait + background txt2img → sheet с обоими originals →
+complete-set. Для первого three-unit примера — три jobs и три verified originals в папке проекта;
+source text records не меняются. Double click/lost response/reload не дублируют batch; restart после
+каждого parent и перед sheet сохраняет готовые results. После выключения ComfyUI тот же набор
+читается из рабочего root в приложении. Desktop screenshot изменённой страницы и проверки
+фиксируются в evidence index. Exact selection/promotion принимается отдельно на шаге 8.
 
 ### 8. Exact selection, regenerate и cancel
 
@@ -451,7 +545,10 @@ diagnostic `/prepare` и preparation-only профиль сами по себе 
 
 Базовая regression: `./.venv313/Scripts/python.exe -B -m unittest discover -s tests -q`, зависимости — `python -m pip check` в той же venv. UI checks — [web/README](../web/README.md#checks), с focused media/navigation cases и screenshot review по AGENTS.md. Новые tests не объявляем существующими до реализации.
 
-**Ближайшее действие:** шаг 4 — сохранённый Wardrobe plan, затем media storage и restart-safe image job (5–6). До первого render закончить plan/storage/submit checks. Без Comfy Cloud, GPU-install внутри Kinodel, WebSocket dependency, workflow editor, generic provider SDK, cloud storage и автоматического GC.
+**Ближайшее действие после checkpoint 6Б:** 7.1 — accepted image execution/group/wait;
+затем sequential worker/join и «Продолжить» с live three-unit приёмкой в рабочем project root.
+Без Comfy Cloud, GPU-install
+внутри Kinodel, WebSocket dependency, workflow editor, generic provider SDK, cloud storage и автоматического GC.
 
 ## Источники и границы
 

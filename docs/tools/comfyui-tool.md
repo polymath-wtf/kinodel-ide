@@ -1,6 +1,6 @@
 # ComfyUI Tool: workflow и REST-путь
 
-Статус: **read-only preparation и private zero-reference portrait submit/reconcile/import (6А, DB18) реализованы и приняты: live import и fresh-process network-forbidden reopen после user-confirmed provider shutdown пройдены. NEXT: reference transport 6Б, затем groups/activation 7**. Это не public render route или capability promotion: кандидаты становятся выбранными `anchor_frames`, `story_frames`, `shot_videos` только через review/selection. [6А storage/worker contract](../backend/artifacts.md#restart-safe-portrait-submission), [provider boundary](../backend/comfyui.md), [roadmap](../roadmap-comfyui.md).
+Статус: **6А portrait принят live; 6Б anchor lifecycle/verified parents/ordered uploads/final graph (DB19) принят offline/mock. NEXT: image execution/group/wait 7.1; live reference delivery — приёмка шага 7**. Это не public render route или capability promotion: кандидаты становятся выбранными `anchor_frames`, `story_frames`, `shot_videos` только через review/selection. [Current storage/worker contract](../backend/artifacts.md#bounded-anchor-lifecycle-and-reference-transport), [provider boundary](../backend/comfyui.md), [roadmap](../roadmap-comfyui.md).
 
 ## Текущие файлы и порты
 
@@ -103,8 +103,8 @@ Skill CLI `--input-image` — пример транспорта, не production
 
 GET-only preparation/replay выполнены в шагах 1–2; zero-reference portrait native POST → exact history →
 verified original import и fresh-process network-forbidden reopen после user-confirmed provider shutdown
-закрывают 6А. Lost-response/process-death checks не разрешают повторный POST. Далее 6Б verified parents/uploads,
-потом portrait+background→sheet/groups, multi-reference frames и video timing/audio. Остальные workflow
+закрывают 6А. Lost-response/process-death checks не разрешают повторный POST. 6Б verified parents/uploads
+принят offline/mock; далее portrait+background→sheet/groups live, multi-reference frames и video timing/audio. Остальные workflow
 не получают capability promotion от одного portrait. [6А evidence](../../test-results/README.md#comfyui-step-6a--restart-safe-portrait--8-october-2026),
 [порядок срезов](../roadmap-comfyui.md#последовательность), [общая приёмка](../roadmap-mvp.md#acceptance).
 

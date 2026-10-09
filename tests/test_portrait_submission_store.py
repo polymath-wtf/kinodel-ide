@@ -210,6 +210,71 @@ class PortraitSubmissionTests(fixtures.WardrobeFixtures, unittest.IsolatedAsynci
             with self.assertRaises(ValueError):
                 self.claim(db, result)
 
+    async def test_unknown_contract_revalidation_history_commits_first_id_evidence_and_reopens(self):
+        async with self.committed() as (db, ref):
+            job, _, unit = self.job(db, ref)
+            blocked = self.block(db, self.claim(db, self.authorize(db, self.preview(db, job, unit))), 'contract_error')
+            proof = self.evidence(blocked.preview, 'history')
+            recovered = self.accept(db, blocked, evidence=proof, revalidate_contract=True)
+            self.assertEqual((recovered.state, recovered.reason, recovered.prompt_id, recovered.revision),
+                             ('accepted', None, 'prompt-1', blocked.revision + 1))
+            self.assertEqual(recovered.acceptance_evidence, recovered.evidence)
+            assert recovered.acceptance_evidence is not None
+            self.assertEqual(recovered.acceptance_evidence.model_dump(), proof)
+            self.assertEqual(recovered.preview, blocked.preview)
+            self.assertEqual((recovered.accepted_at_ms, recovered.deadline_ms, recovered.dispatched_at_ms),
+                             (blocked.accepted_at_ms, blocked.deadline_ms, blocked.dispatched_at_ms))
+            row = self.submissions._row(db, job.job_id)
+            self.assertEqual(self.accept(db, blocked, evidence=proof, revalidate_contract=True), recovered)
+            self.assertEqual(self.submissions._row(db, job.job_id), row)
+            with self.assertRaises(ValueError):
+                self.claim(db, recovered)
+        with database.open_database(self.root) as db, self.offline():
+            self.assertEqual(self.read(db, recovered), recovered)
+
+    async def test_unknown_contract_revalidation_trusted_gate_cas_and_atomic_rollback(self):
+        async with self.committed() as (db, ref):
+            job, _, unit = self.job(db, ref)
+            authorized = self.authorize(db, self.preview(db, job, unit))
+            proof = self.evidence(authorized.preview, 'history')
+            for state in ('authorized', 'dispatching'):
+                record = authorized if state == 'authorized' else self.claim(db, authorized)
+                with self.assertRaises(ValueError):
+                    self.accept(db, record, evidence=proof, revalidate_contract=True)
+                self.assertEqual(self.read(db, record), record)
+            unknown = self.block(db, self.read(db, authorized))
+            with self.assertRaises(ValueError):
+                self.accept(db, unknown, evidence=proof, revalidate_contract=True)
+            blocked = self.block(db, unknown, 'contract_error')
+            before = self.submissions._row(db, job.job_id)
+            for evidence in (self.evidence(blocked.preview, 'queue'), self.evidence(blocked.preview),
+                             {**proof, 'wire_digest': ZERO}, {**proof, 'endpoint_digest': ZERO},
+                             {**proof, 'prompt_id': 'other'}):
+                with self.subTest(evidence=evidence), self.assertRaises(ValueError):
+                    self.accept(db, blocked, evidence=evidence, revalidate_contract=True)
+                self.assertEqual(self.submissions._row(db, job.job_id), before)
+            with self.assertRaises(ValueError):
+                self.submissions.record_portrait_acceptance(db, job.job_id,
+                    **self.args(blocked, expected_revision=blocked.revision - 1),
+                    prompt_id='prompt-1', evidence=proof, revalidate_contract=True)
+            with self.assertRaises(ValueError):
+                self.submissions.authorize_portrait_output_recovery(db, job.job_id, **self.args(blocked),
+                    now_ms=blocked.deadline_ms + 1)
+            db.execute("CREATE TEMP TRIGGER fail_revalidation BEFORE UPDATE ON portrait_submissions "
+                       "BEGIN SELECT RAISE(ABORT,'injected failure'); END")
+            with self.assertRaises(sqlite3.IntegrityError):
+                self.accept(db, blocked, evidence=proof, revalidate_contract=True)
+            self.assertFalse(db.in_transaction)
+            self.assertEqual(self.submissions._row(db, job.job_id), before)
+            self.assertEqual((self.read(db, blocked).prompt_id, self.read(db, blocked).acceptance_evidence), (None, None))
+            db.execute('DROP TRIGGER fail_revalidation')
+            recovered = self.accept(db, blocked, evidence=proof, revalidate_contract=True)
+            failed = self.submissions.fail_portrait_submission(db, job.job_id, **self.args(recovered),
+                reason='provider_failed', evidence=proof)
+            with self.assertRaises(ValueError):
+                self.accept(db, failed, evidence=proof, revalidate_contract=True)
+            self.assertEqual(self.read(db, failed), failed)
+
     async def test_one_output_recovery_grant_exact_replay_reopen_cas_and_never_renews(self):
         async with self.committed() as (db, ref):
             job, _, unit = self.job(db, ref)
@@ -315,6 +380,71 @@ class PortraitSubmissionTests(fixtures.WardrobeFixtures, unittest.IsolatedAsynci
             self.assertEqual(recovered_again.acceptance_evidence, recovered.acceptance_evidence)
             assert recovered_again.evidence is not None
             self.assertEqual(recovered_again.evidence.kind, 'history')
+
+    async def test_broken_job_diagnostics_bounded_deduplicated_cas_reopen_without_lifecycle_authority(self):
+        async with self.committed() as (db, ref):
+            job, _, unit = self.job(db, ref)
+            authorized = self.authorize(db, self.preview(db, job, unit))
+            save = getattr(self.submissions, 'record_submission_diagnostics', None)
+            self.assertIsNotNone(save, 'Durable broken_job diagnostics are missing')
+            assert save is not None
+            item = dict(kind='broken_job', source='queue', prompt_id='foreign-1', reason='native_tuple',
+                        digest=sha256_digest(b'private record'))
+            with self.assertRaises(ValueError):
+                save(db, job.job_id, **self.args(authorized), diagnostics=[item])
+            dispatched = self.claim(db, authorized)
+            with self.assertRaises(ValueError):
+                save(db, job.job_id, **self.args(dispatched), diagnostics=[item])
+            unknown = self.block(db, dispatched)
+            saved = save(db, job.job_id, **self.args(unknown), diagnostics=[item, item])
+            self.assertEqual((saved.state, saved.prompt_id, saved.acceptance_evidence), ('blocked', None, None))
+            self.assertEqual(saved.revision, unknown.revision + 1)
+            self.assertEqual(len(saved.diagnostics), 1)
+            row = self.submissions._row(db, job.job_id)
+            self.assertEqual(save(db, job.job_id, **self.args(unknown), diagnostics=[item]), saved)
+            self.assertEqual(save(db, job.job_id, **self.args(saved), diagnostics=[item]), saved)
+            self.assertEqual(self.submissions._row(db, job.job_id), row)
+            with self.assertRaises(ValueError):
+                self.claim(db, saved)
+            second = {**item, 'digest': sha256_digest(b'second')}
+            for args, incoming in ((self.args(unknown), [second]), (self.args(saved, expected_revision=True), [item]),
+                                   (self.args(saved), [{**item, 'raw_record': 'private-token'}]),
+                                   (self.args(saved), [{**item, 'prompt_id': '../private.png'}]),
+                                   (self.args(saved), [{**item, 'reason': 'private-token'}])):
+                with self.assertRaises(ValueError):
+                    save(db, job.job_id, **args, diagnostics=incoming)
+                self.assertEqual(self.submissions._row(db, job.job_id), row)
+            incoming = [{**item, 'digest': sha256_digest(str(i).encode())} for i in range(64)]
+            bounded = save(db, job.job_id, **self.args(saved), diagnostics=incoming)
+            self.assertEqual(len(bounded.diagnostics), 32)
+            self.assertEqual(bounded.diagnostics[0], saved.diagnostics[0])
+            self.assertEqual(save(db, job.job_id, **self.args(bounded), diagnostics=incoming), bounded)
+            blocked = self.block(db, bounded)
+            self.assertEqual(blocked.diagnostics, bounded.diagnostics)
+            accepted = self.accept(db, blocked, evidence=self.evidence(blocked.preview, 'history'))
+            self.assertEqual(accepted.diagnostics, bounded.diagnostics)
+            self.assertEqual((accepted.accepted_at_ms, accepted.deadline_ms, accepted.dispatched_at_ms),
+                             (authorized.accepted_at_ms, authorized.deadline_ms, dispatched.dispatched_at_ms))
+        with database.open_database(self.root) as db, self.offline():
+            self.assertEqual(self.read(db, accepted), accepted)
+
+    async def test_empty_diagnostics_preserve_exact_old_6a_canonical_rows(self):
+        async with self.committed() as (db, ref):
+            job, _, unit = self.job(db, ref)
+            accepted = self.accept(db, self.claim(db, self.authorize(db, self.preview(db, job, unit))))
+            row = self.submissions._row(db, job.job_id)
+            original = json.loads(row[4])
+            self.assertNotIn('diagnostics', original)
+            self.assertEqual(accepted.diagnostics, [])
+            self.assertEqual(canonical_json(accepted), row[4].encode())
+            # An old body, not a newly serialized optional empty list, remains authoritative.
+            restored = self.submissions.PortraitSubmissionV1.model_validate(original)
+            self.assertEqual(canonical_json(restored), row[4].encode())
+            changes = db.total_changes
+            saved = self.submissions.record_submission_diagnostics(db, job.job_id, **self.args(accepted), diagnostics=[])
+            self.assertEqual(saved, accepted)
+            self.assertEqual(db.total_changes, changes)
+            self.assertEqual(self.submissions._row(db, job.job_id), row)
 
     async def test_terminal_complete_requires_history_exact_candidate_and_never_rewrites(self):
         async with self.committed() as (db, ref):

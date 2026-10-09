@@ -1,4 +1,5 @@
 import os
+import hashlib
 import json
 from contextlib import closing, contextmanager
 from pathlib import Path
@@ -26,6 +27,26 @@ WARDROBE_ONLY_V15_ARTIFACTS_SQL = """CREATE TABLE "artifacts" (
        OR (schema_id='visual_anchor_plan' AND schema_version IN ('1','2','3') AND produced_by_stage='wardrobe'))
 )"""
 
+# DB18 fingerprint captured BEFORE the DB19 implementation, independent expected bytes.
+FROZEN_DB18_SCHEMA_SHA256 = '73fa46a7e723d2f2c2c04aba0d3047a7636492152c75c1f052e13bb46154fe5d'
+FROZEN_DB18_SUBMISSIONS_SQL = """
+CREATE TABLE portrait_submissions (
+    attempt_id TEXT PRIMARY KEY NOT NULL REFERENCES render_submission_attempts(attempt_id),
+    job_id TEXT NOT NULL UNIQUE REFERENCES render_jobs(job_id),
+    wire_digest TEXT NOT NULL, submission_digest TEXT NOT NULL,
+    submission_body TEXT NOT NULL CHECK(length(CAST(submission_body AS BLOB)) BETWEEN 1 AND 1048576),
+    revision INTEGER NOT NULL CHECK(revision>=0),
+    state TEXT NOT NULL CHECK(state IN ('authorized','dispatching','accepted','blocked','failed','completed')),
+    prompt_id TEXT CHECK(length(prompt_id) BETWEEN 1 AND 128),
+    candidate_id TEXT REFERENCES portrait_candidates(candidate_id),
+    CHECK((state='completed') = (candidate_id IS NOT NULL)),
+    CHECK(state NOT IN ('accepted','completed') OR prompt_id IS NOT NULL),
+    CHECK(state NOT IN ('authorized','dispatching') OR prompt_id IS NULL),
+    CHECK((state='authorized' AND revision=0) OR (state='dispatching' AND revision=1)
+        OR (state IN ('accepted','blocked','failed','completed') AND revision>=1))
+);
+"""
+
 
 def historical_schema(version):
     if version == 1:
@@ -37,7 +58,7 @@ def historical_schema(version):
                             (11, database.STORY_V2_SCHEMA), (12, database.STORY_DIAGNOSTIC_SCHEMA),
                             (13, database.WARDROBE_SCHEMA), (14, database.WARDROBE_V2_SCHEMA),
                             (15, database.BATCH_INPUT_SCHEMA), (16, database.RENDER_JOB_SCHEMA),
-                            (17, database.PORTRAIT_CANDIDATE_SCHEMA)):
+                            (17, database.PORTRAIT_CANDIDATE_SCHEMA), (18, FROZEN_DB18_SUBMISSIONS_SQL)):
         if version >= introduced:
             script += ddl
     return script
@@ -79,13 +100,14 @@ class DatabaseTests(unittest.TestCase):
                                   {"executions", "artifacts", "execution_bindings", "story_operations",
                                     "review_requests", "execution_work", "execution_outcomes", "execution_controls",
                                     "wardrobe_operations", "batch_input_pins", "batch_unit_input_pins",
-                                    "render_jobs", "render_submission_attempts", "portrait_candidates", "portrait_submissions"})
+                                    "render_jobs", "render_submission_attempts", "portrait_candidates", "portrait_submissions",
+                                    "anchor_reference_transfers"})
                 self.assertEqual(database._schema(db), database._expected_schema(SCHEMA_VERSION))
             with self.assertRaises(sqlite3.ProgrammingError):
                 db.execute("SELECT 1")
 
     def test_v14_retains_v13_fingerprint_and_only_widens_anchor_versions(self):
-        self.assertEqual(database.SCHEMA_VERSION, 18)
+        self.assertEqual(database.SCHEMA_VERSION, 19)
         self.assertNotEqual(database._expected_schema(13), database._expected_schema(14))
         for version in (13, 14):
             with closing(sqlite3.connect(":memory:")) as db:
@@ -108,9 +130,9 @@ class DatabaseTests(unittest.TestCase):
                             with self.assertRaises(sqlite3.IntegrityError):
                                 db.execute("INSERT INTO artifacts VALUES (?,?,?,?,?,?,?,?)", row)
 
-    def test_versions_one_through_seventeen_upgrade_with_each_correct_stamp(self):
+    def test_versions_one_through_eighteen_upgrade_with_each_correct_stamp(self):
         validate = database._validate
-        for version in range(1, 18):
+        for version in range(1, 19):
             root = self.root.parent / f"schema-{version}"
             root.mkdir()
             with closing(sqlite3.connect(root / DATABASE_NAME)) as old:
@@ -200,7 +222,8 @@ class DatabaseTests(unittest.TestCase):
                 self.assertEqual(db.execute("PRAGMA user_version").fetchone(), (SCHEMA_VERSION,))
                 self.assertEqual([r for r in database._schema(db) if r[1] not in
                                   ('batch_input_pins', 'batch_unit_input_pins',
-                                   'render_jobs', 'render_submission_attempts', 'portrait_candidates', 'portrait_submissions')], schema)
+                                   'render_jobs', 'render_submission_attempts', 'portrait_candidates', 'portrait_submissions',
+                                   'anchor_reference_transfers')], schema)
                 self.assertEqual({t: db.execute(f"SELECT rowid,* FROM {t}").fetchall() for t in tables}, rows)
                 self.assertEqual(db.execute("SELECT COUNT(*) FROM batch_input_pins").fetchone(), (0,))
                 self.assertEqual(db.execute("PRAGMA foreign_key_check").fetchall(), [])
@@ -287,10 +310,10 @@ class DatabaseTests(unittest.TestCase):
                            bool(db.execute("SELECT 1 FROM sqlite_schema WHERE name='batch_input_pins'").fetchone()),
                            db.in_transaction))
         added = {'batch_input_pins', 'batch_unit_input_pins', 'render_jobs',
-                 'render_submission_attempts', 'portrait_candidates', 'portrait_submissions'}
+                 'render_submission_attempts', 'portrait_candidates', 'portrait_submissions', 'anchor_reference_transfers'}
         for _ in range(2):
             with patch.object(database, '_validate', side_effect=checked), open_database(self.root) as db:
-                self.assertEqual(db.execute('PRAGMA user_version').fetchone(), (18,))
+                self.assertEqual(db.execute('PRAGMA user_version').fetchone(), (SCHEMA_VERSION,))
                 self.assertEqual([r for r in database._schema(db) if r[1] not in added], schema)
                 self.assertEqual({t: db.execute(f'SELECT rowid,* FROM {t} ORDER BY rowid').fetchall() for t in rows}, rows)
                 for table in added:
@@ -299,7 +322,7 @@ class DatabaseTests(unittest.TestCase):
             self.assertEqual({name: (saved / name).read_bytes() for name in bodies}, bodies)
         self.assertIn((15, False, False), stamps)
         self.assertIn((15, True, True), stamps, 'Pin repair must validate before committing without changing the DB15 stamp')
-        self.assertEqual(list(dict.fromkeys(v for v, _, _ in stamps)), [15, 16, 17, 18])
+        self.assertEqual(list(dict.fromkeys(v for v, _, _ in stamps)), [15, 16, 17, 18, 19])
 
     def test_wardrobe_only_v15_pin_ddl_and_validation_failure_roll_back_historical_shape(self):
         schema, rows = self.populated_wardrobe_only_v15()
@@ -328,22 +351,23 @@ class DatabaseTests(unittest.TestCase):
                 self.assertEqual(database._schema(old), schema)
                 self.assertEqual({t: old.execute(f'SELECT rowid,* FROM {t} ORDER BY rowid').fetchall() for t in rows}, rows)
         with open_database(self.root) as db:
-            self.assertEqual(db.execute('PRAGMA user_version').fetchone(), (18,))
+            self.assertEqual(db.execute('PRAGMA user_version').fetchone(), (SCHEMA_VERSION,))
 
     def test_wardrobe_retention_fingerprint_reopens_at_each_additive_version(self):
-        for version in (15, 16, 17, 18):
+        for version in (15, 16, 17, 18, 19):
             self.root = self.root.parent / f'wardrobe-retained-{version}'
             self.path = self.root / DATABASE_NAME
             _, rows = self.populated_wardrobe_only_v15()
             with closing(sqlite3.connect(self.path, isolation_level=None)) as old:
                 for introduced, ddl in ((15, database.BATCH_INPUT_SCHEMA), (16, database.RENDER_JOB_SCHEMA),
-                                        (17, database.PORTRAIT_CANDIDATE_SCHEMA), (18, database.PORTRAIT_SUBMISSION_SCHEMA)):
+                                        (17, database.PORTRAIT_CANDIDATE_SCHEMA), (18, FROZEN_DB18_SUBMISSIONS_SQL),
+                                        (19, database.ANCHOR_REFERENCE_TRANSFER_SCHEMA)):
                     if version >= introduced:
                         old.executescript(ddl)
                 old.execute(f'PRAGMA user_version={version}')
             for _ in range(2):
                 with self.subTest(version=version), open_database(self.root) as db:
-                    self.assertEqual(db.execute('PRAGMA user_version').fetchone(), (18,))
+                    self.assertEqual(db.execute('PRAGMA user_version').fetchone(), (SCHEMA_VERSION,))
                     self.assertEqual(db.execute("SELECT sql FROM sqlite_schema WHERE name='artifacts'").fetchone(),
                                      (WARDROBE_ONLY_V15_ARTIFACTS_SQL,))
                     self.assertEqual({t: db.execute(f'SELECT rowid,* FROM {t} ORDER BY rowid').fetchall() for t in rows}, rows)
@@ -351,7 +375,7 @@ class DatabaseTests(unittest.TestCase):
     def test_wardrobe_only_v15_near_fingerprints_refuse_without_byte_changes(self):
         for failure in ('wardrobe-check', 'story-check', 'owner-check', 'extra-table', 'missing-table', 'partial-pins',
                         'foreign-key', 'wrong-version', 'retained-check', 'retained-missing-table',
-                        'missing-pins-v16', 'missing-pins-v17', 'missing-pins-v18'):
+                        'missing-pins-v16', 'missing-pins-v17', 'missing-pins-v18', 'missing-pins-v19'):
             self.root = self.root.parent / ('wardrobe-invalid-' + failure)
             self.path = self.root / DATABASE_NAME
             sql = WARDROBE_ONLY_V15_ARTIFACTS_SQL
@@ -438,7 +462,8 @@ class DatabaseTests(unittest.TestCase):
             with open_database(self.root) as db:
                 self.assertEqual(db.execute('PRAGMA user_version').fetchone(), (SCHEMA_VERSION,))
                 self.assertEqual([r for r in database._schema(db) if r[1] not in
-                                  ('render_jobs', 'render_submission_attempts', 'portrait_candidates', 'portrait_submissions')], schema)
+                                  ('render_jobs', 'render_submission_attempts', 'portrait_candidates', 'portrait_submissions',
+                                   'anchor_reference_transfers')], schema)
                 self.assertEqual({t: db.execute(f'SELECT rowid,* FROM {t} ORDER BY rowid').fetchall() for t in rows}, rows)
                 self.assertEqual(db.execute('PRAGMA foreign_key_check').fetchall(), [])
                 for table in ('render_jobs', 'render_submission_attempts'):
@@ -502,7 +527,8 @@ class DatabaseTests(unittest.TestCase):
         for _ in range(2):
             with open_database(self.root) as db:
                 self.assertEqual(db.execute('PRAGMA user_version').fetchone(), (SCHEMA_VERSION,))
-                self.assertEqual([r for r in database._schema(db) if r[1] not in ('portrait_candidates', 'portrait_submissions')], schema)
+                self.assertEqual([r for r in database._schema(db) if r[1] not in
+                                  ('portrait_candidates', 'portrait_submissions', 'anchor_reference_transfers')], schema)
                 self.assertEqual({t: db.execute(f'SELECT rowid,* FROM {t} ORDER BY rowid').fetchall() for t in rows}, rows)
                 self.assertEqual(db.execute('SELECT COUNT(*) FROM portrait_candidates').fetchone(), (0,))
                 self.assertEqual(db.execute('PRAGMA foreign_key_check').fetchall(), [])
@@ -564,8 +590,9 @@ class DatabaseTests(unittest.TestCase):
         schema, rows = self.populated_v17()
         for _ in range(2):
             with open_database(self.root) as db:
-                self.assertEqual(db.execute('PRAGMA user_version').fetchone(), (18,))
-                self.assertEqual([r for r in database._schema(db) if r[1] != 'portrait_submissions'], schema)
+                self.assertEqual(db.execute('PRAGMA user_version').fetchone(), (SCHEMA_VERSION,))
+                self.assertEqual([r for r in database._schema(db) if r[1] not in
+                                  ('portrait_submissions', 'anchor_reference_transfers')], schema)
                 self.assertEqual({t: db.execute(f'SELECT rowid,* FROM {t} ORDER BY rowid').fetchall() for t in rows}, rows)
                 self.assertEqual(db.execute('SELECT COUNT(*) FROM portrait_submissions').fetchone(), (0,))
                 self.assertEqual(db.execute('PRAGMA foreign_key_check').fetchall(), [])
@@ -587,6 +614,80 @@ class DatabaseTests(unittest.TestCase):
                 self.assertEqual(old.execute('PRAGMA user_version').fetchone(), (17,))
                 self.assertEqual(database._schema(old), schema)
                 self.assertEqual({t: old.execute(f'SELECT rowid,* FROM {t} ORDER BY rowid').fetchall() for t in rows}, rows)
+
+    def populated_v18(self):
+        self.populated_v17()
+        with closing(sqlite3.connect(self.path, isolation_level=None)) as old:
+            old.executescript(FROZEN_DB18_SUBMISSIONS_SQL + 'PRAGMA user_version=18;')
+            old.execute("INSERT INTO portrait_submissions (rowid,attempt_id,job_id,wire_digest,submission_digest,submission_body,revision,state,prompt_id,candidate_id) "
+                        "VALUES (127,'attempt','job','wire-digest','submission-digest','frozen DB18 body 🦊',5,'completed','owned-prompt','candidate')")
+            schema = database._schema(old)
+            fingerprint = hashlib.sha256(json.dumps(schema, ensure_ascii=False, separators=(',', ':')).encode()).hexdigest()
+            self.assertEqual(fingerprint, FROZEN_DB18_SCHEMA_SHA256)
+            return schema, {r[1]: old.execute(f'SELECT rowid,* FROM {r[1]} ORDER BY rowid').fetchall()
+                            for r in schema if r[0] == 'table'}
+
+    def test_v18_reference_transfer_migration_adds_exactly_one_table_preserving_every_old_byte_rowid(self):
+        schema, rows = self.populated_v18()
+        self.assertEqual(database.SCHEMA_VERSION, 19, 'Reference storage requires additive DB19')
+        for _ in range(2):
+            with open_database(self.root) as db:
+                self.assertEqual(db.execute('PRAGMA user_version').fetchone(), (19,))
+                self.assertEqual([r for r in database._schema(db) if r[1] != 'anchor_reference_transfers'], schema)
+                self.assertEqual({t: db.execute(f'SELECT rowid,* FROM {t} ORDER BY rowid').fetchall() for t in rows}, rows)
+                self.assertEqual(db.execute('SELECT COUNT(*) FROM anchor_reference_transfers').fetchone(), (0,))
+                self.assertEqual(db.execute('PRAGMA foreign_key_check').fetchall(), [])
+
+    def test_v18_reference_transfer_ddl_and_validation_fault_roll_back_complete_old_fingerprint(self):
+        schema, rows = self.populated_v18()
+        self.assertTrue(hasattr(database, 'ANCHOR_REFERENCE_TRANSFER_SCHEMA'), 'Reference transfer DDL is missing')
+        validate = database._validate
+        def fail_validation(db):
+            validate(db)
+            if db.execute('PRAGMA user_version').fetchone() == (19,):
+                raise ValueError('injected reference validation failure')
+        for fault in (patch.object(database, 'ANCHOR_REFERENCE_TRANSFER_SCHEMA', database.ANCHOR_REFERENCE_TRANSFER_SCHEMA + 'SELECT * FROM missing_table;'),
+                      patch.object(database, '_validate', side_effect=fail_validation)):
+            with fault, self.assertRaises((ValueError, sqlite3.OperationalError)):
+                with open_database(self.root):
+                    self.fail('Partial reference migration accepted')
+            with closing(sqlite3.connect(self.path)) as old:
+                self.assertEqual(old.execute('PRAGMA user_version').fetchone(), (18,))
+                self.assertEqual(database._schema(old), schema)
+                self.assertEqual({t: old.execute(f'SELECT rowid,* FROM {t} ORDER BY rowid').fetchall() for t in rows}, rows)
+
+    def test_v18_and_v19_reference_near_fingerprints_refuse_unchanged(self):
+        self.assertTrue(hasattr(database, 'ANCHOR_REFERENCE_TRANSFER_SCHEMA'), 'Reference transfer DDL is missing')
+        for failure in ('extra-table', 'missing-submissions', 'wrong-fk', 'stamp19-without-transfers', 'widened-transfer-state'):
+            self.root = self.root.parent / ('reference-invalid-' + failure)
+            self.path = self.root / DATABASE_NAME
+            self.populated_v18()
+            with closing(sqlite3.connect(self.path, isolation_level=None)) as old:
+                if failure == 'extra-table':
+                    old.execute('CREATE TABLE unexpected (body TEXT)')
+                elif failure == 'missing-submissions':
+                    old.execute('DROP TABLE portrait_submissions')
+                elif failure == 'wrong-fk':
+                    old.execute("UPDATE portrait_submissions SET job_id='missing'")
+                elif failure == 'stamp19-without-transfers':
+                    old.execute('PRAGMA user_version=19')
+                else:
+                    old.executescript(database.ANCHOR_REFERENCE_TRANSFER_SCHEMA.replace("'finalized'", "'finalized','invented'") + 'PRAGMA user_version=19;')
+            self.refuse_unchanged()
+
+    def test_reference_transfer_table_initial_attempt_uniqueness_fks_metadata_bounds_revision_state(self):
+        self.populated_v18()
+        with open_database(self.root) as db:
+            row = ('attempt', 'job', 'u-digest', 'intent-digest', 'record-digest', '{}', 0, 'authorized')
+            for index, value in ((0, 'missing'), (1, 'missing'), (5, ''), (5, 'x' * (1048576 + 1)),
+                                 (6, -1), (7, 'invented')):
+                invalid: list[str | int] = list(row)
+                invalid[index] = value
+                with self.subTest(index=index), self.assertRaises(sqlite3.IntegrityError):
+                    db.execute('INSERT INTO anchor_reference_transfers VALUES (?,?,?,?,?,?,?,?)', invalid)
+            db.execute('INSERT INTO anchor_reference_transfers VALUES (?,?,?,?,?,?,?,?)', row)
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute('INSERT INTO anchor_reference_transfers VALUES (?,?,?,?,?,?,?,?)', row)
 
     def test_v17_malformed_historical_schema_or_candidate_fk_refuse_unchanged(self):
         for failure in ('schema', 'fk'):

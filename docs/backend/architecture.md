@@ -2,8 +2,9 @@
 
 Status: **Accepted boundaries; text/Story UI and compact Wardrobe V2 retain their scoped acceptance.
 Private zero-reference portrait lifecycle (6A, DB18) is implemented and accepted; live import and fresh-process
-network-forbidden reopen after user-confirmed provider shutdown passed. NEXT: reference transport 6B, then
-image activation/groups 7. Public cinematic Start, media DTO/API/UI, selection/assets remain pending.**
+network-forbidden reopen after user-confirmed provider shutdown passed. Bounded anchor/reference lifecycle
+(6B, DB19) is accepted offline/mock. NEXT: image execution/group/wait 7.1; live reference delivery,
+public cinematic Start, media DTO/API/UI and selection/assets remain pending.**
 
 W1–W7/W6 live remain historical V1 evidence. [W8](../roadmap-mvp.md#wardrobe-batch-output) patches compact V2
 in place under the original `kinodel.story-wardrobe` v2/digest, adapter 2 and ordinary Start route;
@@ -12,6 +13,8 @@ input pins, DB16 job/intent and DB17 candidates remain immutable owners. DB18 ad
 `portrait_submissions`, not capability activation or a new scheduler. W8's reduced acceptance does not
 claim deferred full discovery/real-model harness success. [6A contract](artifacts.md#restart-safe-portrait-submission)
 and [local startup](local-startup.md) own current storage/recovery boundaries and historical schema retention.
+DB19 adds only `anchor_reference_transfers`; [6B](artifacts.md#bounded-anchor-lifecycle-and-reference-transport)
+preserves 6A records and adds verified parents/ordered uploads/final graph without public activation.
 
 Kinodel is a **runtime-vibe-factory for creators**. A creator follows a pipeline from an idea through story, characters, storyboard and video, or another production scheme, inspecting and revising results through human-in-the-loop decisions. Cinematic is one pipeline, not the definition of the entire product.
 
