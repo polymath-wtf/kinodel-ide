@@ -1,17 +1,18 @@
 import { z } from 'zod';
-import { artifactRefSchema, uuidSchema, text, narrative, unit, textSubjectSchema, type ArtifactRef } from '../../entities/execution/contracts';
+import { artifactRefSchema, uuidSchema, text, narrative, unit, textSubjectSchema, sameRef, type ArtifactRef } from '../../entities/execution/contracts';
 import { ReadError } from '../../shared/api/http';
 import { characterRefSchema } from '../../entities/character/contracts';
+import { continueRequestSchema, continueReceiptSchema } from '../../entities/execution/process';
 
 const prefix = 'kinodel.command.v1.';
 const key = text.max(128);
 const digest = z.string().regex(/^sha256:[0-9a-f]{64}$/);
 const receiptSchema = z.strictObject({ work_id: z.string().min(1), execution_id: uuidSchema.optional(), decision_id: digest.optional() });
 const isLiveStart = (body: unknown) => !!body && typeof body === 'object' && ['subjects', 'character_refs', 'shot_duration_ms'].some(field => field in body);
-const envelopeSchema = z.strictObject({ id: uuidSchema, kind: z.enum(['start', 'respond', 'retry', 'cancel']),
+const envelopeSchema = z.strictObject({ id: uuidSchema, kind: z.enum(['start', 'respond', 'retry', 'cancel', 'continue']),
   project_id: uuidSchema, execution_id: uuidSchema.nullable(),
   target: z.strictObject({ request_id: z.string().min(1), base_ref: artifactRefSchema }).nullable(),
-  endpoint: z.string(), payload: z.string(), receipt: receiptSchema.optional(),
+  endpoint: z.string(), payload: z.string(), receipt: z.union([receiptSchema, continueReceiptSchema]).optional(),
   rejection: z.strictObject({ status: z.number().int().min(400).max(499).refine(s => s !== 401), message: z.string() }).optional(),
 }).superRefine((e, ctx) => {
   try {
@@ -43,16 +44,32 @@ const envelopeSchema = z.strictObject({ id: uuidSchema, kind: z.enum(['start', '
       } else {
         if (e.target !== null) throw Error();
         if (e.kind === 'retry') z.strictObject({ command_key: key, work_id: z.string().min(1), expected_version: z.number().int().min(0) }).parse(body);
-        else z.strictObject({ command_key: key }).parse(body);
+        else if (e.kind === 'continue') {
+          const command = continueRequestSchema.parse(body);
+          if (command.production_intent && (command.production_intent.source_plan_ref.execution_id !== e.execution_id
+            || command.production_intent.source_plan_ref.project_id !== e.project_id)) throw Error();
+        } else z.strictObject({ command_key: key }).parse(body);
         endpoint = `${root}/${e.kind}`;
       }
     }
     if (e.endpoint !== endpoint || (e.receipt && e.rejection)) throw Error();
-    if (e.receipt) validateReceipt(e.kind, e.receipt);
+    if (e.receipt) validateReceipt(e, e.receipt);
   } catch { ctx.addIssue({ code: 'custom', message: 'Invalid command envelope' }); }
 });
 export type Command = z.infer<typeof envelopeSchema>;
-function validateReceipt(kind: Command['kind'], value: unknown) {
+function validateReceipt(command: Pick<Command, 'kind' | 'execution_id' | 'project_id' | 'payload'>, value: unknown) {
+  const { kind } = command;
+  if (kind === 'continue') {
+    const receipt = continueReceiptSchema.parse(value), body = continueRequestSchema.parse(JSON.parse(command.payload));
+    if (receipt.selected_execution_id !== command.execution_id || receipt.project_id !== command.project_id
+      || receipt.command_key !== body.command_key || receipt.expected_token !== body.expected_token) throw Error('Continue receipt does not match the exact command');
+    const intent = body.production_intent;
+    if (intent && (!receipt.source_plan_ref || !sameRef(receipt.source_plan_ref, intent.source_plan_ref) || !receipt.production
+      || receipt.production.image_size.width !== intent.image_size.width || receipt.production.image_size.height !== intent.image_size.height
+      || JSON.stringify(receipt.production.image_profile) !== JSON.stringify(intent.image_profile) || receipt.production.connection !== intent.connection.connection))
+      throw Error('Continue receipt does not match the authorized production intent');
+    return receipt;
+  }
   if (kind === 'start') return z.strictObject({ execution_id: uuidSchema, work_id: z.string().min(1) }).parse(value);
   if (kind === 'respond') return z.strictObject({ decision_id: digest, work_id: z.string().min(1) }).parse(value);
   return z.strictObject({ work_id: z.string().min(1) }).parse(value);
@@ -92,7 +109,7 @@ export async function deliverCommand(storage: Storage, id: string,
   let record = pendingCommands(storage).find(c => c.id === id);
   if (!record) return;
   if (!record.receipt && !record.rejection) {
-    try { record = { ...record, receipt: validateReceipt(record.kind, await post(record.endpoint, record.payload)) }; }
+    try { record = { ...record, receipt: validateReceipt(record, await post(record.endpoint, record.payload)) }; }
     catch (error) {
       if (!(error instanceof ReadError) || !error.status || error.status < 400 || error.status >= 500 || error.status === 401) throw error;
       record = { ...record, rejection: { status: error.status, message: error.message } };

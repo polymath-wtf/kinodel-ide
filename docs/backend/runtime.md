@@ -1,10 +1,20 @@
 # Runtime
 
-Status: **Decided design; internal SQLite Story integration and process-death recovery tested on Windows. Full cinematic and PostgreSQL integration pending; evidence in Local MVP.**
+Status: **Decided design; internal SQLite Story integration and process-death recovery tested on Windows.
+Private 7.1 admission/wait and 7.2 sequential worker/result wake/exact Retry/join are implemented;
+7.2 is accepted offline/mock; 7.3A universal Continue/shared status and Pipeline/Chat controls are accepted
+offline/mock and in browser checks, as are [7.3B guarded originals reads/UI](artifacts.md#guarded-originals-and-ordered-image-reads-accepted-73b).
+NEXT: live three-unit working `stuff` batch, restart between parents/steps and provider-off app reads.
+Full cinematic and PostgreSQL integration remain pending; evidence in Local MVP.**
 
 Decision, 2026-09-09: SQLite local and PostgreSQL server are selected. The [local profile](../database/local-vs-hosted.md) has one application process and one active graph runner per data directory; PostgreSQL supports multiple workers, with one invocation per execution. All durability/approval invariants apply to both. The internal local Story route is implemented and process-death tested; the full cinematic route and PostgreSQL integration remain pending. PostgreSQL locks cannot be assumed on SQLite.
 
 The runtime reliably delivers authorized work to an explicit LangGraph graph. It does not independently choose production stages. The target is recoverable execution with idempotent business commits, not exactly-once model/provider calls.
+
+For new runs of supported user pipelines, the [execution target](pipeline.md#execution-boundary) is one frozen
+end-to-end run. Ordinary stage completion continues automatically within frozen authorization, not
+through a compulsory Continue click. Existing terminal Story/Wardrobe/image executions and their
+separate image-consumer bridge retain their frozen semantics; no terminal execution is reopened.
 
 ## Deployment Profiles
 
@@ -16,7 +26,7 @@ The first user build is local: CPython 3.13 (verified patch 3.13.15), FastAPI, P
 | worker | sole graph invocation path; claim, start, resume, recover, finalize cancellation |
 | authored graph | stage routing, typed node updates, checkpoints and interrupts |
 | node adapter | exact input preparation, bounded agent call, validation, idempotent commit |
-| Project DB | work, operations, bindings, requests, terminal outcomes, controls; private anchor jobs/attempts/candidates, submission/reference facts and DB20 accepted image groups/waits; group result/wake pending |
+| Project DB | work, operations, bindings, requests, terminal outcomes, controls; private anchor jobs/explicit attempts/candidates, submission/reference facts, accepted image groups/waits, DB22 unit/result/wake/join/Retry records and DB23 Continue handoff/delivery records |
 | managed files | immutable validated artifact/media bytes; never scheduling |
 
 The API returns an accepted execution/request/work identity after its transaction. HTTP completion, browser disconnect, and streaming lifetime never own graph execution. Additional server workers use the server claim protocol; the local profile does not allow a second active runner.
@@ -128,7 +138,65 @@ On startup and continuously, the worker selects due work and abandoned claims fr
 
 The checkpoint adapter must distinguish a pending interrupt from a task whose resume value is already persisted. Pin the framework/saver versions and test this classifier against real saved checkpoint tuples; do not infer it from UI status or node names. Preserve the exact source checkpoint and task identity on resume work for this comparison.
 
+Isolating framework-sensitive raw checkpoint inspection is a later local simplification, not a
+Continue prerequisite. Reduce redundant checks only while preserving exact wait/result matching,
+pending-write recovery, required lineage checks, OCC and ownership/task/saver drain guarantees.
+
 A small reconciliation sweep also checks nonterminal executions with no live work: `created` without a start checkpoint must still have its unique start work; unfinished checkpoint tasks need recoverable work; settled waits without an input are normal. If a segment was incorrectly marked complete while tasks remain, a unique reconcile item keyed by the observed checkpoint recovers it or records a mismatch. Do not continually invoke unanswered human gates.
+
+## Continue Command (Accepted 7.3A)
+
+**Implemented and accepted offline/mock with browser checks:** Continue is a thin command over the existing runtime
+for a supported stopped process. Resolve the explicitly selected process by stable execution/source/
+handoff identities, never by the most recent timestamp. Command admission and read projection share
+one backend allowed-action policy grounded in authored stage semantics and durable work, controls,
+outcomes, operations and exact checkpoint/wait facts. UI renders the result, not its own routing policy.
+
+Guarded `GET /api/executions/{selected_execution_id}/process` returns `ContinueProjection` v1;
+the Story reader optionally attaches it with `?include_process=true`. Direct image consumers use
+`/process`. Guarded `POST /api/executions/{selected_execution_id}/continue` accepts
+`{command_key, expected_token, production_intent?}`. First image handoff requires exact
+`{source_plan_ref, image_size, image_profile, connection:{connection,endpoint_digest}}`.
+Pipeline/Chat show the settings and use offline read-only `anchor-batch/prepare` to obtain the
+configured connection pin before a separate explicit authorization click; no provider preflight or defaults.
+
+Projection and command share `backend/continue_command.py` policy: selected/source/effective identities,
+status, `start_images | resume | open | review | resolve | finished`, reason/allowed actions, OCC token,
+optional exact review/group/source plan, `image_progress:{completed,total}` and safe frozen production settings.
+The receipt adds `{command_key, expected_token, disposition}`; `work_id` may be null. It is a saved
+acceptance snapshot; poll `/process` for current progress. Accepted explicit Retry lineage is followed,
+not a timestamp-selected private run. Operational resolutions remain separate explicit commands.
+
+Additive DB22→23 creates only `continue_handoffs` and `continue_commands`. Logical source handoff,
+full immutable batch pins and first delivery reservation commit atomically before saver await/publication;
+consumer/group/start work, accepted link and receipt commit atomically afterward. Same delivery returns
+its saved receipt before freshness/settings checks. New keys converge on the reserved transition;
+the original OCC token is accepted for identical intent only while reserved or the consumer remains
+unclaimed/created. Progress, controls or Retry fence stale copies. No terminal source mutation,
+new scheduler, graph invocation or model/provider I/O occurs in command admission.
+
+| Saved point | Continue behavior |
+|---|---|
+| unfinished text/ordinary task | deliver existing recoverable work with frozen inputs/authorization and remaining budget; committed replay never repeats the effect, uncommitted model work may need another call |
+| human/input wait | expose the exact actionable request; require its explicit decision/input, never fabricate approval |
+| external wait / between image units | recover the same group/jobs; deliver only its exact durable result/wake when ready; authorized units advance without a click per unit |
+| already active | return current state/accepted identity, not another invocation or consumer |
+| blocked | return reason and permitted resolution; no automatic Retry, Regenerate or paid resubmission |
+| completed execution | accept only a declared supported next handoff, otherwise show finished/unavailable; retain the terminal source |
+| cancelled/failed execution | show the outcome and explicit allowed resolution; never silently restart it |
+
+The existing saved-plan → image-consumer bridge is one supported handoff, not the definition of
+Continue. Acceptance atomically deduplicates that logical transition/accepted consumer independently
+of the client delivery key, with OCC and exact source/production-intent pins. This is not global
+uniqueness of a source plan: separately authorized Retry, Regenerate or new runs remain distinct.
+Render authorization stays separate from approval; Continue supplies neither missing authority nor
+an extra mandatory UX gate. Actual private 7.1–7.2 delivery/recovery is preserved, including no
+duplicate committed effects, uncertain-acceptance reconciliation and immutable terminal outcomes.
+
+Stopped runnable text uses existing checkpoint-keyed reconcile work without replenishing budget.
+Only exact process-local active ownership distinguishes a final reserved in-flight owner attempt
+from abandoned exhaustion. Broader transition/context/checkpoint simplification remains pending.
+[7.3A acceptance evidence](../../test-results/README.md#comfyui-step-73a--backend-universal-continue-and-action-projection--10-october-2026).
 
 ## Errors, Retry And Blocking
 
@@ -159,13 +227,14 @@ Late provider results may remain job audit but cannot bind output or resume term
 
 ## Rendering Extension
 
-**Private anchor-unit lifecycle and image admission/group wait are implemented; sequential units and join remain a target.** Immutable
+**Private anchor-unit lifecycle and image admission/sequential worker/result wake/join are implemented; 7.2 is accepted offline/mock.** Immutable
 [5A job/intent](artifacts.md#offline-portrait-job-intent) (DB16) and [5B original import](artifacts.md#offline-portrait-candidate-import)
 (DB17) retain their owners. [6A](artifacts.md#restart-safe-portrait-submission) adds only DB18 `portrait_submissions`
 and a bounded native async tick: explicit exact-wire authorization, pre-HTTP dispatch CAS, acceptance,
 reconciliation and successful-history verified import. Ambiguous acceptance never permits another POST;
 known/unknown-ID successful-history contract revalidation and a one-shot ≤5 min GET/import-only grant are explicit, preserve the
-original dispatch deadline, and do not allocate attempts. Live import and fresh-process network-forbidden
+original dispatch deadline, and do not allocate attempts. Separate private 7.2 failed-only Retry allocates
+an explicitly selected attempt, never a replacement for uncertain acceptance. Live import and fresh-process network-forbidden
 reopen after user-confirmed provider shutdown passed; 6A is accepted. Preparation-only public diagnostics still cannot submit.
 
 6B verified parent bytes/rights and ordered uploads/final graph are accepted offline/mock; malformed
@@ -174,10 +243,16 @@ provably foreign native records have private `broken_job` diagnostics. Private
 `image_groups` and a separate image execution, delivered by the existing runner. Accepted pins precede
 atomic execution/group/start work; one pure wait is bound to its durable checkpoint/task/interrupt.
 Settled unanswered waits are inspected without invocation. Consumer cancellation also wins races
-with sweep diagnosis. NEXT: sequential units/complete-set join (7.2).
-No public render/media route or selected binding is enabled.
-The target [Batch-generation](../tools/batch-generation.md) nodes submit durable groups
-and return refs promptly: N sequential unit/jobs inside one group/wait, without a graph per image.
+with sweep diagnosis. [7.2](artifacts.md#sequential-image-execution-result-wake-and-exact-retry) adds DB21
+explicit attempts and DB22 unit/result/join/Retry owners; the existing runner services bounded sequential
+native ticks independently of graph invocation. Public Continue/shared status/UI is accepted in 7.3A.
+[7.3B guarded originals reads/UI](artifacts.md#guarded-originals-and-ordered-image-reads-accepted-73b) is accepted
+offline/mock and in browser checks. GET reads perform no lifecycle maintenance or provider effects;
+7.3B changes no Continue policy, runner, DB schema or shared domain contract.
+NEXT: live three-unit working `stuff` batch, restart between parents/steps and provider-off app reads.
+Public cinematic Start and selected bindings remain pending; preparation-only catalog capability is unchanged.
+The private [Batch-generation](../tools/batch-generation.md) path accepts durable groups
+and returns refs promptly: N sequential unit/jobs inside one group/wait, without a graph per image.
 Provider ticks need no active graph invocation; job workers cannot change selected output bindings.
 
 ```text
@@ -186,14 +261,35 @@ planner commits exact plan
 -> workers submit/reconcile units using job ownership
 -> one graph wait for the group, not an interrupt per unit
 -> group terminal result + unique wake work committed atomically
--> graph validates/join manifests -> candidate review (apply saves approved selection)
+-> graph validates/joins manifest -> technical consumer outcome
+-> candidate review/approved selection (future step 8)
 ```
 
 The wait token is `{wait_id, stage_id, activation_id, request_digest}`. It is not a mutable provider job version. A fast result before the wait checkpoint stays pending until recovery reaches that wait. Unfinished required units cannot publish a complete set. [Batch retry identity](../tools/batch-generation.md#retry-identity) distinguishes unresolved replay on the same group/wait from authorized technical Retry after terminal group failure on a new group/wait, preserving terminal results/wakes and unchanged creative work/successful lineage without reopening terminal executions. Anchor regeneration starts a new group activation for changed units and dependents, explicitly retaining unrelated unchanged candidates by their original request lineage; see [cinematic](../pipelines/cinematic.md#anchor-regeneration). Other creative aggregates initially rebuild in full.
 
 For dependent anchors, persist both portrait and background completion plus the child's exact candidate inputs/digests/seed before sheet submission; recovery reuses completed parents without intermediate human pauses. Queue order is not dependency: portrait/background are independent, but the location-conditioned sheet depends on both. Saving the approved selection (called promotion in older storage terminology) is an idempotent service operation in gate apply, not a separate user-visible stage.
 
-Provider submission cannot be guaranteed exactly once without provider support. Unknown acceptance remains blocked/reconciling; a new charged attempt requires an explicit policy/creator authorization. A known terminal failure with no valid candidate must produce a durable failed/blocked group result and an explicit retry or cancel path, never an indefinite `waiting_job`. Cancellation of external work is best effort, while prohibition of its downstream promotion is enforced locally.
+Private 7.2 result publication reserves immutable bytes and atomically publishes the exact result plus
+unique wake; it is not consumer completion. Early wake stays pending until wait binding. Raw checkpoint
+ancestry/tasks/pending `__resume__` must match the exact result and interrupt before delivery: use
+`Command` only for its unanswered interrupt, `None` once resume is persisted. Exact join receipt and
+`completed`/`failed` outcome commit together before `END`; recovery honors that receipt without repeat
+production. Complete join returns a manifest ref; failed join returns no `batch_outputs`, approval or asset.
+
+Provider submission cannot be guaranteed exactly once without provider support. Unknown acceptance remains
+nonterminal blocked/reconciling, never permission for POST retry. Sent local timeout/contract/deadline failure
+also remains operationally blocked on the same attempt, without terminal group result or Retry authority.
+Only unsent deadline failure or verified provider failure from owned exact history permits failed group/explicit
+`StoryRuntime.retry_images`. Retry accepts a new consumer/group/wait, preserves successes and original root
+input pins, and never reopens its predecessor. A competing key for that same failed predecessor conflicts in
+SQL reservation and acceptance; same-key restart is idempotent and subsequent failed successors can retry.
+
+The worker follows declared N/order/dependencies, prepares inputs/seed just in time, and starts the next
+unit only after verified import. One global native slot follows unresolved dispatched attempts independently
+of blocked graph work/cancel/terminal outcomes; unclaimed blocked groups occupy none. Consumer/turn SQL guards
+and after-await checks fence native effects and publication. Cancelled sent/unknown work conservatively
+retains the slot; addressed provider-terminal observation/release is deferred step 8. Local cancellation
+blocks scheduling/promotion, but does not prove external termination. [Contract and evidence](artifacts.md#sequential-image-execution-result-wake-and-exact-retry).
 
 ## Context, Events And Deployment
 

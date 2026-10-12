@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { getJson, ReadError } from '../../shared/api/http';
 import { activitySchema, availabilitySchema, artifactRefSchema, projectionSchema, recentSchema, storyBodySchema, validateBody, wardrobeActivitySchema, wardrobeBodySchema, validateWardrobeBody, sameRef, type Projection, type ArtifactRef } from './contracts';
+import { processSchema } from './process';
 
 export const readOptions = { retry: false, refetchOnWindowFocus: 'always', refetchOnReconnect: 'always', networkMode: 'always' } as const;
 export function useStoryAvailability() {
@@ -20,11 +21,19 @@ export function useRecentExecutions() {
   return useQuery({ ...readOptions, queryKey: ['executions', 'recent', 20],
     queryFn: ({ signal }) => getJson('/api/executions?limit=20', recentSchema, signal), refetchInterval: 10000 });
 }
-export function useProjection(id: string) {
-  return useQuery({ ...readOptions, queryKey: ['execution', id, 'projection'],
+export function useProcess(id: string) {
+  return useQuery({ ...readOptions, queryKey: ['execution', id, 'process'],
+    queryFn: async ({ signal }) => {
+      const p = await getJson(`/api/executions/${id}/process`, processSchema, signal);
+      if (p.selected_execution_id !== id) throw new ReadError('schema', 'Ответ другого процесса отклонён.');
+      return p;
+    }, refetchInterval: query => query.state.data?.action === 'finished' || ['cancelled', 'failed'].includes(query.state.data?.status ?? '') ? false : 2000 });
+}
+export function useProjection(id: string, enabled = true, expectedProject?: string) {
+  return useQuery({ ...readOptions, queryKey: ['execution', id, 'projection'], enabled,
     queryFn: async ({ signal }) => {
       const p = await getJson(`/api/executions/${id}/projection`, projectionSchema, signal);
-      if (p.execution_id !== id) throw new ReadError('schema', 'Ответ другого execution отклонён.');
+      if (p.execution_id !== id || expectedProject && p.project_id !== expectedProject) throw new ReadError('schema', 'Ответ другого execution/project отклонён.');
       return p;
     }, refetchInterval: query => ['completed', 'cancelled', 'failed'].includes(query.state.data?.status ?? '') ? false : 2000 });
 }

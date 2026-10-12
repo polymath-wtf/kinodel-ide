@@ -261,9 +261,15 @@ def _validate_owned_receipt(intent, receipt):
     registry._input_name((receipt.subfolder + '/' if receipt.subfolder else '') + receipt.name)
 
 
-def _row(db, job_id):
+def _row(db, job_id, attempt_id=None):
+    if attempt_id is None:
+        job = jobs._row(db, job_id)
+        if job is None:
+            return None
+        attempt_id = job[4]
+    TypeAdapter(ExactDigest).validate_python(attempt_id, strict=True)
     return db.execute('SELECT attempt_id,job_id,unit_input_digest,intent_digest,record_digest,record_body,revision,state '
-                      'FROM anchor_reference_transfers WHERE job_id=?', (job_id,)).fetchone()
+                      'FROM anchor_reference_transfers WHERE job_id=? AND attempt_id=?', (job_id, attempt_id)).fetchone()
 
 
 def _values(record):
@@ -283,11 +289,11 @@ def _stored(row):
 
 def _snapshots(db, job, intent):
     first = intent.references[0].parent
-    rows = [candidates._binding_rows(db, job.job_id, first.batch_id, job.prepared_input.unit_key)]
+    rows = [candidates._binding_rows(db, job.job_id, first.batch_id, job.prepared_input.unit_key, job.attempt_id)]
     for item in intent.references:
         parent = item.parent
-        rows.append((candidates._binding_rows(db, parent.job_id, parent.batch_id, parent.unit_key),
-                     candidates._row(db, parent.candidate_id), submissions._row(db, parent.job_id)))
+        rows.append((candidates._binding_rows(db, parent.job_id, parent.batch_id, parent.unit_key, parent.attempt_id),
+                     candidates._row(db, parent.candidate_id), submissions._row(db, parent.job_id, parent.attempt_id)))
     execution = first.source_plan_ref.execution_id
     for table in ('executions', 'execution_controls', 'execution_outcomes', 'execution_bindings',
                   'review_requests', 'execution_work', 'wardrobe_operations'):
@@ -295,13 +301,13 @@ def _snapshots(db, job, intent):
     return rows
 
 
-def _context(db, job_id, project_id, unit_digest, subfolder):
+def _context(db, job_id, project_id, unit_digest, subfolder, attempt_id=None):
     _committed(db)
     TypeAdapter(CanonicalUUID).validate_python(project_id, strict=True)
     folder = _folder(subfolder)
-    job = jobs.read_anchor_unit_job(db, job_id, expected_unit_digest=unit_digest)
+    job = jobs.read_anchor_unit_job(db, job_id, expected_unit_digest=unit_digest, attempt_id=attempt_id)
     if job.kind != 'sheet':
-        raise ValueError('Reference storage supports only the exact prepared sheet initial attempt')
+        raise ValueError('Reference storage supports only an exact prepared sheet attempt')
     technical = json.loads(job.intent_body)
     batch = batch_store.read_batch_input(db, technical['batch_id'])
     parents = resolver.resolve_sheet_parents(db, batch.batch_id, job.prepared_input.unit_key,
@@ -311,10 +317,12 @@ def _context(db, job_id, project_id, unit_digest, subfolder):
     if [slot['load_id'] for slot in image['registry_snapshot']['mapping']['slots'][:2]] != ['470', '496']:
         raise ValueError('Unsupported frozen sheet loader slots')
     items = []
+    initial = jobs._initial_attempt_id(job_id, technical['batch_id'], technical['unit_key'])
+    namespace = job_id if job.attempt_id == initial else job.attempt_id
     for parent, node in zip(parents, ('470', '496'), strict=True):
         pin = ReferenceParentPinV1(**{name: getattr(parent, name) for name in ReferenceParentPinV1.model_fields if name != 'byte_length'},
                                   byte_length=len(parent.original_bytes))
-        name = f'kinodel-{job_id[7:]}-{parent.role}-{parent.digest[7:]}.png'
+        name = f'kinodel-{namespace[7:]}-{parent.role}-{parent.digest[7:]}.png'
         registry._input_name((folder + '/' if folder else '') + name)
         items.append(ReferenceUploadIntentV1(role=parent.role, node_id=node, input_field='image', parent=pin,
                      name=name, subfolder=folder, type='input', overwrite=False))
@@ -334,7 +342,7 @@ def _ownership(db, record):
         return result
     owned = claims(record)
     for row in db.execute('SELECT attempt_id,job_id,unit_input_digest,intent_digest,record_digest,record_body,revision,state '
-                          'FROM anchor_reference_transfers WHERE job_id<>?', (record.intent.job_id,)).fetchall():
+                          'FROM anchor_reference_transfers WHERE attempt_id<>?', (record.intent.attempt_id,)).fetchall():
         if owned & claims(_stored(row)):
             raise ValueError('Reference destination ownership conflicts with another transfer')
 
@@ -358,16 +366,17 @@ def _final(intent, references, image):
                               seed=image['settings']['seed'], receipt_bindings=bindings)
 
 
-def _load(db, job_id, expected_project_id, expected_unit_digest, expected_intent_digest):
+def _load(db, job_id, expected_project_id, expected_unit_digest, expected_intent_digest, attempt_id=None):
     _committed(db)
     TypeAdapter(ExactDigest).validate_python(expected_intent_digest, strict=True)
-    row = _row(db, job_id)
+    row = _row(db, job_id, attempt_id)
     if row is None:
         raise LookupError('Reference transfer is not explicitly authorized')
     record = _stored(row)
     if record.intent_digest != expected_intent_digest:
         raise ValueError('Reference intent selector conflicts with original authorization')
-    context = _context(db, job_id, expected_project_id, expected_unit_digest, record.intent.references[0].subfolder)
+    context = _context(db, job_id, expected_project_id, expected_unit_digest, record.intent.references[0].subfolder,
+                       record.intent.attempt_id)
     if context[0] != record.intent:
         raise ValueError('Reference intent/input/parent ownership mismatch; refusing replacement')
     if record.final is not None and record.final != _final(record.intent, record.references, context[2]):
@@ -377,28 +386,30 @@ def _load(db, job_id, expected_project_id, expected_unit_digest, expected_intent
 
 
 def preview_anchor_reference_intent(db: sqlite3.Connection, job_id: str, *, expected_project_id: str,
-        expected_unit_digest: str, subfolder: str = '') -> AnchorReferencePreviewV1:
-    context = _context(db, job_id, expected_project_id, expected_unit_digest, subfolder)
+        expected_unit_digest: str, subfolder: str = '', attempt_id: str | None = None) -> AnchorReferencePreviewV1:
+    context = _context(db, job_id, expected_project_id, expected_unit_digest, subfolder, attempt_id)
     intent = context[0]
     body = canonical_json(intent)
     digest = sha256_digest(body)
-    if _row(db, job_id) is not None:
-        _load(db, job_id, expected_project_id, expected_unit_digest, digest)
+    if _row(db, job_id, intent.attempt_id) is not None:
+        _load(db, job_id, expected_project_id, expected_unit_digest, digest, intent.attempt_id)
     return AnchorReferencePreviewV1(intent, body, digest)
 
 
 def authorize_anchor_reference_transfer(db: sqlite3.Connection, job_id: str, *, expected_project_id: str,
-        expected_unit_digest: str, expected_intent_digest: str, subfolder: str = '') -> AnchorReferenceTransferV1:
-    context = _context(db, job_id, expected_project_id, expected_unit_digest, subfolder)
+        expected_unit_digest: str, expected_intent_digest: str, subfolder: str = '',
+        attempt_id: str | None = None) -> AnchorReferenceTransferV1:
+    context = _context(db, job_id, expected_project_id, expected_unit_digest, subfolder, attempt_id)
     intent = context[0]
     if sha256_digest(canonical_json(intent)) != TypeAdapter(ExactDigest).validate_python(expected_intent_digest, strict=True):
         raise ValueError('Authorization conflicts with previewed reference intent')
-    if _row(db, job_id) is not None:
-        return _load(db, job_id, expected_project_id, expected_unit_digest, expected_intent_digest)[0]
+    if _row(db, job_id, intent.attempt_id) is not None:
+        return _load(db, job_id, expected_project_id, expected_unit_digest, expected_intent_digest, intent.attempt_id)[0]
     record = AnchorReferenceTransferV1(schema_id='comfyui_anchor_reference_transfer', schema_version='1',
         intent=intent, intent_digest=expected_intent_digest, revision=0, state='authorized',
         references=[ReferenceTransferV1(role=role, state='ready') for role in ('portrait', 'background')])
     with _transaction(db):
+        jobs.assert_anchor_attempt_writable(db, job_id, intent.attempt_id)
         if _snapshots(db, context[1], intent) != context[3]:
             raise ValueError('Reference source/parent pins changed before authorization')
         _ownership(db, record)
@@ -407,9 +418,9 @@ def authorize_anchor_reference_transfer(db: sqlite3.Connection, job_id: str, *, 
 
 
 def read_anchor_reference_transfer(db: sqlite3.Connection, job_id: str, *, expected_project_id: str,
-        expected_unit_digest: str, expected_intent_digest: str) -> AnchorReferenceTransferV1:
+        expected_unit_digest: str, expected_intent_digest: str, attempt_id: str | None = None) -> AnchorReferenceTransferV1:
     """Offline exact readiness read; rerun source/rights/original checks, never heal."""
-    return _load(db, job_id, expected_project_id, expected_unit_digest, expected_intent_digest)[0]
+    return _load(db, job_id, expected_project_id, expected_unit_digest, expected_intent_digest, attempt_id)[0]
 
 
 def _role(role):
@@ -429,21 +440,23 @@ def _change(db, loaded, expected_revision, *, index=None, updates: dict | None =
     desired = AnchorReferenceTransferV1.model_validate({**record.model_dump(), 'references': references,
         'final': final, 'revision': expected_revision + 1, 'state': _state(references, final)})
     with _transaction(db):
-        if _row(db, record.intent.job_id) != row or _snapshots(db, context[1], record.intent) != context[3]:
+        jobs.assert_anchor_attempt_writable(db, record.intent.job_id, record.intent.attempt_id)
+        if _row(db, record.intent.job_id, record.intent.attempt_id) != row or _snapshots(db, context[1], record.intent) != context[3]:
             raise ValueError('Reference facts/source/parent pins changed before CAS')
         _ownership(db, desired)
         result = db.execute('UPDATE anchor_reference_transfers SET attempt_id=?,job_id=?,unit_input_digest=?,intent_digest=?, '
-            'record_digest=?,record_body=?,revision=?,state=? WHERE job_id=? AND revision=? AND record_digest=?',
-            (*_values(desired), record.intent.job_id, expected_revision, row[4]))
+            'record_digest=?,record_body=?,revision=?,state=? WHERE job_id=? AND attempt_id=? AND revision=? AND record_digest=?',
+            (*_values(desired), record.intent.job_id, record.intent.attempt_id, expected_revision, row[4]))
         if result.rowcount != 1:
             raise ValueError('Reference transfer CAS conflict')
     return desired
 
 
 def claim_anchor_reference_upload(db: sqlite3.Connection, job_id: str, *, role: Role, expected_project_id: str,
-        expected_unit_digest: str, expected_intent_digest: str, expected_revision: int) -> AnchorReferenceTransferV1:
+        expected_unit_digest: str, expected_intent_digest: str, expected_revision: int,
+        attempt_id: str | None = None) -> AnchorReferenceTransferV1:
     """Only this fresh successful CAS permits ONE POST. Never replay a claim."""
-    loaded = _load(db, job_id, expected_project_id, expected_unit_digest, expected_intent_digest)
+    loaded = _load(db, job_id, expected_project_id, expected_unit_digest, expected_intent_digest, attempt_id)
     index = _role(role)
     if loaded[0].references[index].state != 'ready' or (index == 1 and loaded[0].references[0].state != 'verified'):
         raise ValueError('Reference upload is not unsent/ready in verified role order')
@@ -453,9 +466,9 @@ def claim_anchor_reference_upload(db: sqlite3.Connection, job_id: str, *, role: 
 
 def record_anchor_reference_receipt(db: sqlite3.Connection, job_id: str, *, role: Role, receipt: dict,
         expected_project_id: str, expected_unit_digest: str, expected_intent_digest: str,
-        expected_revision: int) -> AnchorReferenceTransferV1:
+        expected_revision: int, attempt_id: str | None = None) -> AnchorReferenceTransferV1:
     """Persist the actual adapter-observed receipt before any remote GET; never guess."""
-    loaded = _load(db, job_id, expected_project_id, expected_unit_digest, expected_intent_digest)
+    loaded = _load(db, job_id, expected_project_id, expected_unit_digest, expected_intent_digest, attempt_id)
     record = loaded[0]
     index = _role(role)
     if type(receipt) is not dict or set(receipt) != {'name', 'subfolder', 'type'}:
@@ -477,9 +490,10 @@ def record_anchor_reference_receipt(db: sqlite3.Connection, job_id: str, *, role
 
 def verify_anchor_reference_remote(db: sqlite3.Connection, job_id: str, *, role: Role, expected_project_id: str,
         expected_unit_digest: str, expected_intent_digest: str, expected_revision: int,
-        expected_receipt_digest: str, remote_digest: str, source_digest: str, byte_length: int) -> AnchorReferenceTransferV1:
+        expected_receipt_digest: str, remote_digest: str, source_digest: str, byte_length: int,
+        attempt_id: str | None = None) -> AnchorReferenceTransferV1:
     """Trusted adapter assertion AFTER full bounded GET; no verified=True shortcut."""
-    loaded = _load(db, job_id, expected_project_id, expected_unit_digest, expected_intent_digest)
+    loaded = _load(db, job_id, expected_project_id, expected_unit_digest, expected_intent_digest, attempt_id)
     record = loaded[0]
     index = _role(role)
     current, parent = record.references[index], record.intent.references[index].parent
@@ -500,8 +514,9 @@ def verify_anchor_reference_remote(db: sqlite3.Connection, job_id: str, *, role:
 
 
 def block_anchor_reference(db: sqlite3.Connection, job_id: str, *, role: Role, reason: Reason, expected_project_id: str,
-        expected_unit_digest: str, expected_intent_digest: str, expected_revision: int) -> AnchorReferenceTransferV1:
-    loaded = _load(db, job_id, expected_project_id, expected_unit_digest, expected_intent_digest)
+        expected_unit_digest: str, expected_intent_digest: str, expected_revision: int,
+        attempt_id: str | None = None) -> AnchorReferenceTransferV1:
+    loaded = _load(db, job_id, expected_project_id, expected_unit_digest, expected_intent_digest, attempt_id)
     index = _role(role)
     current = loaded[0].references[index]
     TypeAdapter(Revision).validate_python(expected_revision, strict=True)
@@ -515,9 +530,10 @@ def block_anchor_reference(db: sqlite3.Connection, job_id: str, *, role: Role, r
 
 
 def revalidate_anchor_reference_readiness(db: sqlite3.Connection, job_id: str, *, role: Role, expected_project_id: str,
-        expected_unit_digest: str, expected_intent_digest: str, expected_revision: int) -> AnchorReferenceTransferV1:
+        expected_unit_digest: str, expected_intent_digest: str, expected_revision: int,
+        attempt_id: str | None = None) -> AnchorReferenceTransferV1:
     """Clear only a NEVER-dispatched readiness block after exact current parent checks."""
-    loaded = _load(db, job_id, expected_project_id, expected_unit_digest, expected_intent_digest)
+    loaded = _load(db, job_id, expected_project_id, expected_unit_digest, expected_intent_digest, attempt_id)
     index = _role(role)
     if loaded[0].references[index].state != 'blocked_unsent':
         raise ValueError('Only a definitely-unsent readiness block can become ready')
@@ -525,9 +541,10 @@ def revalidate_anchor_reference_readiness(db: sqlite3.Connection, job_id: str, *
 
 
 def finalize_anchor_references(db: sqlite3.Connection, job_id: str, *, expected_project_id: str,
-        expected_unit_digest: str, expected_intent_digest: str, expected_revision: int) -> AnchorReferenceTransferV1:
+        expected_unit_digest: str, expected_intent_digest: str, expected_revision: int,
+        attempt_id: str | None = None) -> AnchorReferenceTransferV1:
     """Derive/pin only the two actual LoadImage literals, preserving all source floats/seed."""
-    loaded = _load(db, job_id, expected_project_id, expected_unit_digest, expected_intent_digest)
+    loaded = _load(db, job_id, expected_project_id, expected_unit_digest, expected_intent_digest, attempt_id)
     record = loaded[0]
     TypeAdapter(Revision).validate_python(expected_revision, strict=True)
     if record.final is not None:

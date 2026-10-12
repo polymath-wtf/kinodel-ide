@@ -121,21 +121,21 @@ def resolve_sheet_parents(db: sqlite3.Connection, batch_id: str, sheet_unit_key:
         row = candidates._row(db, parent.source_id)  # No lookup by unit key or "latest".
         if row is None or row[8] != 'published':
             raise LookupError('Exact parent candidate is not published')
-        job_row = jobs._row(db, row[1])
+        job_row = jobs._row(db, row[1], row[2])
         if job_row is None or (job_row[1], job_row[2], job_row[3], job_row[4]) != (
                 batch_id, reference.source.unit_key, row[3], row[2]):
             raise ValueError('Parent job/attempt/unit does not belong to the exact batch generation')
         # Reject foreign generation/project before opening its original media.
-        job = jobs.read_anchor_unit_job(db, row[1], expected_unit_digest=row[3])
+        job = jobs.read_anchor_unit_job(db, row[1], expected_unit_digest=row[3], attempt_id=row[2])
         intent = json.loads(job.intent_body)
         if (job.kind != reference.role or (intent['project_id'], intent['batch_id'], intent['batch_input_digest']) !=
                 (expected_project_id, batch_id, expected_batch_digest)):
             raise ValueError('Parent role/project/batch input ownership mismatch')
-        submitted = submissions._row(db, job.job_id)
+        submitted = submissions._row(db, job.job_id, job.attempt_id)
         if submitted is None or submitted[6] != 'completed':
             raise ValueError('Parent import alone is not completed provider success')
         completion = submissions.read_anchor_unit_submission(db, job.job_id,
-            expected_unit_digest=row[3], expected_wire_digest=submitted[2])
+            expected_unit_digest=row[3], expected_wire_digest=submitted[2], attempt_id=job.attempt_id)
         preview = completion.preview
         if (completion.state != 'completed' or completion.candidate_id != parent.source_id
                 or preview.source_plan_ref != handoff.source_plan_ref

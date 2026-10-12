@@ -275,6 +275,38 @@ def _unit_row(db: sqlite3.Connection, batch_id: str, unit_key: str):
                       "FROM batch_unit_input_pins WHERE batch_id=? AND unit_key=?", (batch_id, unit_key)).fetchone()
 
 
+def _assert_image_turn(db, batch_id, unit_key, execution_id=None):
+    """SQL-only consumer/turn fence for preparation and job/attempt allocation.
+
+    Standalone 6A/B batches have no accepted group and retain their old behavior.
+    Image batches cannot bypass their consumer by omitting a selector/binding.
+    """
+    rows = db.execute('SELECT g.group_id,g.execution_id FROM image_groups g LEFT JOIN image_group_retry_requests r '
+        'ON r.execution_id=g.execution_id WHERE g.batch_id=? OR r.input_batch_id=?', (batch_id, batch_id)).fetchall()
+    if not rows:
+        if execution_id is not None:
+            raise ValueError('Image preparation has no accepting group')
+        return
+    active = [(group, execution) for group, execution in rows if
+        (execution_id is None or execution == execution_id) and not db.execute(
+            "SELECT 1 FROM execution_controls WHERE execution_id=? AND kind='cancel'", (execution,)).fetchone()
+        and not db.execute('SELECT 1 FROM execution_outcomes WHERE execution_id=?', (execution,)).fetchone()
+        and not db.execute('SELECT 1 FROM image_group_results WHERE group_id=?', (group,)).fetchone()]
+    if len(active) != 1:
+        raise ValueError('Image turn lacks its unique live accepting consumer')
+    group, _ = active[0]
+    units = json.loads(_batch_row(db, batch_id)[6])['ordered_units']
+    keys = [unit['unit_key'] for unit in units]
+    if unit_key not in keys:
+        raise ValueError('Image unit is not declared')
+    for key in keys[:keys.index(unit_key)]:
+        if db.execute("SELECT s.state FROM image_unit_attempts u JOIN portrait_submissions s "
+            "ON s.job_id=u.job_id AND s.attempt_id=u.attempt_id WHERE u.group_id=? AND u.unit_key=?",
+            (group, key)).fetchone() != ('completed',):
+            raise ValueError('Image unit is not the current sequential turn')
+    return active[0]
+
+
 def _restore_unit(db: sqlite3.Connection, batch: BatchInputPinV1, row, parent_bindings: ParentBindings | list[dict]
                   ) -> tuple[BatchUnitInputPinV1, bytes, Path]:
     body = _body(row[3])
@@ -305,13 +337,14 @@ def read_prepared_batch_unit(db: sqlite3.Connection, batch_id: str, unit_key: st
 def prepare_saved_batch_unit(db: sqlite3.Connection, batch_id: str, unit_key: str, *,
                              parent_bindings: ParentBindings | list[dict],
                              context: NativeImagePreparationContext | None = None,
-                             seed: int | None = None) -> BatchUnitInputPinV1:
+                              seed: int | None = None, image_execution_id: str | None = None) -> BatchUnitInputPinV1:
     """Prepare only a NEW unit. A reservation already owns its resolved ONCE seed."""
     _committed(db)
     unit_key = TypeAdapter(AnchorKey).validate_python(unit_key, strict=True)
     row = _unit_row(db, batch_id, unit_key)  # FIRST: no current installed context or RNG on replay.
     batch = read_batch_input(db, batch_id)
     if row is None:
+        _assert_image_turn(db, batch_id, unit_key, image_execution_id)
         _, unit, binding = generation._unit(batch.prepared_input, unit_key)
         generation._parents(unit, parent_bindings)
         if (not isinstance(context, NativeImagePreparationContext)
@@ -326,6 +359,7 @@ def prepare_saved_batch_unit(db: sqlite3.Connection, batch_id: str, unit_key: st
         identity = _identity("kinodel.batch-unit-input.v1", batch_id, unit_key)
         uri = _uri(batch.prepared_input.source_plan_ref.project_id, identity, digest)
         with _transaction(db):
+            _assert_image_turn(db, batch_id, unit_key, image_execution_id)
             db.execute("INSERT INTO batch_unit_input_pins VALUES (?,?,?,?,?,?)",
                        (batch_id, unit_key, digest, body.decode("utf-8"), uri, "reserved"))
         row = _unit_row(db, batch_id, unit_key)
@@ -336,8 +370,10 @@ def prepare_saved_batch_unit(db: sqlite3.Connection, batch_id: str, unit_key: st
         raise ValueError("Requested seed conflicts with original prepared unit")
     if row[5] == "published":
         return read_prepared_batch_unit(db, batch_id, unit_key, parent_bindings=parent_bindings)
+    _assert_image_turn(db, batch_id, unit_key, image_execution_id)
     _publish_body(path, body)
     with _transaction(db):
+        _assert_image_turn(db, batch_id, unit_key, image_execution_id)
         changed = db.execute("UPDATE batch_unit_input_pins SET publication_state='published' "
             "WHERE batch_id=? AND unit_key=? AND input_digest=? AND body=? AND publication_state='reserved'",
             (batch_id, unit_key, record.input_digest, body.decode("utf-8")))

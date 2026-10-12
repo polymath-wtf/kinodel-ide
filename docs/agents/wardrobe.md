@@ -1,7 +1,7 @@
 # Wardrobe
 
 Class: creative agent  
-Status: **ACTIVE compact V2-only; original graph/digest, adapter 2 and Start route unchanged. W8 retained DB14 and [reduced acceptance](../roadmap-mvp.md#wardrobe-batch-output); full discovery/real-model harness remain deferred, not PASS. W1–W7/W6 remain historical V1 evidence. Subsequent immutable input/job/candidate owners use DB15–17; [private 6A portrait submission/import](../backend/artifacts.md#restart-safe-portrait-submission) uses DB18 without another Wardrobe call. 6A is accepted; 6B reference transport is accepted offline/mock. [Private 7.1 image execution/group/wait](../backend/artifacts.md#accepted-image-execution-and-group-wait) is implemented in DB20. NEXT: 7.2 sequential worker/result wake/complete-set join, then 7.3 Continue commands/status/media. Live three-unit working `stuff` acceptance, full anchor rendering/review and public media UI remain pending.**
+Status: **ACTIVE compact V2-only; original graph/digest, adapter 2 and Start route unchanged. W8 retained DB14 and [reduced acceptance](../roadmap-mvp.md#wardrobe-batch-output); full discovery/real-model harness remain deferred, not PASS. W1–W7/W6 remain historical V1 evidence. Subsequent immutable input/job/candidate owners use DB15–17; [private 6A portrait submission/import](../backend/artifacts.md#restart-safe-portrait-submission) uses DB18 without another Wardrobe call. 6A is accepted; 6B reference transport is accepted offline/mock. Private 7.1–7.2 image lifecycle is implemented through DB22; 7.2 is accepted offline/mock. [7.3A Continue/shared status/UI](../backend/runtime.md#continue-command-accepted-73a) (DB23) and [7.3B guarded originals reads/UI](../backend/artifacts.md#guarded-originals-and-ordered-image-reads-accepted-73b) are accepted offline/mock and in browser checks. NEXT: live three-unit working `stuff` batch, restart between parents/steps and provider-off app reads. Full anchor review/media UI remains pending.**
 
 Wardrobe owns anchor direction and prompts. The planned image tool creates its generated result `anchor_frames`, reviewed before Storyboard in the [cinematic route](../pipelines/cinematic.md). The next media route uses **Batch-generation / `anchor-batch`** in place of the original `anchor-gen`; this change is a [preproduction design](../tools/batch-generation.md), not activated rendering.
 
@@ -103,7 +103,8 @@ W1–W7 remain historical V1 evidence; `tests/live_wardrobe_check.py` is the V1 
 6A used the exact saved V2 and genuine Story approval from an isolated read-only backup, without rewriting
 or regenerating the source plan. Private 6A live portrait import and fresh-process network-forbidden reopen after
 user-confirmed provider shutdown passed. [Private 7.1 image execution/group/wait](../backend/artifacts.md#accepted-image-execution-and-group-wait) is implemented;
-NEXT: 7.2 sequential worker/result wake/complete-set join, then 7.3 Continue commands/status/media;
+7.2, 7.3A and 7.3B are accepted in their scoped boundaries;
+NEXT: live working `stuff` batch, restart between parents/steps and provider-off app reads;
 complete anchor review remains pending. [Build status](../roadmap-mvp.md#wardrobe-batch-output),
 [6A contract](../backend/artifacts.md#restart-safe-portrait-submission),
 [W8 evidence](../../test-results/README.md#wardrobe-w8-backend-and-final-status--7-october-2026).

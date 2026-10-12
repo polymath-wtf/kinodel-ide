@@ -1,6 +1,6 @@
 # DTO Contracts
 
-Status: **Foundation/production DTOs and compact Wardrobe V2 are executable; [W8 acceptance remains scoped](../roadmap-mvp.md#wardrobe-batch-output). Original graph/config identities are unchanged: W8 retained DB14, later immutable input/job/candidate owners DB15–17, and [private 6A submission facts](artifacts.md#restart-safe-portrait-submission) DB18. 6A is accepted; 6B reference transport is accepted offline/mock. [Private 7.1 image execution/group/wait](artifacts.md#accepted-image-execution-and-group-wait) is implemented in DB20. NEXT: 7.2 sequential worker/result wake/complete-set join, then 7.3 Continue commands/status/media. Live three-unit working `stuff` acceptance, public cinematic Run/media DTO/API, selection/assets and review remain pending.** [Artifacts](artifacts.md) owns persistence/provenance, [HITL](../hilp/hilp.md) human actions, and [cinematic](../pipelines/cinematic.md) stage ownership. Hosted wire activates separately.
+Status: **Foundation/production DTOs and compact Wardrobe V2 are executable; [W8 acceptance remains scoped](../roadmap-mvp.md#wardrobe-batch-output). Original graph/config identities are unchanged: W8 retained DB14, later immutable input/job/candidate owners DB15–17, and [private 6A submission facts](artifacts.md#restart-safe-portrait-submission) DB18. 6A is accepted; 6B reference transport is accepted offline/mock. Private 7.1–7.2 image lifecycle is implemented through DB22; 7.2 is accepted offline/mock. [7.3A Continue request/receipt/shared projection/UI](runtime.md#continue-command-accepted-73a) (DB23) and [7.3B guarded originals DTO/API/UI](#image-read-dtos-accepted-73b) are accepted offline/mock and in browser checks. NEXT: live three-unit working `stuff` batch, restart between parents/steps and provider-off app reads. Public cinematic Run, selection/assets and review remain pending.** [Artifacts](artifacts.md) owns persistence/provenance, [HITL](../hilp/hilp.md) human actions, and [cinematic](../pipelines/cinematic.md) stage ownership. Hosted wire activates separately.
 
 ## Trust And Encoding
 
@@ -192,7 +192,7 @@ Original `kinodel.story-wardrobe` v2/digest and `/api/executions/story-wardrobe/
 Retired v1 stays isolated from runner/list, commands/reads reject; unversioned Start returns 410 before payload work.
 No reset/conversion/V1 bridge; the user's prior run was not migrated or rewritten. W1–W7 remain historical evidence.
 [W8](../roadmap-mvp.md#wardrobe-batch-output) is accepted on manual prompt assessment + focused mocked compact V2/offline recovery; UI checks passed.
-Full discovery and the automated real-model/offline harness are deferred, not PASS. Saved V2 handoff and immutable 5A/5B owners remain separate from accepted private 6A portrait submission/worker. Current [private 7.1 image execution/group/wait](artifacts.md#accepted-image-execution-and-group-wait) is implemented; NEXT: 7.2 sequential worker/result wake/complete-set join, then 7.3 Continue commands/status/media.
+Full discovery and the automated real-model/offline harness are deferred, not PASS. Saved V2 handoff and immutable 5A/5B owners remain separate from accepted private 6A portrait submission/worker. Private 7.1–7.2 image lifecycle, [7.3A Continue/shared status/UI](runtime.md#continue-command-accepted-73a) and [7.3B guarded originals](#image-read-dtos-accepted-73b) are implemented and accepted in their scoped boundaries; NEXT: live working-data batch/restart/provider-off app reads.
 
 **Implemented technical batch handoff; pending media extension:** next FramePlan uses batch fields with its own shot/composition constraints;
 future source vocabulary adds `{kind:"supplied_image",alias}` under a declared stage capability.
@@ -221,6 +221,29 @@ Implemented V2 preparation: `MotionPlanV2` and `FilmmakerInputV2` are strict mod
 Anchor keys are proposed by Wardrobe and validated/frozen at plan commit, not allocated as a hardcoded triple. Roles describe purpose (face identity, anatomy/clothing, environment); each required role needs a supported adapter mapping. Initially one candidate per unit is generated; a child uses the exact persisted parent candidate without intermediate human selection. Anchor-local changed-unit/dependency reuse follows [cinematic](../pipelines/cinematic.md#anchor-regeneration), not future Fork.
 
 Render's runtime input/output shape is declared by the pinned workflow's named ports and schemas, not this list of cinematic artifacts. Stage mappings bind exact source values/media to ports; multiple outputs retain their names/types and destination validators. These DTOs do not prohibit other configured text/image/video/audio workflows or authorize unchecked payloads. See [Render](../tools/render.md).
+
+## Image read DTOs (Accepted 7.3B)
+
+- `GET /api/executions/{exact_image_consumer}/images` returns strict `ImageProjectionV1`:
+  `{schema_version:"1",execution_id,project_id,group_id,total_units,available_units,units,result}`.
+  Ordered units are `{unit_key,use_case,available,reason,original}`; unavailable reasons are
+  `unstarted | not_completed | unit_unavailable_or_invalid`, with no original URL.
+- Available `original` is `{media_ref,mime_type,byte_length,width,height,url}`. Its opaque exact ref is
+  `{execution_id,group_id,unit_key,job_id,attempt_id,unit_input_digest,origin_execution_id,candidate_id,candidate_digest,candidate_metadata_digest}`.
+- `GET /api/executions/{execution_id}/images/candidates/{candidate_id}/original` requires all remaining
+  ref fields as unique query selectors. The emitted same-origin URL is authoritative; opaque unit keys
+  are query values, never paths. It returns bounded verified original `image/png` bytes with `nosniff`
+  and `Cache-Control:no-store`, under existing local peer/Host/Origin/session guards.
+- `result` is null without a published result; otherwise `{result_id,digest,status,issue}`.
+  `complete | failed` requires the existing full manifest validation. A verifiable published envelope
+  with unavailable/invalid manifest/originals keeps id/digest and `status:null`,
+  `issue:"manifest_unavailable_or_invalid"`; invalid envelope/file/wake returns sanitized HTTP 409.
+  Partial/import-only/N candidates never imply complete. Reads perform no writes, provider I/O,
+  healing, Retry, preparation, Continue/Retry following or latest selection.
+
+This additive read DTO activates no selection/approval or shared domain/storage/schema change.
+[Storage/read contract](artifacts.md#guarded-originals-and-ordered-image-reads-accepted-73b),
+[evidence](../../test-results/README.md#comfyui-step-73b--backend-guarded-originals-and-ordered-image-reads--10-october-2026).
 
 ## Endpoint Wire
 

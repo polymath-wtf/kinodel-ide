@@ -112,7 +112,7 @@ def _wardrobe_projection(db: sqlite3.Connection, execution_id: str, project_id: 
     return {"wardrobe_plan_ref": ref, "wardrobe_stop": stop}
 
 
-def story_projection(db: sqlite3.Connection, execution_id: str) -> dict | None:
+def story_projection(db: sqlite3.Connection, execution_id: str, *, process=None) -> dict | None:
     """Read only canonical business metadata; no checkpoint, graph or artifact-body access."""
     reject_retired_wardrobe(db, execution_id)
     executions = _rows(db, "SELECT project_id,input_message,shot_ids,client_key,start_digest,"
@@ -237,6 +237,7 @@ def story_projection(db: sqlite3.Connection, execution_id: str) -> dict | None:
              **({"model": json.loads(row["owner_config"])["model"]} if row["owner_config"] else {}),
             "work": overview["work"], "stories": stories, "reviews": reviews, "review": overview["review"],
              "remaining_actions": remaining, "allowed_actions": allowed,
+             **({"process": process.model_dump(mode="json")} if process is not None else {}),
              **(_wardrobe_projection(db, execution_id, project_id, overview) if wardrobe else {})}
 
 

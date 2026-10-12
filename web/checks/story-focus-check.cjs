@@ -75,7 +75,9 @@ require.cache[modulePath] = { id: modulePath, filename: modulePath, loaded: true
     await footerVisible(1);
     // Desktop topbar and canvas are not inert; transient pan must not overwrite the original view.
     await page.locator('.topbar .run-controls > summary').click(); await page.locator('.topbar .run-controls > summary').click();
-    await page.mouse.move(400, 100); await page.mouse.down(); await page.mouse.move(450, 125, { steps: 8 }); await page.mouse.up(); await pause();
+    const panCanvas = await page.locator('.flow-canvas').boundingBox();
+    // The shared process controls occupy the top of the left column, not the Flow canvas.
+    await page.mouse.move(400, panCanvas.y + 40); await page.mouse.down(); await page.mouse.move(450, panCanvas.y + 65, { steps: 8 }); await page.mouse.up(); await pause();
     assert.notEqual(await viewport(), before);
     const selected = (await cache()).selectedStory;
     await page.locator('.story-scroll').evaluate(e => { e.scrollTop = 300; window.__storyBody = e.querySelector('.story-body'); });

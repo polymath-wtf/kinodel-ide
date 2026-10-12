@@ -5,6 +5,8 @@ import sqlite3
 from pathlib import Path
 from typing import Awaitable, Callable
 
+import httpx
+
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.types import Command
@@ -328,7 +330,10 @@ async def _run_one(db, saver, graph, work, stop, *, wardrobe=False):
 
 async def run_story_work(db: sqlite3.Connection, saver: AsyncSqliteSaver,
                          produce_story: Callable[[str, list[str], StoryV1 | None, str | None], StoryV1 | Awaitable[StoryV1]],
-                         *, stop: asyncio.Event | None = None, character_root: Path | None = None) -> int:
+                         *, stop: asyncio.Event | None = None, character_root: Path | None = None,
+                          image_transport: httpx.AsyncBaseTransport | None = None,
+                          image_clock_ms: Callable[[], int] | None = None,
+                          active_work_ids: set[str] | None = None) -> int:
     """Drain pending and abandoned claims under one caller-owned root lock/saver lifetime."""
     await validate_story_storage(db, saver)
     from backend import wardrobe_store, image_group_store
@@ -358,7 +363,9 @@ async def run_story_work(db: sqlite3.Connection, saver: AsyncSqliteSaver,
         "OR EXISTS (SELECT 1 FROM image_groups g WHERE g.execution_id=e.execution_id)) "
         "AND (NOT (e.graph_id IS ? AND e.graph_version IS ? AND e.graph_digest IS ?) "
         "OR EXISTS (SELECT 1 FROM image_groups g WHERE g.execution_id=e.execution_id)) "
-        "AND NOT EXISTS (SELECT 1 FROM execution_outcomes o WHERE o.execution_id=e.execution_id) "
+        "AND (NOT EXISTS (SELECT 1 FROM execution_outcomes o WHERE o.execution_id=e.execution_id) "
+        "OR EXISTS (SELECT 1 FROM image_groups g JOIN execution_outcomes o ON o.execution_id=g.execution_id "
+        "WHERE g.execution_id=e.execution_id AND o.outcome IN ('completed','failed'))) "
         "AND NOT EXISTS (SELECT 1 FROM execution_controls c WHERE c.execution_id=e.execution_id AND c.kind='cancel') "
         "AND NOT EXISTS (SELECT 1 FROM execution_work w WHERE w.execution_id=e.execution_id "
         "AND w.status IN ('pending','claimed','blocked'))", retired
@@ -379,17 +386,24 @@ async def run_story_work(db: sqlite3.Connection, saver: AsyncSqliteSaver,
             try:
                 graph, _ = select_graph(execution_id)
                 group = image_group_store.read_image_group(db, execution_id)
-                _, binding = await inspect_image_checkpoint(saver, graph, group)
+                saved, binding = await inspect_image_checkpoint(saver, graph, group, db=db, stop=stop)
                 # Commands may arrive during saver reads; control wins over sweep repair.
                 if stop is not None and stop.is_set():
                     return 0
                 if cancel_requested(db, execution_id):
                     _finish_cancel(db, execution_id)
                     continue
-                if binding is not None and group.checkpoint_id is not None:
+                if db.execute('SELECT 1 FROM execution_outcomes WHERE execution_id=?', (execution_id,)).fetchone():
+                    continue  # Inspector verified the immutable join, even if END checkpoint lagged.
+                from backend.image_group_results import read_image_group_wake
+                wake = read_image_group_wake(db, execution_id)
+                if (binding is not None and group.checkpoint_id is not None and wake is None
+                        and saved.metadata['step'] == 1):
                     continue
                 if saved is None:
                     raise ValueError("Started image execution has no checkpoint or live work")
+            except _WorkerStopped:
+                return 0
             except (ValueError, OSError, LookupError) as error:
                 if stop is not None and stop.is_set():
                     return 0
@@ -404,6 +418,11 @@ async def run_story_work(db: sqlite3.Connection, saver: AsyncSqliteSaver,
                 db.execute("UPDATE execution_work SET status='blocked',blocked_reason=?,work_version=work_version+1 "
                            "WHERE work_id=?", (str(error), work_id))
                 raise ValueError(str(error)) from error
+            # A group result may have published its exact wake during a saver await.
+            # That existing segment owns delivery; do not add a competing reconcile.
+            if db.execute("SELECT 1 FROM execution_work WHERE execution_id=? "
+                          "AND status IN ('pending','claimed','blocked')", (execution_id,)).fetchone():
+                continue
             work_id = sha256_digest(f"kinodel.reconcile.v1:{execution_id}:{checkpoint_id}".encode())
             inserted = db.execute("INSERT OR IGNORE INTO execution_work "
                                   "(work_id,execution_id,kind,source_id,payload_digest,status) "
@@ -451,7 +470,9 @@ async def run_story_work(db: sqlite3.Connection, saver: AsyncSqliteSaver,
             _finish_cancel(db, work[1])
             continue
         db.execute("UPDATE execution_work SET status='claimed',work_version=work_version+1 "
-                   "WHERE work_id=? AND status='pending'", (work[0],))
+                    "WHERE work_id=? AND status='pending'", (work[0],))
+        if active_work_ids is not None:
+            active_work_ids.add(work[0])
         try:
             graph, wardrobe = select_graph(work[1])
             if is_image(work[1]):
@@ -475,6 +496,8 @@ async def run_story_work(db: sqlite3.Connection, saver: AsyncSqliteSaver,
                 db.execute("UPDATE execution_work SET status='blocked',blocked_reason='owner_unavailable',"
                            "work_version=work_version+1 WHERE work_id=?", (work[0],))
         except (ValueError, OSError, LookupError) as error:
+            if is_image(work[1]) and stop is not None and stop.is_set():
+                break
             if not isinstance(error, ValueError) and not is_image(work[1]):
                 raise  # Preserve historical Story storage/error handling.
             if cancel_requested(db, work[1]):
@@ -484,4 +507,32 @@ async def run_story_work(db: sqlite3.Connection, saver: AsyncSqliteSaver,
                        "work_version=work_version+1 WHERE work_id=?",
                         (str(error), work[0]))
             raise
+        finally:
+            if active_work_ids is not None:
+                active_work_ids.discard(work[0])
+    if stop is None or not stop.is_set():
+        from backend.image_group_worker import tick_image_groups
+        native_stop = stop if stop is not None else asyncio.Event()
+        options = {}
+        if image_clock_ms is not None:
+            options['clock_ms'] = image_clock_ms
+        # Native HTTP/streams own no saver invocation. Keep the root/client lifetime
+        # until a bounded in-flight tick has stopped, even on repeated caller cancel.
+        native_task = asyncio.create_task(tick_image_groups(db, transport=image_transport, stop=native_stop, **options))
+        interrupted = False
+        while not native_task.done():
+            try:
+                await asyncio.shield(native_task)
+            except asyncio.CancelledError:
+                interrupted = True
+                native_stop.set()
+        if interrupted:
+            # Retrieve errors only after HTTP clients/streams have closed.
+            await asyncio.gather(native_task, return_exceptions=True)
+            raise asyncio.CancelledError()
+        processed += native_task.result()
+        for (execution_id,) in db.execute("SELECT g.execution_id FROM image_groups g "
+            "WHERE EXISTS (SELECT 1 FROM execution_controls c WHERE c.execution_id=g.execution_id AND c.kind='cancel') "
+            "AND NOT EXISTS (SELECT 1 FROM execution_outcomes o WHERE o.execution_id=g.execution_id)").fetchall():
+            _finish_cancel(db, execution_id)
     return processed

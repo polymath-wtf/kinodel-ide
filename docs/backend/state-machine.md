@@ -1,6 +1,6 @@
 # Execution State Machine
 
-Status: **Compact StoryState/local business lifecycles and private initial portrait lifecycle are implemented. Immutable 5A/5B owners remain DB16/17; [6A DB18 submission/worker](artifacts.md#restart-safe-portrait-submission) owns guarded authorization, dispatch, acceptance, block/terminal facts and output-only recovery. 6A is accepted; 6B reference transport is accepted offline/mock. [Private 7.1 image execution/group/wait](artifacts.md#accepted-image-execution-and-group-wait) is implemented in DB20. NEXT: 7.2 sequential worker/result wake/complete-set join, then 7.3 Continue commands/status/media. Live three-unit working `stuff` acceptance, full cinematic ExecutionStateV1, public media DTO/API and selection/assets remain pending.**
+Status: **Compact StoryState/local business lifecycles and private anchor lifecycle are implemented. 6A is accepted live; 6B reference transport is accepted offline/mock. Private 7.1 image execution/group/wait (DB20) and [7.2 sequential worker/result wake/exact Retry/join](artifacts.md#sequential-image-execution-result-wake-and-exact-retry) (DB21–22) are implemented; 7.2 is accepted offline/mock. Initial identities/bodies are preserved; explicit attempts extend the immutable 5A/5B owners. [7.3A Continue/shared status/UI](runtime.md#continue-command-accepted-73a) (DB23) and [7.3B guarded originals reads/UI](artifacts.md#guarded-originals-and-ordered-image-reads-accepted-73b) are accepted offline/mock and in browser checks. NEXT: live three-unit working `stuff` batch, restart between parents/steps and provider-off app reads. Full cinematic ExecutionStateV1 and selection/assets remain pending.**
 
 Deployment decision: SQLite local / PostgreSQL server. Advisory-session mechanisms refer only to server; the [local profile](../database/local-vs-hosted.md) uses one application and one active graph runner with exclusive data-directory ownership. Both must prove the same durable-outcome invariants. Internal Story saver/recovery is verified on Windows under [Local MVP step 2](../roadmap-mvp.md#step-2); full cinematic and server integration remain pending.
 
@@ -21,7 +21,11 @@ There is one production transition graph, authored in LangGraph. Database lifecy
 | cancel request | `execution_controls` | queried, never copied as a mutable flag |
 | reusable memory publication | `chunk_bindings` | only selected exact references via operation context |
 
-The UI lifecycle status is **derived**, not canonical production truth. Only identity, control decisions, terminal receipts and committed results are authoritative business facts. A checkpoint can lag a business commit; replay restores its projection from the recorded operation, never repairs the database from an old checkpoint binding map.
+The UI lifecycle status is **derived by the backend**, not canonical production truth or a client-side
+guess. Only identity, control decisions, terminal receipts and committed results are authoritative
+business facts. The backend projection is authoritative for displayed state and allowed actions; it
+does not choose graph edges. A checkpoint can lag a business commit; replay restores its projection
+from the recorded operation, never repairs the database from an old checkpoint binding map.
 
 ## Identities
 
@@ -48,7 +52,21 @@ The [freeze layers](artifacts.md#freeze-layers) distinguish Run/submitted Brief/
 
 ## Checkpoint Projection
 
-Private 7.1 uses compact `ImageState` in `backend/image_graph.py`: project/execution IDs, group/input refs and one immutable `{wait_id, stage_id, activation_id, request_digest}` token. The runner binds the persisted checkpoint/task/interrupt; sequential results/wake/join remain 7.2. See [accepted image execution/group/wait](artifacts.md#accepted-image-execution-and-group-wait).
+Private 7.1–7.2 use compact `ImageState` in `backend/image_graph.py`: project/execution IDs, group/input
+refs and one immutable `{wait_id, stage_id, activation_id, request_digest}` token, followed by exact
+`result_ref` and `batch_outputs` (complete result ID or null on failure). The runner binds the persisted
+checkpoint/task/interrupt and validates raw ancestry/pending resume before delivering its exact result.
+Publication plus wake is not completion: graph join atomically records its receipt and terminal
+consumer outcome before `END`. [Admission](artifacts.md#accepted-image-execution-and-group-wait),
+[execution/result/Retry contract](artifacts.md#sequential-image-execution-result-wake-and-exact-retry).
+
+Operational block and terminal group failure are distinct. Sent timeout/contract/deadline failure
+or uncertain acceptance stays on the same attempt without group failure/Retry authorization. Only
+unsent deadline or owned exact-history provider failure permits a failed result; explicit private
+Retry creates a new consumer/group/wait with original root pins and retained-success ownership.
+Native occupancy is independent of the execution view: blocked/cancelled/terminal consumers can
+still own unresolved dispatched work. Unclaimed blocked groups occupy no slot; cancelled sent/unknown
+work is not automatically released (addressed provider-terminal observation/release remains step 8).
 
 Implement `ExecutionStateV1` as a Python `TypedDict`; boundary DTO use Pydantic. The table is the full cinematic target, not yet implemented; the internal Story graph already uses compact `StoryState` from `backend/story_graph.py` and persisted application records:
 
@@ -95,6 +113,12 @@ running -> completed | failed
 
 An execution never leaves a terminal outcome. A new creative production after completion/cancellation/failure is a new execution; operator checkpoint editing is not a public restart mechanism. A retained approved output can remain useful even when a later stage failed.
 
+For [new end-to-end runs](pipeline.md#execution-boundary), stage completion does not imply a terminal
+run: only the authored pipeline's completion requirements do. Existing terminal Story/Wardrobe/image
+runs and frozen topologies remain unchanged; a declared transitional handoff accepts a separate
+consumer, never rewrites the source outcome. [Continue](runtime.md#continue-command-accepted-73a) resolves
+the stable selected process and returns its supported action, not the timestamp-last execution.
+
 ## Operation And Stage View
 
 Operations have `prepared`, `committed`, `blocked`, `failed` or `superseded` status. Running derives from work ownership. Prepared inputs precede effects; committed result/transition is not approval. Questions, owner explanations and control receipts can be operation results without creative bindings.
@@ -102,6 +126,15 @@ Operations have `prepared`, `committed`, `blocked`, `failed` or `superseded` sta
 `blocked -> prepared` requires an authorized same-input retry; a change to effective creative inputs requires a new activation. `committed` is immutable. Marking an old unfinished activation superseded cannot erase its audit or promote a late result. Nodes validate activation identity before committing any output.
 
 Stage display distinguishes `not_started`, `running`, `waiting_review`, `waiting_job`, `blocked`, `ready`, and `stale`. `ready` requires the stage's declared output checks and approval policy, not merely a committed operation. This is a projection over operation, review, binding and dependency records, never an editable stage-status table. Human actions are defined in [HITL](../hilp/hilp.md).
+
+The target backend stage projection includes instance identity, state, allowed actions and any reason
+an action is unavailable. It shares the command admission policy; UI renders it without deriving
+transitions from graph IDs, node types or pending-work heuristics. Approval, render authorization and
+technical result readiness remain separate facts. Public 7.3A projection and command now share one
+backend policy: `start_images | resume | open | review | resolve | finished`, reason/allowed actions,
+selected/source/effective identities and X/N. This is derived state, not another lifecycle or scheduler.
+DB23 handoff/delivery records deduplicate the declared transition without mutating terminal outcomes;
+first image intent requires explicit settings authorization. [Contract](runtime.md#continue-command-accepted-73a).
 
 ## Artifact State Is Not One Enum
 

@@ -195,6 +195,56 @@ class AnchorReferenceWorkerTests(sources.WardrobeFixtures, unittest.IsolatedAsyn
                 [item.receipt.digest for item in final.references if item.receipt is not None])
             self.assertEqual(len(self.calls), 4)
 
+    async def test_sheet_retry_has_own_upload_receipts_final_graph_and_candidate(self):
+        async with self.source() as (db, ref):
+            _, unit, initial, _ = self.sheet(db, ref)
+            first_final = await self.finalized(db, unit, initial)
+            accepted = await self.sheet_tick(db, self.authorize_sheet(db, unit, initial))
+            failed = submissions.fail_anchor_unit_submission(db, initial.job_id,
+                expected_unit_digest=unit.input_digest, expected_wire_digest=accepted.preview.wire_digest,
+                expected_revision=accepted.revision, reason='provider_failed',
+                evidence=native._evidence(accepted, 'history', 'sheet-1', {}))
+            self.assertTrue(hasattr(jobs, 'allocate_anchor_unit_retry'), 'Explicit retry allocator is missing')
+            retry = jobs.allocate_anchor_unit_retry(db, initial.job_id, expected_unit_digest=unit.input_digest,
+                previous_attempt_id=initial.attempt_id, expected_previous_wire_digest=failed.preview.wire_digest,
+                expected_previous_revision=failed.revision, retry_trigger_id=ZERO)
+            selectors = dict(expected_project_id=self.project, expected_unit_digest=unit.input_digest,
+                             attempt_id=retry.attempt_id)
+            preview = refs.preview_anchor_reference_intent(db, retry.job_id, **selectors, subfolder='kinodel/parents')
+            record = refs.authorize_anchor_reference_transfer(db, retry.job_id, **selectors,
+                expected_intent_digest=preview.intent_digest, subfolder='kinodel/parents')
+            for old, new in zip(first_final.intent.references, record.intent.references):
+                self.assertEqual(old.parent, new.parent)
+                self.assertNotEqual(old.name, new.name)
+            transport = httpx.MockTransport(self.handler(db))
+            for _ in range(2):
+                record = await self.worker.tick_anchor_references(db, retry.job_id, **selectors,
+                    expected_intent_digest=record.intent_digest, expected_revision=record.revision, transport=transport)
+            self.assertEqual(record.state, 'finalized')
+            self.assertEqual([item[0] for item in self.uploads], ['portrait', 'background'] * 2)
+            assert record.final is not None and first_final.final is not None
+            self.assertEqual(record.final.seed, first_final.final.seed)
+            old_graph, new_graph = json.loads(first_final.final.graph_json), json.loads(record.final.graph_json)
+            for node in ('470', '496'):
+                self.assertNotEqual(old_graph[node]['inputs']['image'], new_graph[node]['inputs']['image'])
+                new_graph[node]['inputs']['image'] = old_graph[node]['inputs']['image']
+            self.assertEqual(new_graph, old_graph)
+            preview = submissions.preview_anchor_unit_submission(db, retry.job_id,
+                expected_unit_digest=unit.input_digest, attempt_id=retry.attempt_id)
+            authorized = submissions.authorize_anchor_unit_submission(db, retry.job_id,
+                expected_unit_digest=unit.input_digest, expected_wire_digest=preview.wire_digest,
+                accepted_at_ms=NOW + 1000, attempt_id=retry.attempt_id)
+            for _ in range(2):
+                authorized = await native.tick_anchor_unit_job(db, retry.job_id,
+                    expected_unit_digest=unit.input_digest, expected_wire_digest=preview.wire_digest,
+                    expected_revision=authorized.revision, attempt_id=retry.attempt_id,
+                    clock_ms=lambda: NOW + 1002, transport=transport)
+            self.assertEqual(authorized.state, 'completed')
+            self.assertEqual(refs.read_anchor_reference_transfer(db, initial.job_id, expected_project_id=self.project,
+                expected_unit_digest=unit.input_digest, expected_intent_digest=first_final.intent_digest), first_final)
+            self.assertEqual(submissions.read_anchor_unit_submission(db, initial.job_id,
+                expected_unit_digest=unit.input_digest, expected_wire_digest=failed.preview.wire_digest), failed)
+
     async def test_bounded_call_timeout_after_upload_is_ambiguous_no_retry(self):
         async with self.source() as (db, ref):
             _, unit, job, _ = self.sheet(db, ref)

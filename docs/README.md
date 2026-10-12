@@ -26,6 +26,7 @@ Kinodel is a **runtime-vibe-factory for creators**: a user follows a production 
 | Explicit context and future memory/search | [Context](context/context.md), [RAG](rag/rag.md), [chunks](rag/chunks.md) |
 | Database/hosted decisions | [Database](database/README.md) |
 | Later features | [Product roadmap](roadmap.md), [future topics](features/future.md) |
+| Hermes integration brainstorm (research, not an accepted migration) | [Kinodel × Hermes concept](hermes/README.md), [mechanisms and sources](hermes/research.md) |
 
 ## Authority And Status
 

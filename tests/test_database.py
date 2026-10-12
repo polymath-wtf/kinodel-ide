@@ -29,6 +29,7 @@ WARDROBE_ONLY_V15_ARTIFACTS_SQL = """CREATE TABLE "artifacts" (
 
 # DB18 fingerprint captured BEFORE the DB19 implementation, independent expected bytes.
 FROZEN_DB18_SCHEMA_SHA256 = '73fa46a7e723d2f2c2c04aba0d3047a7636492152c75c1f052e13bb46154fe5d'
+GROUP_RESULT_TABLES = ('image_unit_attempts', 'image_group_results', 'image_group_joins', 'image_group_retry_requests')
 FROZEN_DB18_SUBMISSIONS_SQL = """
 CREATE TABLE portrait_submissions (
     attempt_id TEXT PRIMARY KEY NOT NULL REFERENCES render_submission_attempts(attempt_id),
@@ -59,10 +60,17 @@ def historical_schema(version):
                             (13, database.WARDROBE_SCHEMA), (14, database.WARDROBE_V2_SCHEMA),
                             (15, database.BATCH_INPUT_SCHEMA), (16, database.RENDER_JOB_SCHEMA),
                             (17, database.PORTRAIT_CANDIDATE_SCHEMA), (18, FROZEN_DB18_SUBMISSIONS_SQL),
-                            (19, database.ANCHOR_REFERENCE_TRANSFER_SCHEMA)):
+                            (19, database.ANCHOR_REFERENCE_TRANSFER_SCHEMA), (20, database.IMAGE_GROUP_SCHEMA)):
         if version >= introduced:
             script += ddl
     return script
+
+
+def retry_migrated_schema(schema):
+    changed = {'render_submission_attempts', 'portrait_candidates', 'portrait_submissions', 'anchor_reference_transfers'}
+    return [(kind, name, sql.replace('job_id TEXT NOT NULL UNIQUE REFERENCES render_jobs',
+                                   'job_id TEXT NOT NULL REFERENCES render_jobs') if name in changed else sql)
+            for kind, name, sql in schema]
 
 
 class DatabaseTests(unittest.TestCase):
@@ -74,6 +82,48 @@ class DatabaseTests(unittest.TestCase):
 
     def snapshot(self):
         return {p.name: p.read_bytes() for p in self.root.iterdir() if p.is_file()}
+
+    def test_v21_group_results_additive_migration_preserves_all_old_schema_rows_and_rowids(self):
+        self.assertEqual(database.SCHEMA_VERSION, 22, 'Group results require additive DB22')
+        self.populated_v20()
+        with closing(sqlite3.connect(self.path, isolation_level=None)) as old:
+            old.executescript(database.RENDER_RETRY_MIGRATION + 'PRAGMA user_version=21;')
+            old.execute("INSERT INTO render_submission_attempts VALUES ('retry','job','retry-digest','retry-body 🦊')")
+            old.execute("INSERT INTO render_retry_allocations VALUES ('retry','job','attempt','trigger','digest','allocation 🦊')")
+            schema = database._schema(old)
+            rows = {name: old.execute(f'SELECT rowid,* FROM {name} ORDER BY rowid').fetchall()
+                    for kind, name, _ in schema if kind == 'table'}
+        for _ in range(2):
+            with open_database(self.root) as db:
+                self.assertEqual(db.execute('PRAGMA user_version').fetchone(), (22,))
+                self.assertEqual([r for r in database._schema(db) if r[1] in rows or r[0] != 'table'], schema)
+                self.assertEqual({name: db.execute(f'SELECT rowid,* FROM {name} ORDER BY rowid').fetchall()
+                                  for name in rows}, rows)
+                self.assertEqual(db.execute('PRAGMA foreign_key_check').fetchall(), [])
+
+    def test_v22_group_ddl_and_validation_failures_roll_back_exact_v21(self):
+        self.assertTrue(hasattr(database, 'IMAGE_GROUP_RESULT_SCHEMA'), 'Group result schema is missing')
+        self.populated_v20()
+        with closing(sqlite3.connect(self.path, isolation_level=None)) as old:
+            old.executescript(database.RENDER_RETRY_MIGRATION + 'PRAGMA user_version=21;')
+            schema = database._schema(old)
+            rows = {name: old.execute(f'SELECT rowid,* FROM {name} ORDER BY rowid').fetchall()
+                    for kind, name, _ in schema if kind == 'table'}
+        validate = database._validate
+        def fail(db):
+            validate(db)
+            if db.execute('PRAGMA user_version').fetchone() == (22,):
+                raise ValueError('group migration validation fault')
+        for fault in (patch.object(database, 'IMAGE_GROUP_RESULT_SCHEMA', database.IMAGE_GROUP_RESULT_SCHEMA +
+                                  'SELECT * FROM missing;'), patch.object(database, '_validate', side_effect=fail)):
+            with fault, self.assertRaises((ValueError, sqlite3.DatabaseError)):
+                with open_database(self.root):
+                    self.fail('Partial group migration accepted')
+            with closing(sqlite3.connect(self.path)) as old:
+                self.assertEqual(old.execute('PRAGMA user_version').fetchone(), (21,))
+                self.assertEqual(database._schema(old), schema)
+                self.assertEqual({name: old.execute(f'SELECT rowid,* FROM {name} ORDER BY rowid').fetchall()
+                                  for name in rows}, rows)
 
     def refuse_unchanged(self):
         before = self.snapshot()
@@ -102,13 +152,13 @@ class DatabaseTests(unittest.TestCase):
                                     "review_requests", "execution_work", "execution_outcomes", "execution_controls",
                                     "wardrobe_operations", "batch_input_pins", "batch_unit_input_pins",
                                     "render_jobs", "render_submission_attempts", "portrait_candidates", "portrait_submissions",
-                                    "anchor_reference_transfers", "image_groups"})
+                                    "anchor_reference_transfers", "image_groups", "render_retry_allocations", *GROUP_RESULT_TABLES})
                 self.assertEqual(database._schema(db), database._expected_schema(SCHEMA_VERSION))
             with self.assertRaises(sqlite3.ProgrammingError):
                 db.execute("SELECT 1")
 
     def test_v14_retains_v13_fingerprint_and_only_widens_anchor_versions(self):
-        self.assertEqual(database.SCHEMA_VERSION, 20)
+        self.assertEqual(database.SCHEMA_VERSION, 22)
         self.assertNotEqual(database._expected_schema(13), database._expected_schema(14))
         for version in (13, 14):
             with closing(sqlite3.connect(":memory:")) as db:
@@ -224,7 +274,7 @@ class DatabaseTests(unittest.TestCase):
                 self.assertEqual([r for r in database._schema(db) if r[1] not in
                                   ('batch_input_pins', 'batch_unit_input_pins',
                                    'render_jobs', 'render_submission_attempts', 'portrait_candidates', 'portrait_submissions',
-                                   'anchor_reference_transfers', 'image_groups')], schema)
+                                   'anchor_reference_transfers', 'image_groups', 'render_retry_allocations', *GROUP_RESULT_TABLES)], schema)
                 self.assertEqual({t: db.execute(f"SELECT rowid,* FROM {t}").fetchall() for t in tables}, rows)
                 self.assertEqual(db.execute("SELECT COUNT(*) FROM batch_input_pins").fetchone(), (0,))
                 self.assertEqual(db.execute("PRAGMA foreign_key_check").fetchall(), [])
@@ -312,7 +362,7 @@ class DatabaseTests(unittest.TestCase):
                            db.in_transaction))
         added = {'batch_input_pins', 'batch_unit_input_pins', 'render_jobs',
                  'render_submission_attempts', 'portrait_candidates', 'portrait_submissions', 'anchor_reference_transfers',
-                 'image_groups'}
+                 'image_groups', 'render_retry_allocations', *GROUP_RESULT_TABLES}
         for _ in range(2):
             with patch.object(database, '_validate', side_effect=checked), open_database(self.root) as db:
                 self.assertEqual(db.execute('PRAGMA user_version').fetchone(), (SCHEMA_VERSION,))
@@ -324,7 +374,7 @@ class DatabaseTests(unittest.TestCase):
             self.assertEqual({name: (saved / name).read_bytes() for name in bodies}, bodies)
         self.assertIn((15, False, False), stamps)
         self.assertIn((15, True, True), stamps, 'Pin repair must validate before committing without changing the DB15 stamp')
-        self.assertEqual(list(dict.fromkeys(v for v, _, _ in stamps)), [15, 16, 17, 18, 19, 20])
+        self.assertEqual(list(dict.fromkeys(v for v, _, _ in stamps)), [15, 16, 17, 18, 19, 20, 21, 22])
 
     def test_wardrobe_only_v15_pin_ddl_and_validation_failure_roll_back_historical_shape(self):
         schema, rows = self.populated_wardrobe_only_v15()
@@ -465,7 +515,7 @@ class DatabaseTests(unittest.TestCase):
                 self.assertEqual(db.execute('PRAGMA user_version').fetchone(), (SCHEMA_VERSION,))
                 self.assertEqual([r for r in database._schema(db) if r[1] not in
                                   ('render_jobs', 'render_submission_attempts', 'portrait_candidates', 'portrait_submissions',
-                                   'anchor_reference_transfers', 'image_groups')], schema)
+                                   'anchor_reference_transfers', 'image_groups', 'render_retry_allocations', *GROUP_RESULT_TABLES)], schema)
                 self.assertEqual({t: db.execute(f'SELECT rowid,* FROM {t} ORDER BY rowid').fetchall() for t in rows}, rows)
                 self.assertEqual(db.execute('PRAGMA foreign_key_check').fetchall(), [])
                 for table in ('render_jobs', 'render_submission_attempts'):
@@ -496,7 +546,7 @@ class DatabaseTests(unittest.TestCase):
             with self.subTest(failure=failure):
                 self.refuse_unchanged()
 
-    def test_render_job_tables_enforce_unit_ownership_and_one_initial_attempt(self):
+    def test_render_job_tables_enforce_unit_ownership_and_per_attempt_identity(self):
         self.populated_v15()
         with open_database(self.root) as db:
             self.assertEqual(db.execute('PRAGMA user_version').fetchone(), (SCHEMA_VERSION,))
@@ -509,8 +559,9 @@ class DatabaseTests(unittest.TestCase):
             with self.assertRaises(sqlite3.IntegrityError):
                 db.execute("INSERT INTO render_submission_attempts VALUES ('attempt','missing','digest','{}')")
             db.execute("INSERT INTO render_submission_attempts VALUES ('attempt','job','digest','{}')")
+            db.execute("INSERT INTO render_submission_attempts VALUES ('second','job','digest','{}')")
             with self.assertRaises(sqlite3.IntegrityError):
-                db.execute("INSERT INTO render_submission_attempts VALUES ('second','job','digest','{}')")
+                db.execute("INSERT INTO render_submission_attempts VALUES ('second','job','changed','{}')")
             with self.assertRaises(sqlite3.IntegrityError):
                 db.execute('UPDATE render_submission_attempts SET intent_body=?', ('x' * (1024 * 1024 + 1),))
 
@@ -530,7 +581,8 @@ class DatabaseTests(unittest.TestCase):
             with open_database(self.root) as db:
                 self.assertEqual(db.execute('PRAGMA user_version').fetchone(), (SCHEMA_VERSION,))
                 self.assertEqual([r for r in database._schema(db) if r[1] not in
-                                  ('portrait_candidates', 'portrait_submissions', 'anchor_reference_transfers', 'image_groups')], schema)
+                                  ('portrait_candidates', 'portrait_submissions', 'anchor_reference_transfers', 'image_groups',
+                                   'render_retry_allocations', *GROUP_RESULT_TABLES)], retry_migrated_schema(schema))
                 self.assertEqual({t: db.execute(f'SELECT rowid,* FROM {t} ORDER BY rowid').fetchall() for t in rows}, rows)
                 self.assertEqual(db.execute('SELECT COUNT(*) FROM portrait_candidates').fetchone(), (0,))
                 self.assertEqual(db.execute('PRAGMA foreign_key_check').fetchall(), [])
@@ -594,7 +646,8 @@ class DatabaseTests(unittest.TestCase):
             with open_database(self.root) as db:
                 self.assertEqual(db.execute('PRAGMA user_version').fetchone(), (SCHEMA_VERSION,))
                 self.assertEqual([r for r in database._schema(db) if r[1] not in
-                                  ('portrait_submissions', 'anchor_reference_transfers', 'image_groups')], schema)
+                                  ('portrait_submissions', 'anchor_reference_transfers', 'image_groups',
+                                   'render_retry_allocations', *GROUP_RESULT_TABLES)], retry_migrated_schema(schema))
                 self.assertEqual({t: db.execute(f'SELECT rowid,* FROM {t} ORDER BY rowid').fetchall() for t in rows}, rows)
                 self.assertEqual(db.execute('SELECT COUNT(*) FROM portrait_submissions').fetchone(), (0,))
                 self.assertEqual(db.execute('PRAGMA foreign_key_check').fetchall(), [])
@@ -627,7 +680,50 @@ class DatabaseTests(unittest.TestCase):
             fingerprint = hashlib.sha256(json.dumps(schema, ensure_ascii=False, separators=(',', ':')).encode()).hexdigest()
             self.assertEqual(fingerprint, FROZEN_DB18_SCHEMA_SHA256)
             return schema, {r[1]: old.execute(f'SELECT rowid,* FROM {r[1]} ORDER BY rowid').fetchall()
+                             for r in schema if r[0] == 'table'}
+
+    def populated_v20(self):
+        self.populated_v18()
+        with closing(sqlite3.connect(self.path, isolation_level=None)) as old:
+            old.executescript(database.ANCHOR_REFERENCE_TRANSFER_SCHEMA + database.IMAGE_GROUP_SCHEMA + 'PRAGMA user_version=20;')
+            old.execute("INSERT INTO anchor_reference_transfers (rowid,attempt_id,job_id,unit_input_digest,intent_digest,record_digest,record_body,revision,state) "
+                        "VALUES (149,'attempt','job','u-digest','i-digest','r-digest','frozen reference 🦊',7,'finalized')")
+            schema = database._schema(old)
+            return schema, {r[1]: old.execute(f'SELECT rowid,* FROM {r[1]} ORDER BY rowid').fetchall()
                             for r in schema if r[0] == 'table'}
+
+    def test_v20_retry_migration_preserves_rows_rowids_bodies_and_historical_schema(self):
+        schema, rows = self.populated_v20()
+        self.assertEqual(database._expected_schema(20), schema)
+        with open_database(self.root) as db:
+            self.assertEqual(db.execute('PRAGMA user_version').fetchone(), (SCHEMA_VERSION,))
+            self.assertEqual({t: db.execute(f'SELECT rowid,* FROM {t} ORDER BY rowid').fetchall() for t in rows}, rows)
+            changed = {'render_submission_attempts', 'portrait_candidates', 'portrait_submissions', 'anchor_reference_transfers'}
+            current = {r[1]: r for r in database._schema(db)}
+            for entry in schema:
+                expected = entry[2].replace('job_id TEXT NOT NULL UNIQUE REFERENCES render_jobs',
+                                            'job_id TEXT NOT NULL REFERENCES render_jobs') if entry[1] in changed else entry[2]
+                self.assertEqual(current[entry[1]], (entry[0], entry[1], expected))
+            self.assertEqual(db.execute('PRAGMA foreign_key_check').fetchall(), [])
+            db.execute("INSERT INTO render_submission_attempts VALUES ('retry','job','digest','{}')")
+            db.execute("INSERT INTO portrait_candidates VALUES ('retry-candidate','job','retry','u','i','m','{}','retry-uri','published')")
+            db.execute("INSERT INTO portrait_submissions VALUES ('retry','job','w','s','{}',0,'authorized',NULL,NULL)")
+            db.execute("INSERT INTO anchor_reference_transfers VALUES ('retry','job','u','i','r','{}',0,'authorized')")
+
+    def test_v20_retry_migration_validation_failure_rolls_back_exact_schema_and_rows(self):
+        schema, rows = self.populated_v20()
+        validate = database._validate
+        def fail_validation(db):
+            validate(db)
+            if db.execute('PRAGMA user_version').fetchone() == (21,):
+                raise ValueError('injected retry migration validation failure')
+        with patch.object(database, '_validate', side_effect=fail_validation), self.assertRaisesRegex(ValueError, 'injected'):
+            with open_database(self.root):
+                self.fail('Retry migration was not performed')
+        with closing(sqlite3.connect(self.path)) as old:
+            self.assertEqual(old.execute('PRAGMA user_version').fetchone(), (20,))
+            self.assertEqual(database._schema(old), schema)
+            self.assertEqual({t: old.execute(f'SELECT rowid,* FROM {t} ORDER BY rowid').fetchall() for t in rows}, rows)
 
     def test_v18_reference_transfer_migration_adds_exactly_one_table_preserving_every_old_byte_rowid(self):
         schema, rows = self.populated_v18()
@@ -635,7 +731,8 @@ class DatabaseTests(unittest.TestCase):
         for _ in range(2):
             with open_database(self.root) as db:
                 self.assertEqual(db.execute('PRAGMA user_version').fetchone(), (SCHEMA_VERSION,))
-                self.assertEqual([r for r in database._schema(db) if r[1] not in ('anchor_reference_transfers', 'image_groups')], schema)
+                self.assertEqual([r for r in database._schema(db) if r[1] not in
+                                  ('anchor_reference_transfers', 'image_groups', 'render_retry_allocations', *GROUP_RESULT_TABLES)], retry_migrated_schema(schema))
                 self.assertEqual({t: db.execute(f'SELECT rowid,* FROM {t} ORDER BY rowid').fetchall() for t in rows}, rows)
                 self.assertEqual(db.execute('SELECT COUNT(*) FROM anchor_reference_transfers').fetchone(), (0,))
                 self.assertEqual(db.execute('PRAGMA foreign_key_check').fetchall(), [])

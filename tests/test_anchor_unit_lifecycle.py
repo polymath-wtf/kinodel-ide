@@ -1,6 +1,7 @@
 """6B.1 bounded anchor records; no live provider, uploads or creative approval."""
 
 import io
+from contextlib import contextmanager
 import json
 import os
 from types import SimpleNamespace
@@ -95,6 +96,191 @@ class AnchorUnitLifecycleTests(fixtures.WardrobeFixtures, unittest.IsolatedAsync
             self.fail('Unexpected route')
         return await worker.tick_anchor_unit_job(db, record.preview.job_id, **self.args(record),
             clock_ms=lambda: now, transport=httpx.MockTransport(handle))
+
+    def allocate(self, db, record, trigger=ZERO, **changes):
+        self.assertTrue(hasattr(jobs, 'allocate_anchor_unit_retry'), 'Explicit retry allocator is missing')
+        args: dict[str, Any] = dict(expected_unit_digest=record.preview.unit_input_digest,
+            previous_attempt_id=record.preview.attempt_id, expected_previous_wire_digest=record.preview.wire_digest,
+            expected_previous_revision=record.revision, retry_trigger_id=trigger)
+        args.update(changes)
+        return jobs.allocate_anchor_unit_retry(db, record.preview.job_id, **args)
+
+    async def test_explicit_retry_coexists_preserves_initial_and_sends_only_after_authorization(self):
+        async with self.committed() as (db, ref):
+            unit, initial = self.unit_job(db, self.batch(db, ref), 0)
+            authorized = self.authorize(db, initial, unit.input_digest)
+            accepted = await self.tick(db, authorized)
+            failed = submissions.fail_anchor_unit_submission(db, initial.job_id, **self.args(accepted),
+                reason='provider_failed', evidence=worker._evidence(accepted, 'history', 'prompt-1', {'failed': True}))
+            # Technically imported bytes are not provider completion; candidates remain per-attempt.
+            first_candidate = candidates.import_anchor_unit_candidate(db, initial.job_id, initial.attempt_id,
+                expected_unit_digest=unit.input_digest, descriptor=self.descriptor(), stream=io.BytesIO(png()))
+            tables = ('render_jobs', 'render_submission_attempts', 'portrait_submissions', 'portrait_candidates')
+            before = {table: db.execute(f'SELECT rowid,* FROM {table}').fetchall() for table in tables}
+            retry = self.allocate(db, failed)
+            self.assertNotEqual(retry.attempt_id, initial.attempt_id)
+            self.assertEqual(retry.job_id, initial.job_id)
+            self.assertEqual(retry.prepared_input, initial.prepared_input)
+            self.assertEqual(self.allocate(db, failed), retry)
+            self.assertEqual(len(self.calls), 1, 'Allocation must not send')
+            self.assertEqual(jobs.read_anchor_unit_job(db, initial.job_id, expected_unit_digest=unit.input_digest), initial)
+            self.assertEqual(jobs.read_anchor_unit_job(db, initial.job_id, expected_unit_digest=unit.input_digest,
+                                                     attempt_id=retry.attempt_id), retry)
+            preview = submissions.preview_anchor_unit_submission(db, retry.job_id,
+                expected_unit_digest=unit.input_digest, attempt_id=retry.attempt_id)
+            self.assertEqual(json.loads(preview.wire_body)['prompt'], json.loads(authorized.preview.wire_body)['prompt'])
+            self.assertNotEqual(preview.wire_digest, authorized.preview.wire_digest)
+            self.assertNotEqual(json.loads(preview.wire_body)['client_id'], json.loads(authorized.preview.wire_body)['client_id'])
+            no_http = httpx.MockTransport(lambda _: self.fail('Unallocated/unauthorized retry was sent'))
+            with self.assertRaises(LookupError):
+                await worker.tick_anchor_unit_job(db, retry.job_id, expected_unit_digest=unit.input_digest,
+                    expected_wire_digest=preview.wire_digest, expected_revision=0, attempt_id=retry.attempt_id,
+                    transport=no_http)
+            record = submissions.authorize_anchor_unit_submission(db, retry.job_id, expected_unit_digest=unit.input_digest,
+                expected_wire_digest=preview.wire_digest, accepted_at_ms=NOW + 1000, attempt_id=retry.attempt_id)
+            self.assertEqual(record.deadline_ms, NOW + 901000)
+            with self.assertRaises(ValueError):
+                submissions.authorize_anchor_unit_submission(db, retry.job_id, expected_unit_digest=unit.input_digest,
+                    expected_wire_digest=preview.wire_digest, accepted_at_ms=NOW + 1001, attempt_id=retry.attempt_id)
+            def handle(request):
+                self.calls.append(request)
+                if request.method == 'POST':
+                    return response(dict(prompt_id='retry-1', number=1, node_errors={}))
+                if request.url.path.endswith('/queue'):
+                    return response(dict(queue_running=[], queue_pending=[]))
+                if '/history' in request.url.path:
+                    return response(history(preview, prompt_id='retry-1'))
+                return response(png(color='blue'), raw=True)
+            async def tick(record):
+                return await worker.tick_anchor_unit_job(db, retry.job_id, **self.args(record), attempt_id=retry.attempt_id,
+                    clock_ms=lambda: NOW + 1002, transport=httpx.MockTransport(handle))
+            completed = await tick(await tick(record))
+            self.assertEqual(completed.state, 'completed')
+            count = len(self.calls)
+            self.assertEqual(await tick(completed), completed)
+            self.assertEqual(len(self.calls), count)
+            for table, rows in before.items():
+                for row in rows:
+                    self.assertEqual(db.execute(f'SELECT rowid,* FROM {table} WHERE rowid=?', (row[0],)).fetchone(), row)
+            self.assertEqual(self.path(first_candidate).read_bytes(), png())
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM portrait_candidates WHERE job_id=?', (initial.job_id,)).fetchone(), (2,))
+            self.assertEqual(submissions.read_anchor_unit_submission(db, initial.job_id,
+                expected_unit_digest=unit.input_digest, expected_wire_digest=failed.preview.wire_digest), failed)
+            with self.assertRaises(ValueError):
+                submissions.read_anchor_unit_submission(db, initial.job_id, expected_unit_digest=unit.input_digest,
+                    expected_wire_digest=preview.wire_digest)
+        with database.open_database(self.root) as db, self.offline():
+            self.assertEqual(self.allocate(db, failed), retry)
+            self.assertEqual(submissions.read_anchor_unit_submission(db, retry.job_id, attempt_id=retry.attempt_id,
+                expected_unit_digest=unit.input_digest, expected_wire_digest=preview.wire_digest), completed)
+
+    async def test_retry_allocator_rejects_nonfailed_stale_conflicting_and_foreign_selectors(self):
+        async with self.committed() as (db, ref):
+            batch = self.batch(db, ref)
+            unit, job = self.unit_job(db, batch, 0)
+            other_unit, other_job = self.unit_job(db, batch, 1)
+            record = self.authorize(db, job, unit.input_digest)
+            with self.assertRaises(ValueError):
+                self.allocate(db, record)
+            blocked = await self.tick(db, record, lost=True)
+            with self.assertRaises(ValueError):
+                self.allocate(db, blocked)
+            accepted = submissions.record_anchor_unit_acceptance(db, job.job_id, **self.args(blocked), prompt_id='prompt-1',
+                evidence=worker._evidence(blocked, 'queue', 'prompt-1', {}))
+            with self.assertRaises(ValueError):
+                self.allocate(db, accepted)
+            failed = submissions.fail_anchor_unit_submission(db, job.job_id, **self.args(accepted), reason='provider_failed',
+                evidence=worker._evidence(accepted, 'history', 'prompt-1', {}))
+            changes: list[dict[str, Any]] = [dict(expected_previous_revision=failed.revision - 1), dict(expected_unit_digest=ZERO),
+                           dict(expected_previous_wire_digest=ZERO), dict(previous_attempt_id=other_job.attempt_id)]
+            for change in changes:
+                with self.subTest(change=change), self.assertRaises((ValueError, LookupError)):
+                    self.allocate(db, failed, **change)
+            transaction = jobs._transaction
+            input_row = batch_store._unit_row(db, batch.batch_id, unit.unit_key)
+            for sql, original in (
+                ('UPDATE portrait_submissions SET submission_digest=? WHERE attempt_id=?',
+                 (sha256_digest(canonical_json(failed)), failed.preview.attempt_id)),
+                ('UPDATE batch_unit_input_pins SET body=? WHERE unit_key=?', (input_row[3], unit.unit_key)),
+            ):
+                @contextmanager
+                def drift(connection):
+                    connection.execute(sql, ('{}', original[1]))
+                    with transaction(connection):
+                        yield
+                with patch.object(jobs, '_transaction', drift), self.assertRaises(ValueError):
+                    self.allocate(db, failed)
+                self.assertEqual(db.execute('SELECT COUNT(*) FROM render_retry_allocations').fetchone(), (0,))
+                db.execute(sql, original)
+            retry = self.allocate(db, failed)
+            with self.assertRaises(ValueError):
+                self.allocate(db, failed, trigger='sha256:' + 'f' * 64)
+            with self.assertRaises(ValueError):
+                jobs.read_anchor_unit_job(db, other_job.job_id, expected_unit_digest=other_unit.input_digest,
+                                         attempt_id=retry.attempt_id)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM render_retry_allocations').fetchone(), (1,))
+            preview = submissions.preview_anchor_unit_submission(db, job.job_id,
+                expected_unit_digest=unit.input_digest, attempt_id=retry.attempt_id)
+            record = submissions.authorize_anchor_unit_submission(db, job.job_id, expected_unit_digest=unit.input_digest,
+                expected_wire_digest=preview.wire_digest, accepted_at_ms=NOW, job_timeout_ms=1, attempt_id=retry.attempt_id)
+            failed_retry = submissions.fail_anchor_unit_submission(db, job.job_id, **self.args(record),
+                attempt_id=retry.attempt_id, reason='deadline_exceeded')
+            with self.assertRaises(ValueError):
+                self.allocate(db, failed_retry)  # Trigger already owns this job's previous successor.
+            third = self.allocate(db, failed_retry, trigger='sha256:' + 'a' * 64)
+            self.assertEqual(jobs.read_anchor_unit_job(db, job.job_id, expected_unit_digest=unit.input_digest,
+                                                     attempt_id=third.attempt_id), third)
+            allocation = jobs._allocation_row(db, third.attempt_id)
+            db.execute('UPDATE render_retry_allocations SET allocation_body=? WHERE attempt_id=?', ('{}', third.attempt_id))
+            with self.assertRaises(ValueError):
+                jobs.read_anchor_unit_job(db, job.job_id, expected_unit_digest=unit.input_digest, attempt_id=third.attempt_id)
+            db.execute('UPDATE render_retry_allocations SET allocation_body=? WHERE attempt_id=?', (allocation[5], third.attempt_id))
+
+    async def test_retry_lost_response_reconciles_among_exact_retained_initial_history(self):
+        async with self.committed() as (db, ref):
+            unit, job = self.unit_job(db, self.batch(db, ref), 0)
+            initial = await self.tick(db, self.authorize(db, job, unit.input_digest))
+            failed = submissions.fail_anchor_unit_submission(db, job.job_id, **self.args(initial), reason='provider_failed',
+                evidence=worker._evidence(initial, 'history', 'prompt-1', {}))
+            retry = self.allocate(db, failed)
+            preview = submissions.preview_anchor_unit_submission(db, job.job_id,
+                expected_unit_digest=unit.input_digest, attempt_id=retry.attempt_id)
+            record = submissions.authorize_anchor_unit_submission(db, job.job_id, expected_unit_digest=unit.input_digest,
+                expected_wire_digest=preview.wire_digest, attempt_id=retry.attempt_id, accepted_at_ms=NOW)
+            old_history = history(initial.preview)
+            old_history['prompt-1']['status'] = dict(status_str='error', completed=False, messages=[['execution_error', {}]])
+            posts = []
+            def handle(request):
+                if request.method == 'POST':
+                    posts.append(request)
+                    raise httpx.ReadError('retry response lost')
+                if request.url.path.endswith('/queue'):
+                    return response(dict(queue_running=[], queue_pending=[]))
+                if '/history' in request.url.path:
+                    return response({**old_history, **history(preview, prompt_id='retry-1')})
+                return response(png(), raw=True)
+            async def tick(record):
+                return await worker.tick_anchor_unit_job(db, job.job_id, **self.args(record), attempt_id=retry.attempt_id,
+                    clock_ms=lambda: NOW + 2, transport=httpx.MockTransport(handle))
+            blocked = await tick(record)
+            self.assertEqual(blocked.reason, 'acceptance_unknown')
+            output = json.loads(unit.prepared_input.image_pin_json)['expected_output']
+            for change in ('attempt', 'graph', 'current-client'):
+                unrelated = json.loads(json.dumps(old_history))
+                item = unrelated['prompt-1']['prompt']
+                if change == 'attempt':
+                    item[3]['kinodel_portrait_v1']['attempt_id'] = ZERO
+                elif change == 'graph':
+                    item[2] = {'unexpected': {'class_type': 'SaveImage', 'inputs': {}}}
+                else:
+                    item[3]['client_id'] = json.loads(preview.wire_body)['client_id']
+                with self.subTest(change=change), self.assertRaises(worker._ProtocolError):
+                    worker._matches(dict(queue_running=[], queue_pending=[]), unrelated, blocked, output,
+                        json.loads(unit.prepared_input.image_pin_json)['schemas'], diagnostics=[], db=db)
+            completed = await tick(blocked)
+            self.assertEqual(completed.state, 'completed')
+            self.assertEqual(completed.prompt_id, 'retry-1')
+            self.assertEqual(len(posts), 1)
 
     async def test_exact_three_roles_reopen_parents_and_portrait_restrictions(self):
         async with self.committed() as (db, ref):

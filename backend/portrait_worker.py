@@ -71,12 +71,24 @@ def _now(clock):
 
 def _args(record) -> dict[str, Any]:
     return dict(expected_unit_digest=record.preview.unit_input_digest,
-                expected_wire_digest=record.preview.wire_digest, expected_revision=record.revision)
+                expected_wire_digest=record.preview.wire_digest, expected_revision=record.revision,
+                attempt_id=record.preview.attempt_id)
 
 
-def _fresh(db, record):
+def _active(db, record, stop=None):
+    if stop is not None and stop.is_set():
+        raise PortraitWorkerError('worker_stopped')
+    try:
+        render_job_store.assert_anchor_attempt_writable(db, record.preview.job_id, record.preview.attempt_id)
+    except ValueError:
+        raise PortraitWorkerError('consumer_not_writable') from None
+
+
+def _fresh(db, record, stop=None):
+    _active(db, record, stop)
     current = store.read_anchor_unit_submission(db, record.preview.job_id,
-        expected_unit_digest=record.preview.unit_input_digest, expected_wire_digest=record.preview.wire_digest)
+        expected_unit_digest=record.preview.unit_input_digest, expected_wire_digest=record.preview.wire_digest,
+        attempt_id=record.preview.attempt_id)
     if current != record:
         raise PortraitWorkerError('revision_conflict')
 
@@ -126,9 +138,11 @@ def _headers(response, limit, media_type):
     return None
 
 
-async def _stream_body(response, limit, length, sink):
+async def _stream_body(response, limit, length, sink, guard=None):
     count = 0
     async for chunk in response.aiter_bytes(chunk_size=candidates.STREAM_CHUNK_BYTES):
+        if guard is not None:
+            guard()
         count += len(chunk)
         if count > limit or (length is not None and count > length):
             raise _ProtocolError('body_limit')
@@ -137,18 +151,22 @@ async def _stream_body(response, limit, length, sink):
         raise _ProtocolError('partial_body')
 
 
-async def _json(client, route, record, clock, *, post=False):
+async def _json(client, route, record, clock, *, post=False, guard=None):
+    if guard is not None:
+        guard()
     async with asyncio.timeout(_budget(record, clock, reconcile=not post)), client.stream(
         'POST' if post else 'GET', route,
         content=record.preview.wire_body if post else None,
         headers={'Content-Type': 'application/json'} if post else None,
     ) as response:
+        if guard is not None:
+            guard()
         # A bounded valid response ID is saved before later status/contract checks, even on HTTP error.
         if not post and response.status_code != 200:
             raise _ProtocolError('http_status')
         length = _headers(response, MAX_JSON_BYTES, 'application/json')
         body = io.BytesIO()
-        await _stream_body(response, MAX_JSON_BYTES, length, body)
+        await _stream_body(response, MAX_JSON_BYTES, length, body, guard)
         try:
             data = body.getvalue()
             data.decode('utf-8')
@@ -257,17 +275,59 @@ def _definitely_unrelated(item, record, history_key=None):
     return False
 
 
-def _matches(queue, history, record, output, schemas=None, *, diagnostics):
+def _retained_other_attempt(db, record, item, source, key, native, output, schemas):
+    """Ignore only a healthy EXACT durably terminal sibling, not job-ID-only guesses.
+
+    A retry shares its logical job with prior attempts. The old job-only own-signal
+    must still block unknown/conflicting attempts, but cannot block a proven old
+    attempt's history during lost-response reconciliation of the new one.
+    """
+    if db is None or type(item) is not list or len(item) != 5 or type(item[3]) is not dict:
+        return False
+    extra = item[3]
+    namespace = 'kinodel_anchor_unit_v1' if isinstance(record.preview, store.AnchorUnitSubmissionPreviewV1) else 'kinodel_portrait_v1'
+    other_namespace = 'kinodel_portrait_v1' if namespace == 'kinodel_anchor_unit_v1' else 'kinodel_anchor_unit_v1'
+    correlation = extra.get(namespace)
+    if (type(correlation) is not dict or correlation.get('job_id') != record.preview.job_id
+            or correlation.get('attempt_id') == record.preview.attempt_id or other_namespace in extra
+            or (record.prompt_id is not None and record.prompt_id in _native_ids(item, key))
+            or extra.get('client_id') == json.loads(record.preview.wire_body)['client_id']):
+        return False
+    try:
+        attempt_id = TypeAdapter(store.ExactDigest).validate_python(correlation.get('attempt_id'), strict=True)
+        row = store._row(db, record.preview.job_id, attempt_id)
+        if row is None or row[6] not in ('failed', 'completed') or row[7] != item[1]:
+            return False
+        sibling = store.read_anchor_unit_submission(db, record.preview.job_id,
+            expected_unit_digest=record.preview.unit_input_digest, expected_wire_digest=row[2], attempt_id=attempt_id)
+        if _match(item, sibling, output, schemas) != sibling.prompt_id:
+            return False
+        if source == 'history':
+            if key != item[1]:
+                return False
+            _history_status(native)
+        return True
+    except (ValueError, LookupError, _ProtocolError):
+        return False
+
+
+def _matches(queue, history, record, output, schemas=None, *, diagnostics, db=None):
     if (type(queue) is not dict or set(queue) != {'queue_running', 'queue_pending'}
             or any(type(queue[key]) is not list for key in queue)
             or type(history) is not dict
             or len(history) + sum(len(values) for values in queue.values()) > MAX_NATIVE_RECORDS):
         raise _ProtocolError('native_shape')
-    matches, quarantined = {}, []
+    matches, quarantined, retained_ids = {}, [], set()
     entries = [('queue', None, item) for item in [*queue['queue_running'], *queue['queue_pending']]]
     entries.extend(('history', key, native) for key, native in history.items())
     for source, key, native in entries:
         item = native if source == 'queue' else native.get('prompt') if type(native) is dict else None
+        if _retained_other_attempt(db, record, item, source, key, native, output, schemas):
+            assert type(item) is list  # Healthy exact tuple was checked above.
+            if item[1] in matches:
+                raise _ProtocolError('correlation_conflict')
+            retained_ids.add(item[1])
+            continue
         identifiers = _native_ids(item, key)
         owned_signal = _has_owned_signal(item, record, key) or any(identifier in matches for identifier in identifiers)
         if owned_signal:
@@ -281,6 +341,8 @@ def _matches(queue, history, record, output, schemas=None, *, diagnostics):
             if source == 'history' and (type(native) is not dict or 'prompt' not in native):
                 raise _ProtocolError('history_shape')
             prompt_id = _match(item, record, output, schemas)
+            if prompt_id is not None and prompt_id in retained_ids:
+                raise _ProtocolError('correlation_conflict')
             if prompt_id is None and owned_signal:
                 raise _ProtocolError('correlation_conflict')
             if source == 'history':
@@ -347,19 +409,19 @@ def _outcome(native, output):
         raise _ProtocolError('output_descriptor') from None
 
 
-async def _submit(db, client, record, clock):
-    _fresh(db, record)
+async def _submit(db, client, record, clock, stop=None):
+    _fresh(db, record, stop)
     now = _now(clock)
     if now >= record.deadline_ms:
         return store.fail_anchor_unit_submission(db, record.preview.job_id, **_args(record), reason='deadline_exceeded')
     if isinstance(record, store.SheetSubmissionV1):
         from backend import anchor_reference_worker as references
         try:
-            await references.verify_sheet_remote_inputs(db, client, record, clock)
+            await references.verify_sheet_remote_inputs(db, client, record, clock, stop=stop)
         except references.AnchorReferenceWorkerError:
             # Definitely-unsent readiness failure, not a post-dispatch blocked fact.
             raise PortraitWorkerError('sheet_reference_readiness') from None
-        _fresh(db, record)
+        _fresh(db, record, stop)
         now = _now(clock)
         if now >= record.deadline_ms:
             return store.fail_anchor_unit_submission(db, record.preview.job_id, **_args(record), reason='deadline_exceeded')
@@ -368,7 +430,8 @@ async def _submit(db, client, record, clock):
              else store.claim_anchor_unit_dispatch)
     dispatched = claim(db, record.preview.job_id, **_args(record), now_ms=now)
     try:
-        status, value = await _json(client, 'prompt', dispatched, clock, post=True)
+        status, value = await _json(client, 'prompt', dispatched, clock, post=True,
+                                    guard=lambda: _active(db, dispatched, stop))
         if type(value) is not dict:
             raise _ProtocolError('prompt_response')
         try:
@@ -376,8 +439,9 @@ async def _submit(db, client, record, clock):
         except ValueError:
             raise _ProtocolError('prompt_response_id') from None
     except (*HTTP_ERRORS, _ProtocolError):
+        _active(db, dispatched, stop)
         return _block(db, dispatched, 'acceptance_unknown')
-    _fresh(db, dispatched)
+    _fresh(db, dispatched, stop)
     accept = (store.record_portrait_acceptance if type(record) is store.PortraitSubmissionV1
               else store.record_anchor_unit_acceptance)
     accepted = accept(db, record.preview.job_id, **_args(dispatched),
@@ -388,10 +452,10 @@ async def _submit(db, client, record, clock):
     return accepted
 
 
-async def _finish(db, client, record, clock, descriptor, proof, native_subfolder):
-    _fresh(db, record)
-    row = db.execute('SELECT candidate_id,publication_state FROM portrait_candidates WHERE job_id=?',
-                     (record.preview.job_id,)).fetchone()
+async def _finish(db, client, record, clock, descriptor, proof, native_subfolder, stop=None):
+    _fresh(db, record, stop)
+    row = db.execute('SELECT candidate_id,publication_state FROM portrait_candidates WHERE job_id=? AND attempt_id=?',
+                     (record.preview.job_id, record.preview.attempt_id)).fetchone()
     candidate = None
     import_args = dict(expected_unit_digest=record.preview.unit_input_digest, descriptor=descriptor)
     if row is not None:
@@ -411,11 +475,13 @@ async def _finish(db, client, record, clock, descriptor, proof, native_subfolder
                 async with asyncio.timeout(_budget(record, clock, output=True)), client.stream('GET', 'view', params={
                     'filename': descriptor.filename, 'subfolder': native_subfolder, 'type': descriptor.type,
                 }, headers={'Accept': 'image/png'}) as response:
+                    _active(db, record, stop)
                     if response.status_code != 200:
                         raise _ProtocolError('view_status')
                     length = _headers(response, candidates.MAX_PNG_BYTES, 'image/png')
-                    await _stream_body(response, candidates.MAX_PNG_BYTES, length, spool)
-                _fresh(db, record)
+                    await _stream_body(response, candidates.MAX_PNG_BYTES, length, spool,
+                                       lambda: _active(db, record, stop))
+                _fresh(db, record, stop)
                 now = _now(clock)
                 if now >= _output_deadline(record, now):
                     return _block(db, record, 'deadline_exceeded')
@@ -423,39 +489,42 @@ async def _finish(db, client, record, clock, descriptor, proof, native_subfolder
                 candidate = candidates.import_anchor_unit_candidate(db, record.preview.job_id,
                     record.preview.attempt_id, stream=cast(BinaryIO, spool), **import_args)
         except (*HTTP_ERRORS, _ProtocolError, OSError):
+            _active(db, record, stop)
             now = _now(clock)
             return _block(db, record, 'deadline_exceeded' if now >= _output_deadline(record, now) else 'output_invalid')
         except ValueError as error:
             if isinstance(error, PortraitWorkerError):
                 raise
-            _fresh(db, record)
+            _fresh(db, record, stop)
             return _block(db, record, 'output_invalid')
-    _fresh(db, record)
+    _fresh(db, record, stop)
     complete = (store.complete_portrait_submission if type(record) is store.PortraitSubmissionV1
                 else store.complete_anchor_unit_submission)
     return complete(db, record.preview.job_id, **_args(record),
         candidate_id=candidate.candidate_id, evidence=proof)
 
 
-async def _reconcile(db, client, record, clock, output, schemas, *, revalidate_contract=False):
+async def _reconcile(db, client, record, clock, output, schemas, *, revalidate_contract=False, stop=None):
     diagnostics = []
     try:
-        _, queue = await _json(client, 'queue', record, clock)
-        _fresh(db, record)
+        _, queue = await _json(client, 'queue', record, clock, guard=lambda: _active(db, record, stop))
+        _fresh(db, record, stop)
         route = 'history/' + quote(record.prompt_id, safe='') if record.prompt_id else 'history'
-        _, history = await _json(client, route, record, clock)
-        matched = _matches(queue, history, record, output, schemas, diagnostics=diagnostics)
+        _, history = await _json(client, route, record, clock, guard=lambda: _active(db, record, stop))
+        matched = _matches(queue, history, record, output, schemas, diagnostics=diagnostics, db=db)
     except HTTP_ERRORS:
+        _active(db, record, stop)
         if revalidate_contract:
             return record
         return _block(db, record, 'history_unavailable' if record.prompt_id else 'acceptance_unknown')
     except _ProtocolError as error:
+        _active(db, record, stop)
         if revalidate_contract:
             return _save_diagnostics(db, record, diagnostics)
         if error.code == 'http_status':
             return _block(db, record, 'history_unavailable' if record.prompt_id else 'acceptance_unknown')
         return _save_diagnostics(db, _block(db, record, 'contract_error'), diagnostics)
-    _fresh(db, record)
+    _fresh(db, record, stop)
     if matched is None:
         if revalidate_contract:
             return _save_diagnostics(db, record, diagnostics)
@@ -487,7 +556,7 @@ async def _reconcile(db, client, record, clock, output, schemas, *, revalidate_c
         record = accept(db, record.preview.job_id, **_args(record),
             prompt_id=prompt_id, evidence=proof, revalidate_contract=True)
     native_subfolder = completed_history['outputs'][output['node_id']][output['history_key']][0]['subfolder']
-    return await _finish(db, client, record, clock, descriptor, proof, native_subfolder)
+    return await _finish(db, client, record, clock, descriptor, proof, native_subfolder, stop)
 
 
 def _save_diagnostics(db, record, diagnostics):
@@ -502,7 +571,8 @@ async def tick_anchor_unit_job(db: sqlite3.Connection, job_id: str, *, expected_
                             revalidate_contract: bool = False,
                             transport: httpx.AsyncBaseTransport | None = None,
                             clock_ms: Callable[[], int] = _clock,
-                            _portrait_only: bool = False) -> store.PortraitSubmissionV1:
+                             _portrait_only: bool = False, attempt_id: str | None = None,
+                             stop: asyncio.Event | None = None) -> store.PortraitSubmissionV1:
     """Advance one authorized portrait/background or exact finalized-reference sheet.
 
     Authorized sheet tick: at most two remote-original GETs before a conditional ONE POST;
@@ -521,7 +591,7 @@ async def tick_anchor_unit_job(db: sqlite3.Connection, job_id: str, *, expected_
     # The shared load requires finalized sheet pins even for direct worker calls, before HTTP.
     reader = store.read_portrait_submission if _portrait_only else store.read_anchor_unit_submission
     record = reader(db, job_id, expected_unit_digest=expected_unit_digest,
-                                           expected_wire_digest=expected_wire_digest)
+                    expected_wire_digest=expected_wire_digest, attempt_id=attempt_id)
     TypeAdapter(store.Revision).validate_python(expected_revision, strict=True)
     if record.revision != expected_revision:
         raise PortraitWorkerError('revision_conflict')
@@ -531,11 +601,13 @@ async def tick_anchor_unit_job(db: sqlite3.Connection, job_id: str, *, expected_
         raise PortraitWorkerError('revalidation_requires_owned_contract_block')
     if record.state in ('completed', 'failed'):
         return record
+    _active(db, record, stop)
     if record.reason == 'contract_error' and not revalidate_contract:
         return _block(db, record, 'contract_error')
     if record.state == 'authorized' and _now(clock_ms) >= record.deadline_ms:
         return store.fail_anchor_unit_submission(db, record.preview.job_id, **_args(record), reason='deadline_exceeded')
-    job = render_job_store.read_anchor_unit_job(db, job_id, expected_unit_digest=expected_unit_digest)
+    job = render_job_store.read_anchor_unit_job(db, job_id, expected_unit_digest=expected_unit_digest,
+                                              attempt_id=record.preview.attempt_id)
     image = json.loads(job.prepared_input.image_pin_json)
     output = image['expected_output']
     try:
@@ -554,8 +626,9 @@ async def tick_anchor_unit_job(db: sqlite3.Connection, job_id: str, *, expected_
     try:
         async with asyncio.timeout(TICK_TIMEOUT), client:
             if record.state == 'authorized':
-                return await _submit(db, client, record, clock_ms)
-            return await _reconcile(db, client, record, clock_ms, output, image['schemas'], revalidate_contract=revalidate_contract)
+                return await _submit(db, client, record, clock_ms, stop)
+            return await _reconcile(db, client, record, clock_ms, output, image['schemas'],
+                                    revalidate_contract=revalidate_contract, stop=stop)
     except PortraitWorkerError:
         raise
     except (ValueError, *HTTP_ERRORS):
@@ -566,8 +639,10 @@ async def tick_portrait_job(db: sqlite3.Connection, job_id: str, *, expected_uni
                            expected_wire_digest: str, expected_revision: int,
                            revalidate_contract: bool = False,
                            transport: httpx.AsyncBaseTransport | None = None,
-                           clock_ms: Callable[[], int] = _clock) -> store.PortraitSubmissionV1:
+                           clock_ms: Callable[[], int] = _clock,
+                           attempt_id: str | None = None) -> store.PortraitSubmissionV1:
     """Accepted 6A portrait-only entrypoint; reuse the exact bounded tick implementation."""
     return await tick_anchor_unit_job(db, job_id, expected_unit_digest=expected_unit_digest,
         expected_wire_digest=expected_wire_digest, expected_revision=expected_revision,
-        revalidate_contract=revalidate_contract, transport=transport, clock_ms=clock_ms, _portrait_only=True)
+        revalidate_contract=revalidate_contract, transport=transport, clock_ms=clock_ms,
+        _portrait_only=True, attempt_id=attempt_id)

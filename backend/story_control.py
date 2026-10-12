@@ -124,11 +124,14 @@ def retry_story_work(db: sqlite3.Connection, execution_id: str, work_id: str,
 
 
 class StoryRuntime:
-    def __init__(self, db, saver, produce_story, *, character_root: Path = DEFAULT_CHARACTER_ROOT):
+    def __init__(self, db, saver, produce_story, *, character_root: Path = DEFAULT_CHARACTER_ROOT,
+                 image_transport=None, image_clock_ms=None):
         self.db, self.saver, self.produce_story = db, saver, produce_story
         self.character_root = character_root
+        self.image_transport, self.image_clock_ms = image_transport, image_clock_ms
         self._stopping = asyncio.Event()
         self._running = None
+        self._active_work_ids = set()
         self._commands = set()
 
     def _open(self):
@@ -150,6 +153,21 @@ class StoryRuntime:
         from backend.image_group_store import start_image_execution
 
         return await self._start(start_image_execution, *args, **kwargs)
+
+    async def retry_images(self, *args, **kwargs):
+        from backend.image_group_store import retry_image_execution
+
+        return await self._start(retry_image_execution, *args, **kwargs)
+
+    async def continue_execution(self, *args, **kwargs):
+        from backend.continue_command import continue_execution
+
+        return await self._start(continue_execution, *args, active_work_ids=self._active_work_ids, **kwargs)
+
+    async def process_projection(self, execution_id):
+        from backend.continue_command import continue_projection
+
+        return await self._start(continue_projection, execution_id, active_work_ids=self._active_work_ids)
 
     async def _start(self, start, *args, **kwargs):
         self._open()
@@ -180,9 +198,15 @@ class StoryRuntime:
             raise ValueError("Story runner already active")
         self._running = asyncio.current_task()
         try:
+            options = {}
+            if self.image_transport is not None:
+                options['image_transport'] = self.image_transport
+            if self.image_clock_ms is not None:
+                options['image_clock_ms'] = self.image_clock_ms
             return await run_story_work(self.db, self.saver, self.produce_story, stop=self._stopping,
-                                        character_root=self.character_root)
+                                        character_root=self.character_root, active_work_ids=self._active_work_ids, **options)
         finally:
+            self._active_work_ids.clear()
             self._running = None
 
     async def close(self):
@@ -203,11 +227,13 @@ class StoryRuntime:
 
 
 @asynccontextmanager
-async def open_story_runtime(root: Path, produce_story, *, character_root: Path = DEFAULT_CHARACTER_ROOT):
+async def open_story_runtime(root: Path, produce_story, *, character_root: Path = DEFAULT_CHARACTER_ROOT,
+                             image_transport=None, image_clock_ms=None):
     """Stop active graph/saver writers before closing stores and releasing the root lock."""
     with open_database(root) as db:
         async with open_saver(root, db) as saver:
-            runtime = StoryRuntime(db, saver, produce_story, character_root=character_root)
+            runtime = StoryRuntime(db, saver, produce_story, character_root=character_root,
+                                   image_transport=image_transport, image_clock_ms=image_clock_ms)
             try:
                 yield runtime
             finally:

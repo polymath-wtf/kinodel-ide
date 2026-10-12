@@ -75,8 +75,10 @@ class AnchorParentResolverTests(fixtures.WardrobeFixtures, unittest.IsolatedAsyn
         return unit, job, candidate
 
     def complete(self, db, job, unit, candidate, *, through='completed'):
-        preview = submissions.preview_anchor_unit_submission(db, job.job_id, expected_unit_digest=unit.input_digest)
-        selectors: dict[str, Any] = dict(expected_unit_digest=unit.input_digest, expected_wire_digest=preview.wire_digest)
+        preview = submissions.preview_anchor_unit_submission(db, job.job_id, expected_unit_digest=unit.input_digest,
+                                                            attempt_id=job.attempt_id)
+        selectors: dict[str, Any] = dict(expected_unit_digest=unit.input_digest, expected_wire_digest=preview.wire_digest,
+                                        attempt_id=job.attempt_id)
         record = submissions.authorize_anchor_unit_submission(db, job.job_id, **selectors, accepted_at_ms=NOW)
         if through == 'authorized':
             return record
@@ -118,6 +120,29 @@ class AnchorParentResolverTests(fixtures.WardrobeFixtures, unittest.IsolatedAsyn
             self.resolve(db, batch, bindings, **changes)
         self.assertEqual(db.total_changes, before)
         self.assertFalse(db.in_transaction)
+
+    async def test_retry_parent_resolves_only_its_exact_completed_attempt_not_initial(self):
+        async with self.source() as (db, ref):
+            batch = self.batch(db, ref)
+            records, bindings = self.parent_pair(db, batch, complete=False)
+            unit, initial, candidate = records[0]
+            failed = self.complete(db, initial, unit, candidate, through='failed')
+            self.complete(db, records[1][1], records[1][0], records[1][2])
+            retry = jobs.allocate_anchor_unit_retry(db, initial.job_id, expected_unit_digest=unit.input_digest,
+                previous_attempt_id=initial.attempt_id, expected_previous_wire_digest=failed.preview.wire_digest,
+                expected_previous_revision=failed.revision, retry_trigger_id=ZERO)
+            imported = candidates.import_anchor_unit_candidate(db, retry.job_id, retry.attempt_id,
+                expected_unit_digest=unit.input_digest, descriptor=candidate.descriptor, stream=io.BytesIO(png()))
+            retry_bindings = [{**bindings[0], 'source_id': imported.candidate_id}, bindings[1]]
+            self.assert_rejected(db, batch, retry_bindings)
+            completed = self.complete(db, retry, unit, imported)
+            resolved = self.resolve(db, batch, retry_bindings)
+            self.assertEqual((resolved[0].candidate_id, resolved[0].attempt_id), (imported.candidate_id, retry.attempt_id))
+            self.assert_rejected(db, batch, bindings)
+            with self.assertRaises(ValueError):
+                jobs.allocate_anchor_unit_retry(db, retry.job_id, expected_unit_digest=unit.input_digest,
+                    previous_attempt_id=retry.attempt_id, expected_previous_wire_digest=completed.preview.wire_digest,
+                    expected_previous_revision=completed.revision, retry_trigger_id=ZERO)
 
     async def test_exact_unapproved_completed_pair_before_preparation_and_offline_reopen(self):
         async with self.source() as (db, ref):

@@ -4,12 +4,13 @@ import { createCommand, deliverCommand, pendingCommands, saveCommand, type Comma
 
 type FeedbackTag = { status: 'sending' | 'accepted' | 'error'; execution_id: string | null; command?: Command };
 const storageWarning = 'Хранилище браузера недоступно или повреждено. Отправка отключена; сохранённые запуски можно читать. Проверьте разрешения браузера и перезагрузите страницу.';
-const commandExecution = (c: Command) => c.execution_id ?? c.receipt?.execution_id ?? null;
+const commandExecution = (c: Command) => c.execution_id ?? (c.receipt && 'execution_id' in c.receipt ? c.receipt.execution_id ?? null : null);
 function acceptedMessage(c: Command) {
   switch (c.kind) {
     case 'start': return 'Запуск принят. Создаём историю.';
     case 'cancel': return 'Отмена принята. Останавливаем запуск.';
     case 'retry': return 'Повтор работы принят. Следим за запуском.';
+    case 'continue': return 'Продолжение принято. Обновляем сохранённый процесс; это не approval.';
     case 'respond': return { clarify: 'Вопрос принят. Storytell готовит ответ.', revise: 'Правка принята. Storytell обновляет историю.',
       approve: 'Решение принято. Обновляем статус Story.' }[JSON.parse(c.payload).action as 'clarify' | 'revise' | 'approve'];
   }
@@ -68,9 +69,11 @@ export function useCommands(resolved: (command: Command) => Promise<void>) {
   return { pending, storageError, feedback, feedbackTag, ready, blocked, submit, resume, repeat: deliver };
 }
 export type Commands = ReturnType<typeof useCommands>;
-export function DeliveryStatus({ commands, execution, placement = 'inline' }: { commands: Commands; execution: string | null; placement?: 'inline' | 'menu' }) {
-  const pending = commands.pending.filter(c => commandExecution(c) === execution);
-  const tag = commands.feedbackTag?.execution_id === execution ? commands.feedbackTag : null;
+export function DeliveryStatus({ commands, execution, relatedExecutions = [], placement = 'inline' }: { commands: Commands; execution: string | null; relatedExecutions?: string[]; placement?: 'inline' | 'menu' }) {
+  // Only the backend-resolved source/effective linkage may share a delivery surface.
+  const executions = [execution, ...relatedExecutions];
+  const pending = commands.pending.filter(c => executions.includes(commandExecution(c)));
+  const tag = commands.feedbackTag && executions.includes(commands.feedbackTag.execution_id) ? commands.feedbackTag : null;
   if (placement === 'menu') return tag?.status === 'accepted' && <section className="delivery-status" aria-label="Доставка команд">
     <p className="muted" role="status">{commands.feedback}</p><details><summary>Доставка подтверждена</summary><pre>{JSON.stringify(tag.command?.receipt, null, 2)}</pre></details>
   </section>;

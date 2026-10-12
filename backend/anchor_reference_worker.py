@@ -34,7 +34,7 @@ class AnchorReferenceWorkerError(ValueError):
 
 def _args(record, *, revision=True):
     args: dict[str, Any] = dict(expected_project_id=record.intent.project_id, expected_unit_digest=record.intent.unit_input_digest,
-                expected_intent_digest=record.intent_digest)
+                expected_intent_digest=record.intent_digest, attempt_id=record.intent.attempt_id)
     if revision:
         args['expected_revision'] = record.revision
     return args
@@ -48,7 +48,17 @@ def _read(db, job_id, **selectors):
     # OSError remains a real storage failure; never reinterpret it as native ambiguity.
 
 
-def _fresh(db, record):
+def _active(db, record, stop=None):
+    if stop is not None and stop.is_set():
+        raise AnchorReferenceWorkerError('worker_stopped')
+    try:
+        jobs.assert_anchor_attempt_writable(db, record.intent.job_id, record.intent.attempt_id)
+    except ValueError:
+        raise AnchorReferenceWorkerError('consumer_not_writable') from None
+
+
+def _fresh(db, record, stop=None):
+    _active(db, record, stop)
     if _read(db, record.intent.job_id, **_args(record, revision=False)) != record:
         raise AnchorReferenceWorkerError('reference_revision_conflict')
 
@@ -56,7 +66,8 @@ def _fresh(db, record):
 def _originals(db, record):
     """Resolve current exact local originals before each effect (not stored media bodies)."""
     try:
-        job = jobs.read_anchor_unit_job(db, record.intent.job_id, expected_unit_digest=record.intent.unit_input_digest)
+        job = jobs.read_anchor_unit_job(db, record.intent.job_id, expected_unit_digest=record.intent.unit_input_digest,
+                                       attempt_id=record.intent.attempt_id)
         parent = record.intent.references[0].parent
         resolved = resolver.resolve_sheet_parents(db, parent.batch_id, job.prepared_input.unit_key,
             expected_batch_digest=parent.batch_input_digest, expected_project_id=record.intent.project_id,
@@ -97,7 +108,8 @@ def _block(db, record, role, reason):
     return store.block_anchor_reference(db, record.intent.job_id, role=role, reason=reason, **_args(record))
 
 
-async def _upload(db, client, record, index):
+async def _upload(db, client, record, index, stop=None):
+    _active(db, record, stop)
     original = _originals(db, record)[index].original_bytes
     upload = record.intent.references[index]
     # Fresh successful CAS grants the ONE POST. Every reopened dispatch marker is sent-possible.
@@ -105,12 +117,14 @@ async def _upload(db, client, record, index):
     try:
         async with asyncio.timeout(native.REQUEST_TIMEOUT), client.stream('POST', 'upload/image',
             files={'image': (upload.name, original, 'image/png')},
-            data={'type': 'input', 'overwrite': 'false', 'subfolder': upload.subfolder}) as response:
+             data={'type': 'input', 'overwrite': 'false', 'subfolder': upload.subfolder}) as response:
+            _active(db, dispatched, stop)
             if response.status_code != 200:
                 raise native._ProtocolError('upload_status')
             length = native._headers(response, native.MAX_JSON_BYTES, 'application/json')
             body = io.BytesIO()
-            await native._stream_body(response, native.MAX_JSON_BYTES, length, body)
+            await native._stream_body(response, native.MAX_JSON_BYTES, length, body,
+                                      lambda: _active(db, dispatched, stop))
             data = body.getvalue()
             try:
                 data.decode('utf-8')
@@ -121,10 +135,12 @@ async def _upload(db, client, record, index):
             except (ValueError, UnicodeError, RecursionError):
                 raise native._ProtocolError('upload_json') from None
     except native.HTTP_ERRORS:
+        _active(db, dispatched, stop)
         return _block(db, dispatched, upload.role, 'acceptance_unknown')
     except native._ProtocolError:
+        _active(db, dispatched, stop)
         return _block(db, dispatched, upload.role, 'receipt_invalid')
-    _fresh(db, dispatched)
+    _fresh(db, dispatched, stop)
     try:
         # Validate actual native fields/namespace, commit them BEFORE any GET.
         return store.record_anchor_reference_receipt(db, record.intent.job_id, role=upload.role,
@@ -147,7 +163,8 @@ class _OriginalHash:
         return 'sha256:' + self.checksum.hexdigest()
 
 
-async def _remote_original(db, client, record, index, *, timeout=native.REQUEST_TIMEOUT):
+async def _remote_original(db, client, record, index, *, timeout=native.REQUEST_TIMEOUT, stop=None):
+    _active(db, record, stop)
     _originals(db, record)  # Local rights/bytes are checked immediately before this GET.
     item, receipt = record.intent.references[index], record.references[index].receipt
     if receipt is None:
@@ -155,12 +172,14 @@ async def _remote_original(db, client, record, index, *, timeout=native.REQUEST_
     sink = _OriginalHash()
     async with asyncio.timeout(timeout), client.stream('GET', 'view', params={
         'filename': receipt.name, 'subfolder': receipt.native_subfolder, 'type': receipt.type,
-    }, headers={'Accept': 'image/png'}) as response:
+     }, headers={'Accept': 'image/png'}) as response:
+        _active(db, record, stop)
         if response.status_code != 200:
             raise native._ProtocolError('reference_view_status')
         length = native._headers(response, candidates.MAX_PNG_BYTES, 'image/png')
-        await native._stream_body(response, candidates.MAX_PNG_BYTES, length, sink)
-    _fresh(db, record)
+        await native._stream_body(response, candidates.MAX_PNG_BYTES, length, sink,
+                                  lambda: _active(db, record, stop))
+    _fresh(db, record, stop)
     if (sink.digest, sink.byte_length) != (item.parent.digest, item.parent.byte_length):
         raise native._ProtocolError('reference_original_mismatch')
     # Exact hash/length equality to the already decoded local PNG proves original
@@ -168,11 +187,12 @@ async def _remote_original(db, client, record, index, *, timeout=native.REQUEST_
     return sink.digest, sink.byte_length
 
 
-async def _verify(db, client, record, index):
+async def _verify(db, client, record, index, stop=None):
     role = record.intent.references[index].role
     try:
-        digest, length = await _remote_original(db, client, record, index)
+        digest, length = await _remote_original(db, client, record, index, stop=stop)
     except (*native.HTTP_ERRORS, native._ProtocolError):
+        _active(db, record, stop)
         return _block(db, record, role, 'remote_invalid')
     receipt = record.references[index].receipt
     assert receipt is not None
@@ -183,7 +203,8 @@ async def _verify(db, client, record, index):
 
 async def tick_anchor_references(db: sqlite3.Connection, job_id: str, *, expected_project_id: str,
         expected_unit_digest: str, expected_intent_digest: str, expected_revision: int,
-        transport: httpx.AsyncBaseTransport | None = None) -> store.AnchorReferenceTransferV1:
+        transport: httpx.AsyncBaseTransport | None = None, attempt_id: str | None = None,
+        stop: asyncio.Event | None = None) -> store.AnchorReferenceTransferV1:
     """One role/tick: at most one multipart POST + one original GET, then local finalize.
 
     Authorized reference intent is required. Unknown upload acceptance NEVER retries
@@ -191,12 +212,13 @@ async def tick_anchor_references(db: sqlite3.Connection, job_id: str, *, expecte
     return offline without current endpoint configuration or HTTP client creation.
     """
     record = _read(db, job_id, expected_project_id=expected_project_id, expected_unit_digest=expected_unit_digest,
-                   expected_intent_digest=expected_intent_digest)
+                   expected_intent_digest=expected_intent_digest, attempt_id=attempt_id)
     TypeAdapter(store.Revision).validate_python(expected_revision, strict=True)
     if record.revision != expected_revision:
         raise AnchorReferenceWorkerError('reference_revision_conflict')
     if record.state == 'finalized':
         return record
+    _active(db, record, stop)
     index = next((i for i, item in enumerate(record.references) if item.state != 'verified'), None)
     if index is None:
         return store.finalize_anchor_references(db, job_id, **_args(record))
@@ -211,10 +233,10 @@ async def tick_anchor_references(db: sqlite3.Connection, job_id: str, *, expecte
     try:
         async with asyncio.timeout(native.TICK_TIMEOUT), client:
             if facts.state == 'ready':
-                record = await _upload(db, client, record, index)
+                record = await _upload(db, client, record, index, stop)
             if record.references[index].receipt is None:
                 return record
-            record = await _verify(db, client, record, index)
+            record = await _verify(db, client, record, index, stop)
             if all(item.state == 'verified' for item in record.references):
                 record = store.finalize_anchor_references(db, job_id, **_args(record))
             return record
@@ -225,7 +247,7 @@ async def tick_anchor_references(db: sqlite3.Connection, job_id: str, *, expecte
 
 
 async def verify_sheet_remote_inputs(db: sqlite3.Connection, client: httpx.AsyncClient,
-        submission: submissions.SheetSubmissionV1, clock_ms: Callable[[], int]) -> None:
+        submission: submissions.SheetSubmissionV1, clock_ms: Callable[[], int], *, stop: asyncio.Event | None = None) -> None:
     """GET-only first-prompt readiness. Failure leaves the sheet definitely UNSENT.
 
     Revalidate BOTH final receipt originals and local source/parents between awaits;
@@ -234,14 +256,15 @@ async def verify_sheet_remote_inputs(db: sqlite3.Connection, client: httpx.Async
     """
     preview = submission.preview
     record = _read(db, preview.job_id, expected_project_id=preview.source_plan_ref.project_id,
-        expected_unit_digest=preview.unit_input_digest, expected_intent_digest=preview.reference_intent_digest)
+        expected_unit_digest=preview.unit_input_digest, expected_intent_digest=preview.reference_intent_digest,
+        attempt_id=preview.attempt_id)
     if record.state != 'finalized' or sha256_digest(canonical_json(record)) != preview.final_reference_digest:
         raise AnchorReferenceWorkerError('final_reference_pin_mismatch')
     try:
         for index in (0, 1):
-            native._fresh(db, submission)
-            await _remote_original(db, client, record, index, timeout=native._budget(submission, clock_ms))
-            native._fresh(db, submission)
+            native._fresh(db, submission, stop)
+            await _remote_original(db, client, record, index, timeout=native._budget(submission, clock_ms), stop=stop)
+            native._fresh(db, submission, stop)
         _originals(db, record)
         native._budget(submission, clock_ms)  # No stale/expired claim after the last await.
     except (*native.HTTP_ERRORS, native._ProtocolError):

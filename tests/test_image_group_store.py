@@ -388,11 +388,13 @@ class ImageGroupMigrationTests(unittest.TestCase):
                          for r in self.schema if r[0] == 'table'}
 
     def test_actual_populated_db19_adds_only_group_table_preserving_old_rows_rowids_schema(self):
-        self.assertEqual(database.SCHEMA_VERSION, 20, 'Image group requires additive DB20')
+        self.assertEqual([r for r in database._expected_schema(20) if r[1] != 'image_groups'], self.schema)
         for _ in range(2):
             with database.open_database(self.root) as db:
-                self.assertEqual(db.execute('PRAGMA user_version').fetchone(), (20,))
-                self.assertEqual([r for r in database._schema(db) if r[1] != 'image_groups'], self.schema)
+                self.assertEqual(db.execute('PRAGMA user_version').fetchone(), (database.SCHEMA_VERSION,))
+                self.assertEqual([r for r in database._schema(db) if r[1] not in
+                    ('image_groups', 'render_retry_allocations', *database_tests.GROUP_RESULT_TABLES)],
+                    database_tests.retry_migrated_schema(self.schema))
                 self.assertEqual({t: db.execute(f'SELECT rowid,* FROM {t} ORDER BY rowid').fetchall()
                                   for t in self.rows}, self.rows)
                 self.assertEqual(db.execute('SELECT COUNT(*) FROM image_groups').fetchone(), (0,))

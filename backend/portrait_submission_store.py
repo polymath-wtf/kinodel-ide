@@ -1,4 +1,4 @@
-"""Private durable authorization/facts for initial portrait and background anchors.
+"""Private durable authorization/facts for exact allocated anchor attempts.
 
 Caller owns the data-root OS lock; caller transactions are refused. No HTTP, worker,
 retry allocator or graph lifecycle lives here. Only a successful *new* dispatch claim
@@ -173,14 +173,21 @@ class SheetSubmissionV1(AnchorUnitSubmissionV1):
     preview: SheetSubmissionPreviewV1
 
 
-def _row(db, job_id):
+def _row(db, job_id, attempt_id=None):
+    if attempt_id is None:
+        job = render_job_store._row(db, job_id)
+        if job is None:
+            return None
+        attempt_id = job[4]
+    TypeAdapter(ExactDigest).validate_python(attempt_id, strict=True)
     return db.execute('SELECT attempt_id,job_id,wire_digest,submission_digest,submission_body,revision,state,'
-                      'prompt_id,candidate_id FROM portrait_submissions WHERE job_id=?', (job_id,)).fetchone()
+                      'prompt_id,candidate_id FROM portrait_submissions WHERE job_id=? AND attempt_id=?',
+                      (job_id, attempt_id)).fetchone()
 
 
-def _preview(db, job_id, expected_unit_digest, portrait_only=False):
+def _preview(db, job_id, expected_unit_digest, portrait_only=False, attempt_id=None):
     reader = render_job_store.read_portrait_job if portrait_only else render_job_store.read_anchor_unit_job
-    job = reader(db, job_id, expected_unit_digest=expected_unit_digest)
+    job = reader(db, job_id, expected_unit_digest=expected_unit_digest, attempt_id=attempt_id)
     references = _require_native_ready(db, job)
     intent = json.loads(job.intent_body)
     batch = batch_store.read_batch_input(db, intent['batch_id'])
@@ -220,7 +227,7 @@ def _preview(db, job_id, expected_unit_digest, portrait_only=False):
         endpoint_digest=connection.endpoint_digest, wire_body_json=wire_json,
         wire_digest=sha256_digest(wire_json.encode('utf-8')))
     # Recheck the exact binding under each write transaction, without I/O inside SQL.
-    bindings = (job_id, intent['batch_id'], intent['unit_key'])
+    bindings = (job_id, intent['batch_id'], intent['unit_key'], job.attempt_id)
     return preview, bindings, _binding_rows(db, *bindings)
 
 
@@ -229,7 +236,7 @@ def _require_native_ready(db, job: render_job_store.AnchorUnitJobV1):
         return None
     # Local import avoids resolver -> parent submission -> reference store cycle.
     from backend import anchor_reference_store as references
-    row = references._row(db, job.job_id)
+    row = references._row(db, job.job_id, job.attempt_id)
     if row is None:
         raise ValueError('sheet native submission requires exact finalized reference pins')
     stored = references._stored(row)  # SQL selector is validated, never caller-provided readiness.
@@ -237,14 +244,15 @@ def _require_native_ready(db, job: render_job_store.AnchorUnitJobV1):
         raise ValueError('sheet native submission requires exact finalized reference pins')
     intent = json.loads(job.intent_body)
     return references.read_anchor_reference_transfer(db, job.job_id, expected_project_id=intent['project_id'],
-        expected_unit_digest=intent['unit_input_digest'], expected_intent_digest=stored.intent_digest)
+        expected_unit_digest=intent['unit_input_digest'], expected_intent_digest=stored.intent_digest,
+        attempt_id=job.attempt_id)
 
 
-def _binding_rows(db, job_id, batch_id, unit_key):
-    rows = portrait_candidate_store._binding_rows(db, job_id, batch_id, unit_key)
+def _binding_rows(db, job_id, batch_id, unit_key, attempt_id=None):
+    rows = portrait_candidate_store._binding_rows(db, job_id, batch_id, unit_key, attempt_id)
     if rows and rows[0] is not None and json.loads(rows[0][6]).get('kind') == 'sheet':
         from backend import anchor_reference_store as references
-        return (*rows, references._row(db, job_id))
+        return (*rows, references._row(db, job_id, attempt_id))
     return rows
 
 
@@ -279,30 +287,32 @@ def _restore(db, row, preview):
 
 
 def preview_anchor_unit_submission(db: sqlite3.Connection, job_id: str, *,
-                                expected_unit_digest: str, _portrait_only: bool = False) -> PortraitSubmissionPreviewV1:
+                                expected_unit_digest: str, _portrait_only: bool = False,
+                                attempt_id: str | None = None) -> PortraitSubmissionPreviewV1:
     """Offline deterministic preview. Preparation/preview/5A intent never authorize a send."""
-    preview, _, _ = _preview(db, job_id, expected_unit_digest, _portrait_only)
-    row = _row(db, job_id)
+    preview, _, _ = _preview(db, job_id, expected_unit_digest, _portrait_only, attempt_id)
+    row = _row(db, job_id, preview.attempt_id)
     if row is not None:
         _restore(db, row, preview)
     return preview
 
 
-def _load(db, job_id, expected_unit_digest, expected_wire_digest, portrait_only=False):
+def _load(db, job_id, expected_unit_digest, expected_wire_digest, portrait_only=False, attempt_id=None):
     TypeAdapter(ExactDigest).validate_python(expected_wire_digest, strict=True)
-    preview, bindings, pins = _preview(db, job_id, expected_unit_digest, portrait_only)
+    preview, bindings, pins = _preview(db, job_id, expected_unit_digest, portrait_only, attempt_id)
     if preview.wire_digest != expected_wire_digest:
         raise ValueError('Native wire selector conflicts with exact frozen portrait')
-    row = _row(db, job_id)
+    row = _row(db, job_id, preview.attempt_id)
     if row is None:
         raise LookupError('Portrait submission is not explicitly authorized')
     return _restore(db, row, preview), row, bindings, pins
 
 
 def read_anchor_unit_submission(db: sqlite3.Connection, job_id: str, *, expected_unit_digest: str,
-                             expected_wire_digest: str, _portrait_only: bool = False) -> PortraitSubmissionV1:
+                              expected_wire_digest: str, _portrait_only: bool = False,
+                              attempt_id: str | None = None) -> PortraitSubmissionV1:
     """Read restricted durable facts. No returned state grants permission to POST."""
-    return _load(db, job_id, expected_unit_digest, expected_wire_digest, _portrait_only)[0]
+    return _load(db, job_id, expected_unit_digest, expected_wire_digest, _portrait_only, attempt_id)[0]
 
 
 def _assert_pins(db, bindings, pins):
@@ -313,14 +323,14 @@ def _assert_pins(db, bindings, pins):
 def authorize_anchor_unit_submission(db: sqlite3.Connection, job_id: str, *, expected_unit_digest: str,
                                   expected_wire_digest: str, accepted_at_ms: int,
                                   job_timeout_ms: int = DEFAULT_JOB_TIMEOUT_MS,
-                                  _portrait_only: bool = False) -> PortraitSubmissionV1:
+                                  _portrait_only: bool = False, attempt_id: str | None = None) -> PortraitSubmissionV1:
     """Trusted caller's explicit accepted intent; replay preserves original budget and all facts."""
     _committed(db)
     TypeAdapter(ExactDigest).validate_python(expected_wire_digest, strict=True)
     TypeAdapter(Timestamp).validate_python(accepted_at_ms, strict=True)
     if type(job_timeout_ms) is not int or not 0 < job_timeout_ms <= MAX_JOB_TIMEOUT_MS:
         raise ValueError('Portrait budget must be between 1 ms and one hour')
-    preview, bindings, pins = _preview(db, job_id, expected_unit_digest, _portrait_only)
+    preview, bindings, pins = _preview(db, job_id, expected_unit_digest, _portrait_only, attempt_id)
     if preview.wire_digest != expected_wire_digest:
         raise ValueError('Authorization conflicts with the previewed native wire')
     model, fields = (PortraitSubmissionV1, {}) if type(preview) is PortraitSubmissionPreviewV1 else (
@@ -329,7 +339,7 @@ def authorize_anchor_unit_submission(db: sqlite3.Connection, job_id: str, *, exp
         model = SheetSubmissionV1
     authorized = model(**fields, schema_version='1', preview=preview, state='authorized', revision=0,
                                      accepted_at_ms=accepted_at_ms, deadline_ms=accepted_at_ms + job_timeout_ms)
-    row = _row(db, job_id)
+    row = _row(db, job_id, preview.attempt_id)
     if row is not None:
         record = _restore(db, row, preview)
         if (record.accepted_at_ms, record.deadline_ms) != (authorized.accepted_at_ms, authorized.deadline_ms):
@@ -337,6 +347,7 @@ def authorize_anchor_unit_submission(db: sqlite3.Connection, job_id: str, *, exp
         return record
     with _transaction(db):
         _assert_pins(db, bindings, pins)
+        render_job_store.assert_anchor_attempt_writable(db, job_id, preview.attempt_id)
         db.execute('INSERT INTO portrait_submissions VALUES (?,?,?,?,?,?,?,?,?)', _values(authorized))
     return authorized
 
@@ -353,13 +364,14 @@ def _change(db, loaded, expected_revision, allowed, *, replay=True, **updates):
     candidate_row = _candidate(db, desired) if desired.candidate_id is not None else None
     with _transaction(db):
         _assert_pins(db, bindings, pins)
-        if _row(db, record.preview.job_id) != row:
+        render_job_store.assert_anchor_attempt_writable(db, record.preview.job_id, record.preview.attempt_id)
+        if _row(db, record.preview.job_id, record.preview.attempt_id) != row:
             raise ValueError('Portrait submission changed before CAS commit')
         if candidate_row is not None and portrait_candidate_store._row(db, desired.candidate_id) != candidate_row:
             raise ValueError('Completed candidate changed before CAS commit')
         result = db.execute('UPDATE portrait_submissions SET attempt_id=?,job_id=?,wire_digest=?,submission_digest=?,'
-            'submission_body=?,revision=?,state=?,prompt_id=?,candidate_id=? WHERE job_id=? AND revision=? '
-            'AND submission_digest=?', (*_values(desired), record.preview.job_id, expected_revision, row[3]))
+            'submission_body=?,revision=?,state=?,prompt_id=?,candidate_id=? WHERE job_id=? AND attempt_id=? AND revision=? '
+            'AND submission_digest=?', (*_values(desired), record.preview.job_id, record.preview.attempt_id, expected_revision, row[3]))
         if result.rowcount != 1:
             raise ValueError('Portrait submission CAS conflict')
     return desired
@@ -367,9 +379,9 @@ def _change(db, loaded, expected_revision, allowed, *, replay=True, **updates):
 
 def claim_anchor_unit_dispatch(db: sqlite3.Connection, job_id: str, *, expected_unit_digest: str,
                             expected_wire_digest: str, expected_revision: int, now_ms: int,
-                            _portrait_only: bool = False) -> PortraitSubmissionV1:
+                            _portrait_only: bool = False, attempt_id: str | None = None) -> PortraitSubmissionV1:
     """Commit potentially-sent marker BEFORE HTTP. Duplicate claims always fail, even exact replay."""
-    loaded = _load(db, job_id, expected_unit_digest, expected_wire_digest, _portrait_only)
+    loaded = _load(db, job_id, expected_unit_digest, expected_wire_digest, _portrait_only, attempt_id)
     TypeAdapter(Timestamp).validate_python(now_ms, strict=True)
     return _change(db, loaded, expected_revision, ('authorized',), replay=False,
                    state='dispatching', dispatched_at_ms=now_ms)
@@ -377,13 +389,14 @@ def claim_anchor_unit_dispatch(db: sqlite3.Connection, job_id: str, *, expected_
 
 def record_submission_diagnostics(db: sqlite3.Connection, job_id: str, *, expected_unit_digest: str,
                                   expected_wire_digest: str, expected_revision: int,
-                                  diagnostics: list[SubmissionDiagnosticV1 | dict]) -> PortraitSubmissionV1:
+                                  diagnostics: list[SubmissionDiagnosticV1 | dict],
+                                  attempt_id: str | None = None) -> PortraitSubmissionV1:
     """Append bounded first-seen facts using the same short transaction/CAS as lifecycle writes.
 
     The trusted adapter has proved these malformed records unrelated. No raw payload,
     acceptance, lifecycle transition, time renewal or dispatch permission is recorded.
     """
-    loaded = _load(db, job_id, expected_unit_digest, expected_wire_digest)
+    loaded = _load(db, job_id, expected_unit_digest, expected_wire_digest, attempt_id=attempt_id)
     record = loaded[0]
     TypeAdapter(Revision).validate_python(expected_revision, strict=True)
     incoming = TypeAdapter(Annotated[list[SubmissionDiagnosticV1], Field(strict=True, max_length=4096)]).validate_python(diagnostics)
@@ -401,7 +414,7 @@ def record_submission_diagnostics(db: sqlite3.Connection, job_id: str, *, expect
 def authorize_anchor_unit_output_recovery(db: sqlite3.Connection, job_id: str, *, expected_unit_digest: str,
                                       expected_wire_digest: str, expected_revision: int, now_ms: int,
                                       timeout_ms: int = MAX_OUTPUT_RECOVERY_MS,
-                                      _portrait_only: bool = False) -> PortraitSubmissionV1:
+                                      _portrait_only: bool = False, attempt_id: str | None = None) -> PortraitSubmissionV1:
     """One explicit GET/import-only window for an already accepted prompt after expiry.
 
     Never dispatch permission, a charged attempt or a renewed original budget. Exact
@@ -409,7 +422,7 @@ def authorize_anchor_unit_output_recovery(db: sqlite3.Connection, job_id: str, *
     time/budget or stale revision conflicts; no automatic refresh or second grant.
     The worker still proves successful declared history before using this allowance.
     """
-    loaded = _load(db, job_id, expected_unit_digest, expected_wire_digest, _portrait_only)
+    loaded = _load(db, job_id, expected_unit_digest, expected_wire_digest, _portrait_only, attempt_id)
     record = loaded[0]
     TypeAdapter(Revision).validate_python(expected_revision, strict=True)
     TypeAdapter(Timestamp).validate_python(now_ms, strict=True)
@@ -433,7 +446,8 @@ def authorize_anchor_unit_output_recovery(db: sqlite3.Connection, job_id: str, *
 def record_anchor_unit_acceptance(db: sqlite3.Connection, job_id: str, *, expected_unit_digest: str,
                                expected_wire_digest: str, expected_revision: int, prompt_id: str,
                                evidence: PortraitSubmissionEvidenceV1 | dict,
-                               revalidate_contract: bool = False, _portrait_only: bool = False) -> PortraitSubmissionV1:
+                               revalidate_contract: bool = False, _portrait_only: bool = False,
+                               attempt_id: str | None = None) -> PortraitSubmissionV1:
     """Persist response ID FIRST, independent of node_errors/output checks in the future adapter.
 
     A blocked request recovers only via adapter-verified exact queue/history evidence.
@@ -443,7 +457,7 @@ def record_anchor_unit_acceptance(db: sqlite3.Connection, job_id: str, *, expect
     the first proven ID/evidence together. Caller retains the original block in
     restricted audit before requesting this correction, not a new render.
     """
-    loaded = _load(db, job_id, expected_unit_digest, expected_wire_digest, _portrait_only)
+    loaded = _load(db, job_id, expected_unit_digest, expected_wire_digest, _portrait_only, attempt_id)
     record = loaded[0]
     proof = PortraitSubmissionEvidenceV1.model_validate(evidence)
     if type(revalidate_contract) is not bool:
@@ -467,9 +481,9 @@ def record_anchor_unit_acceptance(db: sqlite3.Connection, job_id: str, *, expect
 
 def block_anchor_unit_submission(db: sqlite3.Connection, job_id: str, *, expected_unit_digest: str,
                               expected_wire_digest: str, expected_revision: int, reason: Reason,
-                              _portrait_only: bool = False) -> PortraitSubmissionV1:
+                              _portrait_only: bool = False, attempt_id: str | None = None) -> PortraitSubmissionV1:
     """Ambiguous acceptance/history remains nonterminal and cannot dispatch again."""
-    loaded = _load(db, job_id, expected_unit_digest, expected_wire_digest, _portrait_only)
+    loaded = _load(db, job_id, expected_unit_digest, expected_wire_digest, _portrait_only, attempt_id)
     TypeAdapter(Reason).validate_python(reason, strict=True)
     if reason == 'provider_failed' or (reason == 'acceptance_unknown' and loaded[0].prompt_id is not None):
         raise ValueError('Block reason conflicts with known provider facts')
@@ -479,13 +493,13 @@ def block_anchor_unit_submission(db: sqlite3.Connection, job_id: str, *, expecte
 def fail_anchor_unit_submission(db: sqlite3.Connection, job_id: str, *, expected_unit_digest: str,
                              expected_wire_digest: str, expected_revision: int, reason: Reason,
                              evidence: PortraitSubmissionEvidenceV1 | dict | None = None,
-                             _portrait_only: bool = False) -> PortraitSubmissionV1:
+                             _portrait_only: bool = False, attempt_id: str | None = None) -> PortraitSubmissionV1:
     """Terminal failure, never a retry allocator; retain any accepted ID/evidence.
 
     After dispatch, an unknown prompt ID must remain blocked even on deadline expiry.
     No local transport/contract failure proves provider nonacceptance.
     """
-    loaded = _load(db, job_id, expected_unit_digest, expected_wire_digest, _portrait_only)
+    loaded = _load(db, job_id, expected_unit_digest, expected_wire_digest, _portrait_only, attempt_id)
     TypeAdapter(Reason).validate_python(reason, strict=True)
     if reason in ('acceptance_unknown', 'history_unavailable'):
         raise ValueError('Unknown provider outcome is blocked, not terminal failure')
@@ -499,13 +513,13 @@ def fail_anchor_unit_submission(db: sqlite3.Connection, job_id: str, *, expected
 def complete_anchor_unit_submission(db: sqlite3.Connection, job_id: str, *, expected_unit_digest: str,
                                  expected_wire_digest: str, expected_revision: int, candidate_id: str,
                                  evidence: PortraitSubmissionEvidenceV1 | dict,
-                                 _portrait_only: bool = False) -> PortraitSubmissionV1:
+                                 _portrait_only: bool = False, attempt_id: str | None = None) -> PortraitSubmissionV1:
     """Bind an already verified 5B candidate after adapter-verified successful declared history.
 
     Candidate identity/media are never changed here; this is neither creative approval
     nor a selected asset. Evidence parsing and provider-success checks belong to HTTP.
     """
-    loaded = _load(db, job_id, expected_unit_digest, expected_wire_digest, _portrait_only)
+    loaded = _load(db, job_id, expected_unit_digest, expected_wire_digest, _portrait_only, attempt_id)
     proof = PortraitSubmissionEvidenceV1.model_validate(evidence)
     return _change(db, loaded, expected_revision, ('accepted', 'blocked'), state='completed',
                     candidate_id=candidate_id, evidence=proof)
@@ -514,63 +528,73 @@ def complete_anchor_unit_submission(db: sqlite3.Connection, job_id: str, *, expe
 # Accepted 6A entrypoints stay portrait-only. Shared implementations above do not
 # broaden old callers; empty diagnostics preserve the original canonical body.
 def preview_portrait_submission(db: sqlite3.Connection, job_id: str, *,
-                                expected_unit_digest: str) -> PortraitSubmissionPreviewV1:
-    return preview_anchor_unit_submission(db, job_id, expected_unit_digest=expected_unit_digest, _portrait_only=True)
+                                expected_unit_digest: str, attempt_id: str | None = None) -> PortraitSubmissionPreviewV1:
+    return preview_anchor_unit_submission(db, job_id, expected_unit_digest=expected_unit_digest,
+                                          _portrait_only=True, attempt_id=attempt_id)
 
 
 def read_portrait_submission(db: sqlite3.Connection, job_id: str, *, expected_unit_digest: str,
-                             expected_wire_digest: str) -> PortraitSubmissionV1:
+                              expected_wire_digest: str, attempt_id: str | None = None) -> PortraitSubmissionV1:
     return read_anchor_unit_submission(db, job_id, expected_unit_digest=expected_unit_digest,
-                                      expected_wire_digest=expected_wire_digest, _portrait_only=True)
+                                      expected_wire_digest=expected_wire_digest, _portrait_only=True, attempt_id=attempt_id)
 
 
 def authorize_portrait_submission(db: sqlite3.Connection, job_id: str, *, expected_unit_digest: str,
                                   expected_wire_digest: str, accepted_at_ms: int,
-                                  job_timeout_ms: int = DEFAULT_JOB_TIMEOUT_MS) -> PortraitSubmissionV1:
+                                  job_timeout_ms: int = DEFAULT_JOB_TIMEOUT_MS,
+                                  attempt_id: str | None = None) -> PortraitSubmissionV1:
     return authorize_anchor_unit_submission(db, job_id, expected_unit_digest=expected_unit_digest,
-        expected_wire_digest=expected_wire_digest, accepted_at_ms=accepted_at_ms, job_timeout_ms=job_timeout_ms, _portrait_only=True)
+        expected_wire_digest=expected_wire_digest, accepted_at_ms=accepted_at_ms, job_timeout_ms=job_timeout_ms,
+        _portrait_only=True, attempt_id=attempt_id)
 
 
 def claim_portrait_dispatch(db: sqlite3.Connection, job_id: str, *, expected_unit_digest: str,
-                            expected_wire_digest: str, expected_revision: int, now_ms: int) -> PortraitSubmissionV1:
+                            expected_wire_digest: str, expected_revision: int, now_ms: int,
+                            attempt_id: str | None = None) -> PortraitSubmissionV1:
     return claim_anchor_unit_dispatch(db, job_id, expected_unit_digest=expected_unit_digest,
-        expected_wire_digest=expected_wire_digest, expected_revision=expected_revision, now_ms=now_ms, _portrait_only=True)
+        expected_wire_digest=expected_wire_digest, expected_revision=expected_revision, now_ms=now_ms,
+        _portrait_only=True, attempt_id=attempt_id)
 
 
 def authorize_portrait_output_recovery(db: sqlite3.Connection, job_id: str, *, expected_unit_digest: str,
                                       expected_wire_digest: str, expected_revision: int, now_ms: int,
-                                      timeout_ms: int = MAX_OUTPUT_RECOVERY_MS) -> PortraitSubmissionV1:
+                                      timeout_ms: int = MAX_OUTPUT_RECOVERY_MS,
+                                      attempt_id: str | None = None) -> PortraitSubmissionV1:
     return authorize_anchor_unit_output_recovery(db, job_id, expected_unit_digest=expected_unit_digest,
         expected_wire_digest=expected_wire_digest, expected_revision=expected_revision, now_ms=now_ms,
-        timeout_ms=timeout_ms, _portrait_only=True)
+        timeout_ms=timeout_ms, _portrait_only=True, attempt_id=attempt_id)
 
 
 def record_portrait_acceptance(db: sqlite3.Connection, job_id: str, *, expected_unit_digest: str,
                                expected_wire_digest: str, expected_revision: int, prompt_id: str,
                                evidence: PortraitSubmissionEvidenceV1 | dict,
-                               revalidate_contract: bool = False) -> PortraitSubmissionV1:
+                               revalidate_contract: bool = False, attempt_id: str | None = None) -> PortraitSubmissionV1:
     return record_anchor_unit_acceptance(db, job_id, expected_unit_digest=expected_unit_digest,
         expected_wire_digest=expected_wire_digest, expected_revision=expected_revision, prompt_id=prompt_id,
-        evidence=evidence, revalidate_contract=revalidate_contract, _portrait_only=True)
+        evidence=evidence, revalidate_contract=revalidate_contract, _portrait_only=True, attempt_id=attempt_id)
 
 
 def block_portrait_submission(db: sqlite3.Connection, job_id: str, *, expected_unit_digest: str,
-                              expected_wire_digest: str, expected_revision: int, reason: Reason) -> PortraitSubmissionV1:
+                              expected_wire_digest: str, expected_revision: int, reason: Reason,
+                              attempt_id: str | None = None) -> PortraitSubmissionV1:
     return block_anchor_unit_submission(db, job_id, expected_unit_digest=expected_unit_digest,
-        expected_wire_digest=expected_wire_digest, expected_revision=expected_revision, reason=reason, _portrait_only=True)
+        expected_wire_digest=expected_wire_digest, expected_revision=expected_revision, reason=reason,
+        _portrait_only=True, attempt_id=attempt_id)
 
 
 def fail_portrait_submission(db: sqlite3.Connection, job_id: str, *, expected_unit_digest: str,
                              expected_wire_digest: str, expected_revision: int, reason: Reason,
-                             evidence: PortraitSubmissionEvidenceV1 | dict | None = None) -> PortraitSubmissionV1:
+                             evidence: PortraitSubmissionEvidenceV1 | dict | None = None,
+                             attempt_id: str | None = None) -> PortraitSubmissionV1:
     return fail_anchor_unit_submission(db, job_id, expected_unit_digest=expected_unit_digest,
         expected_wire_digest=expected_wire_digest, expected_revision=expected_revision, reason=reason,
-        evidence=evidence, _portrait_only=True)
+        evidence=evidence, _portrait_only=True, attempt_id=attempt_id)
 
 
 def complete_portrait_submission(db: sqlite3.Connection, job_id: str, *, expected_unit_digest: str,
                                  expected_wire_digest: str, expected_revision: int, candidate_id: str,
-                                 evidence: PortraitSubmissionEvidenceV1 | dict) -> PortraitSubmissionV1:
+                                 evidence: PortraitSubmissionEvidenceV1 | dict,
+                                 attempt_id: str | None = None) -> PortraitSubmissionV1:
     return complete_anchor_unit_submission(db, job_id, expected_unit_digest=expected_unit_digest,
         expected_wire_digest=expected_wire_digest, expected_revision=expected_revision, candidate_id=candidate_id,
-        evidence=evidence, _portrait_only=True)
+        evidence=evidence, _portrait_only=True, attempt_id=attempt_id)

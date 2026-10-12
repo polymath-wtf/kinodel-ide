@@ -2,7 +2,7 @@
 
 **[Standalone HTML-макет](../../web/prototype/index.html) · [Запуск — web/prototype/README.md](../../web/prototype/README.md).** Интерактивный **MOCK, без backend**, HTML/CSS/JS: Pipeline, отдельный Canvas проекта, mock Inputs/Outputs и provider inspection. Отдельный [React workspace](../../web/README.md) читает реальные internal Story executions с FastAPI origin и поддерживает durable команды (6D).
 
-Статус: **Story foundation/Story→Wardrobe workspace и Characters подключены; W7/UI и [W8 reduced acceptance](../roadmap-mvp.md#wardrobe-batch-output) сохраняются. Private [6А portrait lifecycle/import](../backend/artifacts.md#restart-safe-portrait-submission) принят; 6Б reference transport принят offline/mock. [Private 7.1 image execution/group/wait](../backend/artifacts.md#accepted-image-execution-and-group-wait) реализован в DB20; media DTO/API/UI/job projection и selection/assets не подключены. NEXT backend implementation — 7.2 sequential worker/result wake/complete-set join, затем 7.3 Continue commands/status/media. Live three-unit working `stuff` acceptance остаётся pending. 6F визуально утверждён, 6E принят; полный UI шаг 6/cinematic integration остаётся открытым**. `web/prototype/` — отдельный эксперимент. [UI/UX](uiux-wireframe.md), [Local MVP](../roadmap-mvp.md), [ComfyUI roadmap](../roadmap-comfyui.md).
+Статус: **Story foundation/Story→Wardrobe workspace и Characters подключены; W7/UI и [W8 reduced acceptance](../roadmap-mvp.md#wardrobe-batch-output) сохраняются. Private [6А portrait lifecycle/import](../backend/artifacts.md#restart-safe-portrait-submission) принят; 6Б reference transport и 7.2 sequential batch приняты offline/mock. [7.3A Continue/shared status/UI](../backend/runtime.md#continue-command-accepted-73a) и [7.3B guarded originals/UI](../backend/artifacts.md#guarded-originals-and-ordered-image-reads-accepted-73b) приняты offline/mock и browser checks; Pipeline/Chat v80 primary-inspected. NEXT — live three-unit working `stuff` batch, restart между parents/steps и provider-off app reads. Selection/assets не подключены. 6F визуально утверждён, 6E принят; полный UI шаг 6/cinematic integration остаётся открытым**. `web/prototype/` — отдельный эксперимент. [UI/UX](uiux-wireframe.md), [Local MVP](../roadmap-mvp.md), [ComfyUI roadmap](../roadmap-comfyui.md).
 
 **Текущая композиция, 5 октября:** Topbar 64px: `KINODEL` с разделителем, компактное меню с видимым названием выбранного проекта (текущий заголовок из submitted idea; длинный текст сокращается, полный остаётся в tooltip/accessible name), далее путь `Pipeline → Storyboard` или `Pipeline → Storytell → LangGraph`, Run и новая история. Без выбранного запуска меню подписано «Проекты»; на корневой карте виден `Pipeline`. Canvas, Characters и Новая Story сохраняют название проекта и показывают текущую страницу в пути; Chat — альтернативный вид Pipeline. Слева rail 72px **Pipeline / Canvas / Characters**; Canvas пока честно пустой, генерация медиа не подключена. Один клик ноды открывает информацию справа, double-click — существующий вложенный scope, без кнопок на карточках. Правый клик в любом месте приложения — один шаг Back. Details 380px / Story 520px сохраняют content-first/exact footer и responsive sheets. Персонажи перед Start всегда видны; Character info раскрывает закреплённые изображения/Bio. Исторические captures — в [screenshot index](../../test-results/README.md); самостоятельное визуальное утверждение новой версии не заявлено. Standalone-примеры ниже исторические, не совокупный список обязательных элементов.
 
@@ -178,14 +178,36 @@ Summary берётся из активного вложенного этапа: 
 
 **Outputs / Plan:** общий Pipeline/Chat compact V2 exact reader показывает batch count, stable unit_key, use_case/workflow, полный копируемый image prompt и короткие ordered `role → unit_key` refs, без direction/purpose/raw subject IDs/пустых dependency notices. Exact plan/Story refs — в одном закрытом disclosure. План содержит только schema identity/Story pin и `batch_prompt`; все creative detail внутри prompts. Ровно portrait+sheet на каждый selected target и одна общая location; при пустом selection — generated/declared fallback, иначе location-only. Удалённые rich поля строго отклоняются, без compatibility reader или conversion. Dependencies — earlier keys плана, не готовые изображения. V1 retained/isolated без reset; prior creative run не переписан. W8 UI acceptance не проверяла user-process restart/real-artifact offline reopen; отдельный 6А isolated source/portrait check не активирует media UI.
 
-Wardrobe сохраняет compact V2 `wardrobe_plan`; planned `anchor-batch` потребляет exact saved validated V2
+Wardrobe сохраняет compact V2 `wardrobe_plan`; `anchor-batch` потребляет exact saved validated V2
 без повторного LLM, а media binding требует review selection. Authored `anchor-batch`/`frames-batch` scopes
-остаются disconnected без job projection/media; historical `cinematic.v1.json` неизменён. [W8](../roadmap-mvp.md#wardrobe-batch-output)
+не означают полный cinematic Start/media route; historical `cinematic.v1.json` неизменён. [W8](../roadmap-mvp.md#wardrobe-batch-output)
 сохраняет reduced acceptance, не deferred full discovery/real-model harness PASS. Immutable input/job/candidate
 owners DB15–17 и принятый private DB18 portrait worker 6А не активируют UI/media. User-confirmed provider-off reopen пройден;
 [Private 7.1 image execution/group/wait](../backend/artifacts.md#accepted-image-execution-and-group-wait) реализован в DB20;
-NEXT — 7.2 sequential worker/result wake/complete-set join, затем 7.3 Continue commands/status/media. Diagnostic API остаётся
-read-only (`preparation_only`, `can_submit:false`); public render/media route и job projection ещё pending.
+7.2 sequential worker/result wake/exact Retry/join принят offline/mock; 7.3A Continue/shared status/UI принят.
+7.3B guarded originals/API/UI принят offline/mock и browser checks. NEXT — live working `stuff`
+batch, restart между parents/steps и provider-off app reads. Diagnostic API остаётся read-only
+(`preparation_only`, `can_submit:false`); public cinematic Start/review и детальная job history ещё pending.
+
+Pipeline/Chat используют один command owner/journal с persist-before-POST и exact receipt replay.
+Backend `/process` задаёт действие, reason/allowed actions, selected/source/effective IDs и X/N;
+terminal source продолжает polling связанного image consumer. Direct image URL сначала разрешает source
+для Story reads. Первый image handoff показывает размеры, exact profile и явный Local/Server;
+offline `anchor-batch/prepare` возвращает configured connection pin, затем отдельный Continue click
+авторизует exact intent. Accepted settings read-only; provider preflight и автоматического approval/Retry нет.
+Cancel effective consumer — отдельная команда; недоступный здесь provider recovery так и обозначен.
+[7.3A evidence / inspected Pipeline+Chat v78](../../test-results/README.md#comfyui-step-73a--backend-universal-continue-and-action-projection--10-october-2026).
+
+**7.3B originals:** один shared strip в существующей левой колонке Workspace для Pipeline/Chat
+показывает все declared slots в backend order, доступные original previews и exact same-origin
+full-size links. Partial набор доступен до manifest; import-only/N originals/terminal consumer
+не означают complete — только validated `result.status:"complete"`. Missing/invalid originals
+и manifest явно unconfirmed/unavailable, без healing/Retry или approval controls.
+Strict DTO/media-ref/URL guards сверяют exact accepted consumer/project/group/N; no group — no image GET.
+Pending reads идут раз в 15 s без overlap; published/stopped/error snapshots прекращают background
+reads, manual reread — только GET. Синхронная стоимость validation остаётся ограничением в evidence.
+[Exact DTO/API](../backend/dto.md#image-read-dtos-accepted-73b),
+[offline/real-API browser evidence и primary-inspected Pipeline/Chat v80](../../test-results/README.md#comfyui-step-73b--backend-guarded-originals-and-ordered-image-reads--10-october-2026).
 
 **Batch-generation · минималистичная матрёшка (проект):** ориентир — [anchor minimalism](refs/zbs%20ref%20v1/anchor%20minimalism.png).
 Один общий image-tool shell для Anchors и Storyboard: заголовок, подпись назначения, один status,

@@ -1,4 +1,4 @@
-"""Offline technical PNG candidates for ONE initial pinned anchor-unit attempt.
+"""Offline technical PNG candidates for exact pinned anchor-unit attempts.
 
 Caller holds the data-root OS lock. This imports original bytes, not provider
 acceptance/history success, approval, selected assets or graph effects. A future
@@ -126,16 +126,16 @@ AnchorUnitCandidateV1 = PortraitCandidateV1
 AnchorUnitOutputDescriptorV1 = PortraitOutputDescriptorV1
 
 
-def _binding_rows(db, job_id, batch_id, unit_key):
-    return (render_job_store._row(db, job_id), batch_store._batch_row(db, batch_id),
+def _binding_rows(db, job_id, batch_id, unit_key, attempt_id=None):
+    return (render_job_store._row(db, job_id, attempt_id), batch_store._batch_row(db, batch_id),
             batch_store._unit_row(db, batch_id, unit_key))
 
 
 def _context(db, job_id, attempt_id, expected_unit_digest):
     TypeAdapter(ExactDigest).validate_python(attempt_id, strict=True)
-    job = render_job_store.read_anchor_unit_job(db, job_id, expected_unit_digest=expected_unit_digest)
+    job = render_job_store.read_anchor_unit_job(db, job_id, expected_unit_digest=expected_unit_digest, attempt_id=attempt_id)
     if job.attempt_id != attempt_id:
-        raise ValueError('Candidate attempt conflicts with initial portrait intent')
+        raise ValueError('Candidate attempt conflicts with selected portrait intent')
     intent = json.loads(job.intent_body)
     batch = batch_store.read_batch_input(db, intent['batch_id'])
     image = json.loads(job.prepared_input.image_pin_json)  # Already replay-validated by job reader.
@@ -143,12 +143,13 @@ def _context(db, job_id, attempt_id, expected_unit_digest):
     if (image['expected_output']['media_type'] != 'image/png'
             or not (0 < width <= MAX_DIMENSION and 0 < height <= MAX_DIMENSION and width * height <= MAX_PIXELS)):
         raise ValueError('Unsupported frozen portrait media contract')
-    return job, intent, batch.prepared_input.connection, image, _binding_rows(db, job_id, intent['batch_id'], intent['unit_key'])
+    return job, intent, batch.prepared_input.connection, image, _binding_rows(db, job_id, intent['batch_id'], intent['unit_key'], attempt_id)
 
 
 def _assert_binding(db, context):
     job, intent, _, _, rows = context
-    if _binding_rows(db, job.job_id, intent['batch_id'], intent['unit_key']) != rows:
+    render_job_store.assert_anchor_attempt_writable(db, job.job_id, job.attempt_id)
+    if _binding_rows(db, job.job_id, intent['batch_id'], intent['unit_key'], job.attempt_id) != rows:
         raise ValueError('Portrait input/intent changed during candidate publication')
 
 
@@ -582,6 +583,7 @@ def import_anchor_unit_candidate(db: sqlite3.Connection, job_id: str, attempt_id
     """
     _committed(db)
     context = _context(db, job_id, attempt_id, expected_unit_digest)
+    render_job_store.assert_anchor_attempt_writable(db, job_id, attempt_id)
     declared = _descriptor(descriptor, context[3])
     identity = _candidate_id(job_id, attempt_id, declared, context[0].kind)
     intent = context[1]
@@ -600,9 +602,8 @@ def import_anchor_unit_candidate(db: sqlite3.Connection, job_id: str, attempt_id
             if stream is None:
                 return record
     else:
-        if db.execute('SELECT candidate_id FROM portrait_candidates WHERE job_id=? OR attempt_id=?',
-                      (job_id, attempt_id)).fetchone():
-            raise ValueError('Initial portrait candidate identity conflicts; refusing replacement')
+        if db.execute('SELECT candidate_id FROM portrait_candidates WHERE attempt_id=?', (attempt_id,)).fetchone():
+            raise ValueError('Portrait attempt candidate identity conflicts; refusing replacement')
         if stream is None:
             raise ValueError('First candidate import requires original byte stream')
     fresh = None
@@ -633,6 +634,7 @@ def import_anchor_unit_candidate(db: sqlite3.Connection, job_id: str, attempt_id
                 reserved = True
                 row = _row(db, identity)
         assert metadata is not None and row is not None and path is not None  # FIRST import requires stream above.
+        render_job_store.assert_anchor_attempt_writable(db, job_id, attempt_id)
         _publish(path, metadata, fresh if fresh is not None and fresh.name != metadata.staging_name else None)
         # Recheck SQL and pinned files after publication, then short guarded finalization.
         _restore(db, row, expected_unit_digest)
@@ -658,7 +660,7 @@ def read_portrait_candidate(db: sqlite3.Connection, candidate_id: str, *,
     row = _row(db, candidate_id)
     if row is None or row[8] != 'published':
         raise LookupError('Portrait candidate is not published')
-    render_job_store.read_portrait_job(db, row[1], expected_unit_digest=expected_unit_digest)
+    render_job_store.read_portrait_job(db, row[1], expected_unit_digest=expected_unit_digest, attempt_id=row[2])
     return read_anchor_unit_candidate(db, candidate_id, expected_unit_digest=expected_unit_digest)
 
 
@@ -666,6 +668,6 @@ def import_portrait_candidate(db: sqlite3.Connection, job_id: str, attempt_id: s
         expected_unit_digest: str, descriptor: PortraitOutputDescriptorV1 | dict,
         stream: BinaryIO | None = None) -> PortraitCandidateV1:
     """Legacy portrait-only boundary; original IDs, bytes and metadata remain exact."""
-    render_job_store.read_portrait_job(db, job_id, expected_unit_digest=expected_unit_digest)
+    render_job_store.read_portrait_job(db, job_id, expected_unit_digest=expected_unit_digest, attempt_id=attempt_id)
     return import_anchor_unit_candidate(db, job_id, attempt_id, expected_unit_digest=expected_unit_digest,
                                         descriptor=descriptor, stream=stream)

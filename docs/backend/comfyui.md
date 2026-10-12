@@ -1,6 +1,6 @@
 # ComfyUI Boundary
 
-Status: **Read-only preparation and private portrait lifecycle (6A) accepted live; bounded anchor/reference lifecycle (6B, DB19) accepted offline/mock. Private image execution/group/wait (7.1, DB20) is implemented. NEXT: sequential units/complete-set join 7.2. Live reference delivery and public cinematic Run/media API remain pending.** [Current contract](artifacts.md#accepted-image-execution-and-group-wait); slices/evidence belong to [ComfyUI Local roadmap](../roadmap-comfyui.md), within [Local MVP](../roadmap-mvp.md).
+Status: **Read-only preparation and private portrait lifecycle (6A) accepted live; bounded anchor/reference lifecycle (6B, DB19) accepted offline/mock. Private image execution/group/wait (7.1, DB20) and sequential worker/result wake/exact Retry/join (7.2, DB21–22) are implemented; 7.2 is accepted offline/mock. [7.3A Continue/shared status/UI](runtime.md#continue-command-accepted-73a) (DB23) and [7.3B guarded originals reads/UI](artifacts.md#guarded-originals-and-ordered-image-reads-accepted-73b) are accepted offline/mock and in browser checks. NEXT: live three-unit working `stuff` batch, restart between parents/steps and provider-off app reads. Selection/assets and public cinematic Run remain pending.** [Current contract](artifacts.md#sequential-image-execution-result-wake-and-exact-retry); slices/evidence belong to [ComfyUI Local roadmap](../roadmap-comfyui.md), within [Local MVP](../roadmap-mvp.md).
 
 Production settings: [step 3](../roadmap-comfyui.md#3-production-settings-и-профильные-ограничения) implements separate cinematic drafts, exact total/per-shot arithmetic and mode-specific MotionPlanV2. `backend/production.py` derives a SHA-pinned preparation-only image bundle from the single registry. Guarded `/api/production/profiles` and POST diagnostics never accept Run or perform effects. Confirmed cinematic choices/defaults remain empty/null until live output/timing checks; dependency/graph readiness cannot promote production capability.
 
@@ -64,7 +64,7 @@ Freezing a request and seed preserves request identity, not a promise of bit-ide
 
 The [skill](../../skills/comfyui-skill/SKILL.md) and [REST reference](../../skills/comfyui-skill/references/rest-api.md) provide toolkit guidance, not project workflow selection; their legacy `render-kinodel`/backup-provider wording does not override current service ownership. `ComfyRunner.submit()` wraps a graph for HTTP but does not implement Kinodel's durable submission protocol.
 
-Zero-reference portrait submit → matched queue/history → verified import is accepted live in 6A, including user-confirmed provider-off reopen. Reference uploads/final graph are accepted offline/mock in 6B; live role delivery and batch activation remain step 7. [ComfyUI tool](../tools/comfyui-tool.md) records native route sources; pinned-server behavior, not upstream assumptions, governs matching. Native FLOAT coercion and safe Windows subfolder handling, explicit known/unknown-ID successful-history contract revalidation, isolated `broken_job` diagnostics and one-shot output-only recovery remain as defined in the [6A contract](artifacts.md#restart-safe-portrait-submission). Build acceptance lives in [Local MVP](../roadmap-mvp.md#provider-setup).
+Zero-reference portrait submit → matched queue/history → verified import is accepted live in 6A, including user-confirmed provider-off reopen. Reference uploads/final graph are accepted offline/mock in 6B; private batch execution is accepted offline/mock in 7.2, while live role delivery and working-root acceptance remain step 7. [ComfyUI tool](../tools/comfyui-tool.md) records native route sources; pinned-server behavior, not upstream assumptions, governs matching. Native FLOAT coercion and safe Windows subfolder handling, explicit known/unknown-ID successful-history contract revalidation, isolated `broken_job` diagnostics and one-shot output-only recovery remain as defined in the [6A contract](artifacts.md#restart-safe-portrait-submission). Build acceptance lives in [Local MVP](../roadmap-mvp.md#provider-setup).
 
 ## Project Media Import
 
@@ -72,7 +72,21 @@ The default managed project root is `<installation>/stuff/projects/<project_id>/
 
 Review/save then creates approved asset identity and selected RenderResult under the [media contract](artifacts.md#candidates-and-promotion), reusing durable candidate bytes when possible. `assets/` is the target location for separately published approved media; `previews/` contains only derived files. Upload receipts and frozen graph/history evidence belong in restricted `runtime-audit/<job_id>/`. Originals remain readable through Kinodel after ComfyUI is offline. [Download/storage details](../tools/comfyui-tool.md#download--папка-проекта), [publication and crash rules](artifacts.md#managed-project-storage).
 
-Current managed publication supports Story/Wardrobe JSON, private frozen inputs and verified anchor PNG originals. DB16/17 immutable owners remain separate from DB18 authorization and DB19 reference transport. DB20 accepts a private image group and durable graph wait without provider calls. The worker proves history success before import; candidate validity alone is neither that proof nor creative approval. Public media reads, selection/assets, sequential group execution/join and live reference delivery remain pending. Toolkit helpers do not establish Kinodel's durable ownership or validated import boundary.
+Current managed publication supports Story/Wardrobe JSON, private frozen inputs, verified anchor PNG
+originals and private immutable group results. DB20 accepts a group/wait without provider calls;
+DB21 extends existing owners to explicit attempts while preserving initial rows/rowids/bodies, and DB22
+adds unit/result/join/Retry records. The sequential worker uses original root pins and exact ordered
+dependencies; successful import, not provider completion hints, admits the next unit. Complete result
+publication plus unique wake precedes graph-owned exact join/terminal receipt; none implies creative approval.
+
+Attempt selectors omitted by historical callers mean initial, never latest. Explicit failed-job Retry
+preserves prepared input/seed but has separate authorization/deadline/correlation and sheet uploads/final
+graph/candidate. Unknown acceptance and sent local timeout/contract/deadline failure cannot authorize a
+failed group or Retry; only unsent deadline or owned exact-history provider failure can. Unresolved
+dispatched work retains the global native slot despite graph block/cancel/terminal consumer; cancelled
+sent/unknown work has no automatic release. Addressed provider-terminal observation/release remains step 8.
+[Exact Retry/result contract and evidence](artifacts.md#sequential-image-execution-result-wake-and-exact-retry).
+Public media reads, selection/assets and live reference delivery remain pending.
 
 ## Attempt Workflow Inspection
 

@@ -4,6 +4,7 @@ import { Clapperboard, FileText, Film, GitBranch, Layers, LocateFixed, MessageSq
 import { isStoryApproved, sameRef, statusLabel, versionLabel, type ArtifactRef, type Projection } from '../../entities/execution/contracts';
 import { useStoryActivity, useStoryBody, useWardrobeActivity } from '../../entities/execution/queries';
 import { groups, internalStory, scopes, stages, storyNodeState, storyRequest, wardrobeRequest, type NodeState, type Scope, type StageContract } from './contracts';
+import { processStatusLabel, processReasonLabel, type Process } from '../../entities/execution/process';
 export type { Scope } from './contracts';
 
 export const initialViewports = (): Record<Scope, Viewport> => Object.fromEntries(scopes.map(scope => [scope, {
@@ -31,8 +32,8 @@ function Stage({ data, selected }: NodeProps<StageNode>) {
   </article>;
 }
 const nodeTypes = { stage: Stage };
-export function Pipeline({ projection, scope, setScope, viewports, setViewport, selectedNode, setSelectedNode, read, brief, inspect, inspecting }: {
-  projection?: Projection; scope: Scope; setScope: (s: Scope) => void;
+export function Pipeline({ projection, process, scope, setScope, viewports, setViewport, selectedNode, setSelectedNode, read, brief, inspect, inspecting }: {
+  projection?: Projection; process?: Process; scope: Scope; setScope: (s: Scope) => void;
   viewports: Record<Scope, Viewport>; setViewport: (v: Viewport) => void;
   selectedNode: string; setSelectedNode: (id: string) => void; read?: (ref?: ArtifactRef, opener?: HTMLElement) => void; brief: (opener?: HTMLElement) => void;
   inspect: (stage: StageContract, opener?: HTMLElement) => void; inspecting: boolean;
@@ -119,7 +120,12 @@ export function Pipeline({ projection, scope, setScope, viewports, setViewport, 
   const operation = activity.data?.operations.at(-1);
   const specs: StageData[] = contracts.map((contract, i) => {
     const group = scope === 'pipeline' ? groups[i].id : undefined;
-    const nodeState = scope === 'storytell:graph' ? { state: 'idle' as const } : storyNodeState(contract.id, projection, wardrobeActivity.data);
+    const imageStatus = process?.image_progress && (group === 'wardrobe' || contract.id === 'anchor-batch');
+    const nodeState = imageStatus ? { state: (process.status === 'blocked' || process.status === 'failed' ? 'blocked' : process.status === 'completed' ? 'done'
+      : process.status === 'cancelled' || process.status === 'cancelling' ? 'stopped' : 'active') as NodeState,
+      status: `${processStatusLabel[process.status]} · ${process.image_progress!.completed}/${process.image_progress!.total}`,
+      reason: process.reason ? processReasonLabel[process.reason] : undefined }
+      : scope === 'storytell:graph' ? { state: 'idle' as const } : storyNodeState(contract.id, projection, wardrobeActivity.data);
     const open = (opener?: HTMLElement) => {
       setSelectedNode(`${scope}-${i}`);
       if (group === 'storytell' && current && read) read(current.ref, opener);

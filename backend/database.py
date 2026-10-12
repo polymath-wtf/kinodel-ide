@@ -15,7 +15,7 @@ from backend.ownership import own_data_root
 
 DATABASE_NAME = "application.sqlite3"
 APPLICATION_ID = 0x4B494E4F  # KINO; SQLite header identity, not a business record.
-SCHEMA_VERSION = 20
+SCHEMA_VERSION = 23
 BUSY_TIMEOUT_MS = 1000
 INITIALIZING = ".kinodel-initializing-v1"
 READY = ".kinodel-ready-v1"
@@ -300,6 +300,88 @@ CREATE TABLE image_groups (
     CHECK((checkpoint_id IS NULL) = (interrupt_id IS NULL))
 );
 """
+RENDER_RETRY_SCHEMA = """
+CREATE TABLE render_retry_allocations (
+    attempt_id TEXT PRIMARY KEY NOT NULL REFERENCES render_submission_attempts(attempt_id),
+    job_id TEXT NOT NULL REFERENCES render_jobs(job_id),
+    previous_attempt_id TEXT NOT NULL UNIQUE REFERENCES portrait_submissions(attempt_id),
+    retry_trigger_id TEXT NOT NULL,
+    allocation_digest TEXT NOT NULL,
+    allocation_body TEXT NOT NULL CHECK(length(CAST(allocation_body AS BLOB)) BETWEEN 1 AND 8192),
+    UNIQUE(job_id, retry_trigger_id)
+);
+"""
+# Keep the historical DDL above exact. Rebuild only per-job uniqueness, copying
+# explicit rowids and all columns; legacy rename with FK OFF leaves references exact.
+RENDER_RETRY_MIGRATION = 'PRAGMA legacy_alter_table=ON;' + ''.join(
+    f'ALTER TABLE {table} RENAME TO retry_old_{table};' +
+    ddl.replace('job_id TEXT NOT NULL UNIQUE REFERENCES render_jobs',
+                'job_id TEXT NOT NULL REFERENCES render_jobs') +
+    f'INSERT INTO {table} (rowid,{columns}) SELECT rowid,{columns} FROM retry_old_{table};' +
+    f'DROP TABLE retry_old_{table};'
+    for table, ddl, columns in (
+        ('render_submission_attempts', RENDER_JOB_SCHEMA[RENDER_JOB_SCHEMA.index('CREATE TABLE render_submission_attempts'):],
+         'attempt_id,job_id,intent_digest,intent_body'),
+        ('portrait_candidates', PORTRAIT_CANDIDATE_SCHEMA,
+         'candidate_id,job_id,attempt_id,unit_input_digest,intent_digest,metadata_digest,metadata_body,uri,publication_state'),
+        ('portrait_submissions', PORTRAIT_SUBMISSION_SCHEMA,
+         'attempt_id,job_id,wire_digest,submission_digest,submission_body,revision,state,prompt_id,candidate_id'),
+        ('anchor_reference_transfers', ANCHOR_REFERENCE_TRANSFER_SCHEMA,
+         'attempt_id,job_id,unit_input_digest,intent_digest,record_digest,record_body,revision,state'),
+    )
+) + RENDER_RETRY_SCHEMA + 'PRAGMA legacy_alter_table=OFF;'
+
+IMAGE_GROUP_RESULT_SCHEMA = """
+CREATE TABLE image_unit_attempts (
+    group_id TEXT NOT NULL REFERENCES image_groups(group_id), unit_key TEXT NOT NULL,
+    job_id TEXT NOT NULL REFERENCES render_jobs(job_id),
+    attempt_id TEXT NOT NULL REFERENCES render_submission_attempts(attempt_id),
+    unit_input_digest TEXT NOT NULL,
+    origin_execution_id TEXT NOT NULL REFERENCES executions(execution_id),
+    PRIMARY KEY(group_id, unit_key), UNIQUE(group_id, attempt_id)
+);
+CREATE TABLE image_group_results (
+    result_id TEXT PRIMARY KEY NOT NULL,
+    group_id TEXT NOT NULL UNIQUE REFERENCES image_groups(group_id),
+    result_digest TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('complete','failed')),
+    body TEXT NOT NULL CHECK(length(CAST(body AS BLOB)) BETWEEN 1 AND 1048576),
+    uri TEXT NOT NULL UNIQUE,
+    publication_state TEXT NOT NULL CHECK(publication_state IN ('reserved','published'))
+);
+CREATE TABLE image_group_joins (
+    group_id TEXT PRIMARY KEY NOT NULL REFERENCES image_groups(group_id),
+    result_id TEXT NOT NULL UNIQUE REFERENCES image_group_results(result_id),
+    receipt_digest TEXT NOT NULL,
+    body TEXT NOT NULL CHECK(length(CAST(body AS BLOB)) BETWEEN 1 AND 1048576)
+);
+CREATE TABLE image_group_retry_requests (
+    execution_id TEXT PRIMARY KEY NOT NULL,
+    project_id TEXT NOT NULL, client_key TEXT NOT NULL,
+    predecessor_execution_id TEXT NOT NULL REFERENCES executions(execution_id),
+    predecessor_result_id TEXT NOT NULL REFERENCES image_group_results(result_id),
+    input_batch_id TEXT NOT NULL REFERENCES batch_input_pins(batch_id),
+    request_digest TEXT NOT NULL,
+    body TEXT NOT NULL CHECK(length(CAST(body AS BLOB)) BETWEEN 1 AND 8192),
+    acceptance_state TEXT NOT NULL CHECK(acceptance_state IN ('reserved','accepted')),
+    UNIQUE(project_id, client_key)
+);
+"""
+
+CONTINUE_SCHEMA = """
+CREATE TABLE continue_handoffs (
+    source_execution_id TEXT PRIMARY KEY NOT NULL REFERENCES executions(execution_id),
+    source_token TEXT NOT NULL, expected_token TEXT NOT NULL,
+    intent_digest TEXT NOT NULL, intent_body TEXT NOT NULL,
+    consumer_execution_id TEXT NOT NULL UNIQUE, consumer_key TEXT NOT NULL,
+    batch_id TEXT NOT NULL REFERENCES batch_input_pins(batch_id),
+    acceptance_state TEXT NOT NULL CHECK(acceptance_state IN ('reserved','accepted'))
+);
+CREATE TABLE continue_commands (
+    execution_id TEXT NOT NULL REFERENCES executions(execution_id), command_key TEXT NOT NULL,
+    payload_digest TEXT NOT NULL, receipt_body TEXT,
+    PRIMARY KEY(execution_id, command_key)
+);
+"""
 
 
 def _schema(db: sqlite3.Connection) -> list[tuple[str, str, str]]:
@@ -343,6 +425,12 @@ def _expected_schema(version: int) -> list[tuple[str, str, str]]:
             candidate.executescript(ANCHOR_REFERENCE_TRANSFER_SCHEMA)
         if version >= 20:
             candidate.executescript(IMAGE_GROUP_SCHEMA)
+        if version >= 21:
+            candidate.executescript(RENDER_RETRY_MIGRATION)
+        if version >= 22:
+            candidate.executescript(IMAGE_GROUP_RESULT_SCHEMA)
+        if version >= 23:
+            candidate.executescript(CONTINUE_SCHEMA)
         return _schema(candidate)
 
 
@@ -369,7 +457,7 @@ def _validate(db: sqlite3.Connection) -> None:
     if db.execute("PRAGMA application_id").fetchone()[0] != APPLICATION_ID:
         raise ValueError("Unknown application database identity")
     version = db.execute("PRAGMA user_version").fetchone()[0]
-    if version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, SCHEMA_VERSION):
+    if version not in range(1, SCHEMA_VERSION + 1):
         raise ValueError("Unsupported application database version; maintenance required")
     schema = _schema(db)
     if (schema != ([] if version == 1 else _expected_schema(version))
@@ -705,6 +793,38 @@ def open_database(root: Path) -> Iterator[sqlite3.Connection]:
                 except BaseException:
                     if db.in_transaction:
                         db.execute("ROLLBACK")
+                    raise
+            if db.execute('PRAGMA user_version').fetchone()[0] == 20:
+                db.execute('PRAGMA synchronous=FULL')
+                try:
+                    db.executescript(f'BEGIN IMMEDIATE; {RENDER_RETRY_MIGRATION} PRAGMA user_version=21;')
+                    _validate(db)
+                    db.execute('COMMIT')
+                except BaseException:
+                    if db.in_transaction:
+                        db.execute('ROLLBACK')
+                    raise
+                finally:
+                    db.execute('PRAGMA legacy_alter_table=OFF')
+            if db.execute('PRAGMA user_version').fetchone()[0] == 21:
+                db.execute('PRAGMA synchronous=FULL')
+                try:
+                    db.executescript(f'BEGIN IMMEDIATE; {IMAGE_GROUP_RESULT_SCHEMA} PRAGMA user_version=22;')
+                    _validate(db)
+                    db.execute('COMMIT')
+                except BaseException:
+                    if db.in_transaction:
+                        db.execute('ROLLBACK')
+                    raise
+            if db.execute('PRAGMA user_version').fetchone()[0] == 22:
+                db.execute('PRAGMA synchronous=FULL')
+                try:
+                    db.executescript(f'BEGIN IMMEDIATE; {CONTINUE_SCHEMA} PRAGMA user_version=23;')
+                    _validate(db)
+                    db.execute('COMMIT')
+                except BaseException:
+                    if db.in_transaction:
+                        db.execute('ROLLBACK')
                     raise
             _marker(root / READY, create=True)
             settings = {

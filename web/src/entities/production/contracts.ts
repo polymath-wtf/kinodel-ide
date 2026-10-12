@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { characterRefSchema } from '../character/contracts';
+import { artifactRefSchema, wardrobePlanSchema } from '../execution/contracts';
 
 const text = (max: number) => z.string().min(1).max(max).refine(s => !/[\uD800-\uDFFF]/u.test(s));
 export const profilePinSchema = z.strictObject({ profile_id: text(16384), version: text(16384), digest: z.string().regex(/^sha256:[0-9a-f]{64}$/) });
@@ -45,6 +46,22 @@ export const productionValidationSchema = z.strictObject({ schema_version: z.lit
 }).refine(d => d.shot_keys.length === d.production.shot_count && d.shot_keys.every((key, i) => key === `shot-${String(i + 1).padStart(3, '0')}`));
 export type CinematicDraft = z.infer<typeof cinematicDraftSchema>;
 export type ProductionValidation = z.infer<typeof productionValidationSchema>;
+const exactDigest = z.string().regex(/^sha256:[0-9a-f]{64}$/);
+export const batchPreparationRequestSchema = z.strictObject({ source_plan_ref: artifactRefSchema, image_size: mediaSizeSchema,
+  image_profile: profilePinSchema, connection: z.enum(['local', 'server']), activation_id: exactDigest });
+export const batchPreparationSchema = z.strictObject({ schema_version: z.literal('1'), source_plan_ref: artifactRefSchema,
+  story_approval: z.strictObject({ story_ref: artifactRefSchema, approval_request_id: exactDigest, approval_request_digest: exactDigest,
+    decision_id: exactDigest, applied_activation_id: exactDigest, story_binding_revision: z.number().int().min(1) }),
+  stage_id: z.literal('anchor-batch'), activation_id: exactDigest, input_digest: exactDigest, image_size: mediaSizeSchema, image_profile: profilePinSchema,
+  connection: z.strictObject({ connection: z.enum(['local', 'server']), endpoint_digest: exactDigest }), mapping_version: z.literal('1'), mapping_digest: exactDigest,
+  ordered_units: wardrobePlanSchema.shape.batch_prompt,
+  workflow_bindings: z.array(z.strictObject({ use_case: z.enum(['hero-face', 'location', 'hero-sheet']), workflow: z.enum(['txt2img', 'img2img']),
+    reference_roles: z.array(z.enum(['portrait', 'background', 'character_sheet'])).max(2), workflow_id: text(16384),
+    kind: z.enum(['portrait', 'background', 'sheet']), registry_digest: exactDigest })).length(3),
+  readiness: z.literal('preparation_only'), can_submit: z.literal(false),
+});
+export type BatchPreparationRequest = z.infer<typeof batchPreparationRequestSchema>;
+export type BatchPreparation = z.infer<typeof batchPreparationSchema>;
 export const readinessMessages: Record<z.infer<typeof readinessIssueSchema>['code'], string> = {
   image_profile_missing: 'Выберите подтверждённый профиль изображений, когда он появится в каталоге.',
   image_profile_unavailable: 'Профиль изображений недоступен. Обновите каталог; сохранённый выбор не заменён.',

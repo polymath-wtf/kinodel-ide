@@ -1,6 +1,6 @@
 # Batch-generation: препродакшн image-ноды
 
-Статус: **9 октября 2026: [W8 принят по сокращённому критерию](../roadmap-mvp.md#wardrobe-batch-output). Saved V2 preparation и immutable 5А/5Б owners реализованы; после W8/DB14 input pins — DB15, job/intent — DB16, candidates — DB17. [Private 6А portrait lifecycle](../backend/artifacts.md#restart-safe-portrait-submission) добавляет только DB18 `portrait_submissions`, не batch activation. 6А принят; 6Б reference transport принят offline/mock. [Private 7.1 image execution/group/wait](../backend/artifacts.md#accepted-image-execution-and-group-wait) реализован в DB20. NEXT: 7.2 sequential worker/result wake/complete-set join, затем 7.3 Continue commands/status/media. Live three-unit working `stuff` acceptance, public media DTO/API, selection/assets/review и batch/media UI ещё pending**.
+Статус: **10 октября 2026: [W8 принят по сокращённому критерию](../roadmap-mvp.md#wardrobe-batch-output). Saved V2 preparation и immutable initial 5А/5Б owners реализованы; 6А portrait принят live, 6Б reference transport — offline/mock. Private 7.1 admission/group/wait (DB20) и [7.2 sequential worker/result wake/exact Retry/join](../backend/artifacts.md#sequential-image-execution-result-wake-and-exact-retry) (DB21–22) реализованы; 7.2 принят offline/mock. [7.3A Continue/shared status/UI](../backend/runtime.md#continue-command-accepted-73a) (DB23) и [7.3B guarded originals reads/UI](../backend/artifacts.md#guarded-originals-and-ordered-image-reads-accepted-73b) приняты offline/mock и browser checks. NEXT: live three-unit working `stuff` batch, restart между parents/steps и provider-off app reads. Selection/assets/review и полный batch/media UI ещё pending**.
 Первый потребитель — Wardrobe, следующий — Storyboard. Общие side-effect/review правила остаются в
 [Render](render.md); backend/LLM-задачи — в [Local MVP](../roadmap-mvp.md#wardrobe-batch-output),
 workflow/job/media/UI-задачи — в [ComfyUI roadmap](../roadmap-comfyui.md#wardrobe-comfyui).
@@ -67,8 +67,8 @@ data dependencies: hero_face ─┐
 
 `comfyui-gen` — видимый unit/job данного batch, со своей identity, attempt и workflow;
 не отдельный execution или HITL. [Private 7.1](../backend/artifacts.md#accepted-image-execution-and-group-wait)
-реализует image-only execution и один group wait в LangGraph; persisted последовательные units,
-result wake и complete-set join в Render worker — NEXT 7.2. Между картинками
+реализует image-only execution и один group wait в LangGraph; private 7.2 реализует persisted
+последовательные units, result wake и graph-owned complete-set join. Между картинками
 нет human pauses; браузер/LLM/graph invocation не удерживаются на время рендера.
 UI-вложенность не требует динамически компилировать N LangGraph subgraphs.
 
@@ -170,8 +170,10 @@ W1–W7 остаются историческими; reset/deletion нет, Stor
 
 W8 принят по сокращённому критерию; technical saved V2-plan preparation реализована;
 Offline 5А/5Б реализованы; private 6А portrait принят с user-confirmed provider-off fresh-process reopen.
-6Б reference transport принят offline/mock; private 7.1 image execution/group/wait реализован.
-NEXT: 7.2 sequential worker/result wake/complete-set join, затем 7.3 Continue commands/status/media.
+6Б reference transport принят offline/mock; private 7.1 image execution/group/wait реализован,
+7.2 sequential worker/result wake/exact Retry/join принят offline/mock.
+7.3A Continue/shared status/UI и 7.3B guarded originals reads/UI приняты offline/mock и browser checks;
+NEXT: live working `stuff` batch, restart между parents/steps и provider-off app reads.
 Read-only preparation разрешена заранее; initial render и technical Retry не вызывают Wardrobe повторно.
 
 ## 4. Порядок, зависимости и workflow binding
@@ -245,14 +247,17 @@ Handoff pin не является принятой image activation/job; parent 
   replay не отправляет второй POST вслепую, не вызывает LLM и не берёт новый seed.
 - `batch_outputs` — именованный output-порт: ref на complete immutable manifest с ordered
   `{unit_key,candidate_ref,input_lineage}`. Это не media bytes в graph state и не selected binding.
-- Partial/failed outputs видны как прогресс, но не complete-set review. One group terminal result + wake
-  следуют документированной целевой submit/wait/join boundary; её media-реализация ещё pending.
+- Private 7.2 сохраняет terminal result через reservation → immutable bytes → atomic publication +
+  unique wake; partial/blocked набор не становится complete manifest. Ранний result ждёт exact bound
+  checkpoint/task/interrupt. Runtime проверяет raw ancestry/pending `__resume__`: Command только для
+  unanswered exact interrupt, затем recovery с None. Graph join коммитит exact receipt и completed/failed
+  outcome до END; publication сама по себе не завершает consumer. Public progress/review ещё pending.
   Wake привязан к своему wait, не следующему human review.
 - Review сохраняет `RenderResult` в slot конкретного экземпляра (`anchor_frames`/`story_frames`).
   Complete manifest не означает approval. Cancel блокирует scheduling/promotion поздних результатов.
 
 <a id="retry-identity"></a>
-### Retry и immutable wait (проект)
+### Retry и immutable wait (private 7.2 реализован)
 
 - Reconciliation/replay незавершённой попытки сохраняет текущие group/wait и prepared inputs/seed;
   неопределённый acceptance сначала reconcile или block, **никогда blind resubmit**.
@@ -266,9 +271,24 @@ Handoff pin не является принятой image activation/job; parent 
 - Уже frozen prepared per-job payload/inputs/seeds переиспользуются неизменными. Входы ещё
   неподготовленных required jobs фиксируются один раз в свой черёд, когда доступны все exact parents,
   до соответствующего submit; не предполагаем, что все jobs были подготовлены до group failure.
+- `StoryRuntime.retry_images` принимает exact failed predecessor/result digest. SQL reservation и
+  acceptance отклоняют competing delivery key для того же predecessor; same-key restart идемпотентен,
+  последующий failed successor допускает следующий Retry. Новый handoff задаёт membership, но per-job
+  preparation всегда использует original root batch pin; retained successes сохраняют исходного owner.
+- Операции с retry attempt используют explicit attempt selector; omitted означает initial, никогда latest. Failed job остаётся
+  тем же с прежним prepared input/seed; новый attempt имеет отдельные authorization/deadline/correlation,
+  sheet upload intents/receipts/final graph и candidate. Первоначальный attempt не перезаписывается.
+- Sent timeout/contract/deadline failure и unknown acceptance остаются operational blocked на той же
+  попытке, без terminal group result/Retry. Только unsent deadline или verified provider failure по
+  owned exact history разрешает failed group. Unresolved dispatched job сохраняет один global native
+  slot независимо от graph block/cancel/terminal consumer; unclaimed blocked group slot не занимает.
+  Cancelled sent/unknown occupancy не освобождается автоматически; addressed terminal observation/release
+  — последующая step-8 capability. SQL consumer/turn и after-await checks ограждают native effects.
 - **Regenerate** меняет frozen seeds, **Revise** создаёт новый creative plan; это новые activations,
   не technical Retry. Изменённый parent инвалидирует transitive dependents. Anchor-local retained
   lineage требуется; selective creative frame repair остаётся последующим срезом.
+
+[Storage/runtime contract и evidence](../backend/artifacts.md#sequential-image-execution-result-wake-and-exact-retry).
 
 ## 6. Минималистичный UI
 

@@ -2,7 +2,7 @@
 
 Status: **Decided foundation**
 
-Deployment decision: SQLite local / PostgreSQL server; Project DB ownership is independent of engine. Local SQLite persistence for Story/Wardrobe immutable artifacts and bindings is implemented; cinematic media persistence and hosted PostgreSQL integration remain pending. Future [Fork](../hilp/fork.md) creates a child execution in the same project using exact immutable upstream results; implementation is deferred beyond MVP.
+Deployment decision: SQLite local / PostgreSQL server; Project DB ownership is independent of engine. Local SQLite persistence for Story/Wardrobe immutable artifacts and bindings, private anchor originals and group results is implemented; public cinematic media/selection and hosted PostgreSQL integration remain pending. Future [Fork](../hilp/fork.md) creates a child execution in the same project using exact immutable upstream results; implementation is deferred beyond MVP.
 
 Artifacts are validated creative truth. A checkpoint says where an execution is; an artifact says what it produced.
 
@@ -194,12 +194,13 @@ stuff/
     inputs/...                              # exact execution-owned reference snapshots
     assets/<asset_id>.<digest>.<ext>
     attempts/<job_id>/<candidate_id>.<digest>.<ext>
+    image-results/<result_id>.<digest>.json
     runtime-audit/<job_id>/...
     previews/...                            # derived, rebuildable
 ```
 
 DB/WAL/SHM and lock/bootstrap files belong to the same root and are not project media. Story/Wardrobe JSON,
-private inputs and portrait `attempts/` originals are implemented; approved `assets/`, previews and wider
+private inputs, anchor `attempts/` originals and `image-results/` manifests are implemented; approved `assets/`, previews and wider
 media publication remain target extensions. Managed paths are not a user-editable state protocol:
 logical `kinodel://projects/...` URIs stay independent of physical root. The backend creates paths and
 verifies hashes; agents never scan/write arbitrary files. Project DB owns identity, bindings, approvals,
@@ -266,8 +267,8 @@ Caller holds the existing data-root lock. Windows file sync/SQLite FULL guarante
 recovery, not a power-loss claim. Parent metadata remains a pin, not verification of media bytes,
 rights, imported lineage or upload receipt. Initial portrait job/attempt and zero-reference transport
 are implemented below; 6B separately verifies parents and pins the final post-upload graph.
-Accepted image activation/group remains step 7
-of the [ComfyUI roadmap](../roadmap-comfyui.md#wardrobe-comfyui).
+Accepted private image activation/group and execution are implemented in 7.1–7.2 below;
+public Continue/status (7.3A) and guarded originals (7.3B) are accepted offline/mock and in browser checks; live working-data acceptance remains open in the [ComfyUI roadmap](../roadmap-comfyui.md#7-batch-generation-последовательные-jobs-и-один-graph-wait).
 
 ## Offline Portrait Job Intent
 
@@ -286,9 +287,10 @@ Caller holds the data-root lock; a caller's open transaction is refused. Before-
 leaves neither record; after-commit recovery reads the same pair and inputs.
 
 This intent fingerprint is not a native HTTP envelope, provider acceptance, definitely-unsent evidence,
-public Start or submit authorization. There is no dispatch, state machine or second-attempt allocator.
+public Start or submit authorization. At step 5A there was no dispatch, state machine or second-attempt allocator;
+private 7.2 adds explicit attempts below without changing the initial intent or prepared inputs.
 Candidate storage/import is implemented below; separate accepted render intent, native envelope/correlation
-and submit/reconciliation are implemented in 6А below. This 5A owner stays immutable; image activation/group/wait remains 7.
+and submit/reconciliation are implemented in 6А below. This 5A owner stays immutable; private image activation/group/wait and execution are implemented in 7.1–7.2 below.
 
 ## Offline Portrait Candidate Import
 
@@ -319,11 +321,11 @@ It is transport provenance, not a local path or evidence of successful provider 
 
 Caller holds the root lock. A technically valid candidate is not provider acceptance/history success,
 approval, an asset or selected binding. Worker 6А proves successful declared history before import.
-Public media reads and selection/group remain later steps; parent resolver/reference transport is implemented in 6B below.
+Public media reads and selection remain later steps; parent resolver/reference transport and private group execution are implemented below.
 
 ## Restart-safe Portrait Submission
 
-Internal 6A uses `backend/portrait_submission_store.py` and `backend/portrait_worker.py` for ONE initial
+At step 6A, `backend/portrait_submission_store.py` and `backend/portrait_worker.py` implement ONE initial
 zero-reference portrait from an exact saved validated compact V2 plan. Additive DB17→18 adds only
 `portrait_submissions`; 5A job/intent and 5B candidate identities/schema/ownership stay unchanged.
 Caller holds the root OS lock and services one job at a time; caller SQL transactions are refused.
@@ -337,8 +339,8 @@ Caller holds the root OS lock and services one job at a time; caller SQL transac
   **before HTTP**; only a fresh successful claim permits one POST. Reopened dispatching never means unsent.
   Response `prompt_id`/first acceptance evidence commit before node-error/contract checks. A valid owned ID
   with rejected response metadata stays `blocked/contract_error`, not terminal failed; successful-history
-  recovery remains possible. Unknown acceptance stays blocked, empty history proves nothing. There is no
-  second-attempt allocator or automatic POST retry.
+  recovery remains possible. Unknown acceptance stays blocked, empty history proves nothing. At that step there was no
+  second-attempt allocator; 7.2 adds explicit failed-only Retry below, never automatic POST retry.
 - `tick_portrait_job` performs bounded native async calls (connect 5 s, read/per-call total 15 s, tick 60 s),
   verified TLS/no proxy-env/redirect/retry, identity transfer, strict bounded JSON and a 16 MiB PNG spool
   in ≤64 KiB chunks. No SQL transaction spans await, streaming or decode. Exact native queue/history tuple,
@@ -372,9 +374,9 @@ Caller holds the root OS lock and services one job at a time; caller SQL transac
 6A is accepted: live original import and fresh-process exact offline read passed after the user confirmed
 ComfyUI was powered off, with HTTP/socket calls patched to fail. Shutdown is user-confirmed, not agent-performed
 or independently server-probed. [Evidence](../../test-results/README.md#comfyui-step-6a--restart-safe-portrait--8-october-2026).
-Completion is technical, not approval/selection. No public route/media DTO, cinematic Start, scheduler,
-capability activation or graph/group lifecycle is enabled. Reference transport is implemented below;
-image activation/groups remain step 7.
+Completion is technical, not approval/selection. At step 6A no public route/media DTO, cinematic Start, scheduler,
+capability activation or graph/group lifecycle was enabled. Reference transport and private image execution
+are implemented below; public activation/media and selection remain pending.
 
 ## Bounded Anchor Lifecycle And Reference Transport
 
@@ -405,8 +407,8 @@ nonportrait identity/schema namespaces and the same initial-attempt/import/one-P
   current local authority are checked again. Missing/changed input leaves the child unsent; accepted
   reconciliation needs no surviving remote inputs. Lost prompt response never causes blind resubmit.
 
-Recovery does not reprepare, resample, heal originals or overwrite foreign inputs. Groups, public APIs,
-selection and live three-unit sheet delivery remain step 7 onward.
+Recovery does not reprepare, resample, heal originals or overwrite foreign inputs. Private groups are implemented
+in 7.1–7.2 below; public APIs, selection and live three-unit sheet delivery remain pending.
 [Evidence](../../test-results/README.md#comfyui-step-6b--anchor-lifecycle-and-reference-transport--9-october-2026).
 
 ## Accepted image execution and group wait
@@ -437,10 +439,87 @@ existing batch-input owner. Source text execution, artifacts and bindings retain
   fail closed. Consumer cancellation settles independently of the completed source execution;
   a cancellation accepted during inspection takes precedence over a new sweep diagnostic.
 
-Sequential units, terminal group result/wake and complete-set join are **7.2**; public continuation,
-status and originals reads are **7.3**. Private acceptance does not promote the preparation-only
+Sequential units, terminal group result/wake and complete-set join are implemented in **7.2** below;
+public continuation/status/UI (**7.3A**) and guarded originals reads/UI (**7.3B**) are accepted offline/mock and in browser checks. Acceptance does not promote the preparation-only
 profile or constitute candidate selection/approval.
 [Evidence](../../test-results/README.md#comfyui-step-71--accepted-image-execution-and-durable-wait--9-october-2026).
+
+## Sequential image execution, result wake and exact Retry
+
+**Private 7.2 is implemented and accepted offline/mock.** `image_group_worker.py` executes the
+accepted declaration; `image_group_results.py` owns immutable unit bindings, terminal results and join receipts.
+Public Continue/shared status/UI (7.3A) and guarded originals reads/UI (7.3B) are accepted offline/mock
+and in browser checks. NEXT is separate live three-unit working `stuff` acceptance and provider-off app reads.
+
+- DB20→21 removes only per-job `UNIQUE` from `render_submission_attempts`, `portrait_candidates`,
+  `portrait_submissions` and `anchor_reference_transfers`, preserving every rowid, column and stored body,
+  and adds `render_retry_allocations`. Per-attempt constraints remain. Additive DB21→22 adds only
+  `image_unit_attempts`, `image_group_results`, `image_group_joins` and `image_group_retry_requests`.
+- Attempt-aware reads/mutations use an explicit selector; omission always means the deterministic
+  **initial** attempt, never latest. Failed-job Retry keeps the same job and immutable prepared
+  input/seed, but creates its own attempt, authorization/deadline/correlation, sheet upload intents,
+  receipts/final graph and candidate. Initial and sibling attempts remain independently readable.
+- `StoryRuntime.retry_images` accepts an exact same-project published failed predecessor/result digest
+  as a new consumer/group/handoff/wait. SQL reservation and final acceptance both reject a competing
+  delivery key for the same failed predecessor/result; same-key restart/replay returns the original
+  identity, and a later failed successor can form the next chain link. Acceptance allocates no native
+  attempt or effect. Old result/wake/outcome remain immutable, even if their wait has not yet settled.
+- Retry handoff owns new group membership; the **original root batch pin** remains per-job input
+  authority. Strict declared N/order/dependencies govern just-in-time preparation and once-resolved
+  seed. The next unit starts only after verified original import. Retained successes keep their
+  exact candidate/job/attempt/input and original consumer lineage, without reauthorization or resubmit.
+- One global native job is serviced at a time. Unresolved dispatched occupancy survives graph-work
+  blocking, cancel and terminal consumer outcomes; an unclaimed blocked group holds no native slot.
+  SQL consumer/turn guards and checks after awaits fence preparation, dispatch, upload, import and
+  result publication. Completed source text and creative records remain intact.
+- Uncertain acceptance remains nonterminal blocked with no POST retry. A sent local timeout,
+  contract or deadline failure remains operationally blocked on that same attempt: it cannot publish
+  a failed group or authorize Retry. Only an **unsent deadline failure** or **verified provider failure
+  from owned exact history** qualifies. A label, elapsed deadline or empty queue/history is not proof.
+  Cancelled sent/unknown work conservatively retains occupancy; addressed provider-terminal observation
+  and release are deferred step-8 capabilities, not automatic cancellation recovery.
+- Terminal result publication is SQL reservation → immutable managed bytes → atomic published marker
+  plus one unique exact wake work. A complete result covers every required unit in order, with exact
+  candidate/job/attempt/parent/origin/root-plan lineage; a failed result carries only verified successes
+  and its exact failed unit. Publication alone does **not** complete the consumer.
+- An early result stays durable until the exact checkpoint/task/interrupt is bound. The runner validates
+  raw checkpoint ancestry/tasks/pending `__resume__` against that result/wait; it delivers
+  `Command(resume=...)` only to the unanswered exact interrupt, and uses `None` after a persisted resume.
+  Graph-owned join atomically commits an exact receipt and `completed`/`failed` outcome before `END`;
+  receipt recovery prevents repeat production if the final checkpoint lags. Only complete join returns
+  `batch_outputs` as a result ref. Old wakes cannot answer Retry waits or human reviews.
+
+These are technical candidates/manifests, not approval, selected bindings or assets.
+[Evidence](../../test-results/README.md#comfyui-step-72--sequential-worker-result-wake-and-exact-retry--9-october-2026).
+
+## Continue handoff and delivery records
+
+Additive DB22→23 creates only `continue_handoffs` and `continue_commands`, preserving prior records.
+`backend/continue_command.py` reserves one source-owned logical handoff with exact production intent,
+full immutable batch pins and first delivery before saver await/publication. Accepted consumer/group/start
+work, link and receipt then commit atomically. Source terminal/artifact records are not rewritten.
+Delivery receipts are immutable acceptance snapshots, not live progress; new keys converge on the same
+reserved transition subject to source/intent/OCC checks. Private new runs and explicit Retry remain distinct.
+[Runtime contract and evidence](runtime.md#continue-command-accepted-73a) own command/projection semantics.
+
+## Guarded originals and ordered image reads (Accepted 7.3B)
+
+`backend/image_reads.py` exposes exact-consumer read DTOs through two guarded GET routes.
+The accepted group declaration owns N/order; each declared unit remains visible even when unstarted,
+noncompleted or unavailable. An available original requires completed submission/candidate/parent
+validation; import alone grants no read authority. Retained Retry successes keep their exact origin
+consumer/job/attempt/input/candidate lineage. Reads never follow Continue/Retry or select latest facts.
+
+Completion is read through the existing full manifest validator, not inferred from candidate count
+or consumer outcome. A verifiable published result envelope whose full manifest/original validation
+fails retains exact id/digest with null status and an explicit issue; invalid envelope/file/wake rejects.
+Missing/corrupt originals expose no URL and trigger no healing, Retry or provider calls.
+
+Validation reuse is request-local; each operation checks current original bytes with unchanged shared
+validators. DB23, Continue policy, lifecycle runner and shared domain/storage contracts are unchanged.
+These are technical candidates, not approved selections/assets.
+[Exact wire/API](dto.md#image-read-dtos-accepted-73b),
+[acceptance evidence](../../test-results/README.md#comfyui-step-73b--backend-guarded-originals-and-ordered-image-reads--10-october-2026).
 
 ## Minimal Schemas
 
@@ -460,8 +539,11 @@ Implement and verify schemas in activation order. The wider catalog is design co
   native preparation, durable input pins, offline initial portrait job/attempt storage and original
   candidate import and private DB18 portrait submission/worker (6A) are implemented.
   User-confirmed provider-off reopen completes 6A acceptance; DB19 reference transport (6B) is accepted offline/mock.
-  Private DB20 image execution/group/wait (7.1) is implemented; NEXT: sequential units/complete-set join (7.2).
-  Future batch FramePlan, candidate-set records and `RenderResultV1` belong to the pending media slice.
+  Private DB20 image execution/group/wait (7.1) and DB21–22 sequential worker/result wake/exact Retry/join
+  (7.2) are implemented and accepted offline/mock; DB23 Continue/shared status/UI (7.3A) is accepted
+  offline/mock and in browser checks, as are guarded originals reads/UI (7.3B), without a new DB schema.
+  NEXT: live working-data batch, restart between parents/steps and provider-off app reads.
+  Future batch FramePlan, approved selection and `RenderResultV1` belong to the pending media slice.
   Stable keys, `SelectedMedia` and selected slots are unchanged;
 - mode-discriminated MotionPlan under the next `img2vid/ref2vid` contract, `MontagePlanV1` and `MontageResultV1` when video/montage is enabled; original i2v `MotionPlanV1` retains its meaning;
 - reusable chunk executable schemas when their pipeline is activated; their ownership/content contract is defined now.

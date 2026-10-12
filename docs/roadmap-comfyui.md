@@ -1,6 +1,6 @@
 # ComfyUI Local: поэтапная интеграция
 
-Обновлено: **9 октября 2026**.
+Обновлено: **10 октября 2026**.
 
 - Шаги 1–3 реализованы: read-only подключение, image preparation и production settings/draft diagnostics.
 - Preparation-граница шага 4 завершена: exact saved V2 handoff, guarded preparation API, native preparation
@@ -9,10 +9,13 @@
   импортирован; fresh-process offline reopen после подтверждённого пользователем выключения ComfyUI пройден с запрещённой сетью.
    6Б.1–6Б.3 реализованы и приняты offline/mock (DB19): anchor lifecycle, verified parents,
    ordered uploads и final graph. Private 7.1 image execution/group/wait реализован (DB20).
-   NEXT — 7.2 sequential worker/complete-set join.
+   7.2 sequential worker/result wake/exact Retry/join принят private offline/mock (DB21–22).
+    7.3A: общая Continue-команда, shared projection и Pipeline/Chat controls приняты offline/mock и browser checks (DB23).
+    7.3B: guarded originals/ordered image reads и Pipeline/Chat strip приняты offline/mock и browser checks; v80 inspected.
+    NEXT — отдельная live three-unit приёмка в рабочем `stuff`, restart между parents/steps и provider-off app reads.
   [Граница готовности](#wardrobe-comfyui).
 - Вход новой генерации — только exact сохранённый validated compact Wardrobe V2 `batch_prompt`; [W8 принят по сокращённому критерию автора](roadmap-mvp.md#wardrobe-batch-output). Compact result — patch in place текущего V2; V1 изолирован, consumption bridge не строим.
-- Public cinematic Run, sequential group execution/join и публичный media-путь ещё не реализованы;
+- Public cinematic Run и публичный media-путь ещё не реализованы;
    private anchor-unit lifecycle реализован в 6А–6Б; live reference delivery ещё не проверена.
 
 Это детализация генерации через ComfyUI из [Local MVP, шаг 4](roadmap-mvp.md#remaining-steps):
@@ -43,13 +46,14 @@ reference sent-block сохраняет причину/revision при reopen. [
 Повторное синхронное чтение/проверка родителей остаётся локальной возможностью упрощения, не блокером 7.1.
 
 **7.1 реализован:** новый private image-only execution в том же project, accepted group/wait из exact saved V2.
-**NEXT — 7.2** sequential worker/join, затем 7.3 «Продолжить» + status/media reads.
+**7.2 принят private offline/mock:** sequential worker/result wake/exact Retry/join.
+**7.3A и 7.3B приняты:** «Продолжить» + shared command/status/UI и guarded originals, offline/mock и browser checks.
 Живой three-unit batch в рабочем `stuff` — приёмка шага 7; текущая сборка его не запускала
 и рабочую БД не мигрировала. Preparation-only diagnostics остаются прежними.
 
 ### Checkpoint перед шагом 7 — 9 октября 2026
 
-**Шаг 6 даёт надёжное получение отдельных изображений; шаг 7 собирает их в один запуск из приложения;
+**Исторический checkpoint перед 7.1:** шаг 6 даёт надёжное получение отдельных изображений; шаг 7 собирает их в один запуск из приложения;
 шаг 8 закрепляет выбор и утверждение автора.** После recovery/isolation исправлений можно приступать к 7.1.
 
 - Готовы три private unit-роли: portrait и background по тексту, sheet с обоими exact parent originals.
@@ -87,13 +91,98 @@ Reserved image client key защищён и от конкурирующих Stor
 [Контракт](backend/artifacts.md#accepted-image-execution-and-group-wait),
 [evidence](../test-results/README.md#comfyui-step-71--accepted-image-execution-and-durable-wait--9-october-2026).
 
-**NEXT — только 7.2:** последовательные units, recovery готовых originals, terminal group result/wake
+**На этом checkpoint NEXT был 7.2:** последовательные units, recovery готовых originals, terminal group result/wake
 и exact complete-set join. 7.3 подключит общую команду «Продолжить» с backend-derived точкой
 продолжения, status/media и кнопку. Настоящий three-unit batch
 и рабочая миграция/проверка `stuff` остаются сквозной приёмкой шага 7.
 
 «Продолжить» — общая runtime-команда из сохранённой точки. Saved V2 → images — один её сценарий;
 backend resolution и дедупликация перехода входят в 7.3.
+
+### Checkpoint после 7.2 — 9 октября 2026
+
+**7.2 выполнен и принят private offline/mock.** Sequential worker использует original root input pin,
+declared N/order/dependencies и JIT prepared inputs/seed; следующий unit — после verified import.
+DB20→21 снимает только per-job UNIQUE в четырёх attempt-owned таблицах с сохранением columns/rowids/bodies
+и добавляет Retry allocations; DB21→22 добавляет unit/result/join/Retry-request records.
+Result reservation → immutable bytes → atomic publish + exact wake отдельно от graph join/terminal receipt.
+Explicit failed-only `StoryRuntime.retry_images` создаёт новый consumer/group/wait, сохраняет successes
+и конфликтует с competing key для того же failed predecessor уже на reservation и acceptance.
+Sent local timeout/contract/deadline и unknown acceptance остаются blocked same-attempt, без group failure/Retry.
+Unresolved dispatched occupancy переживает graph block/cancel/terminal consumer; cancelled sent/unknown slot
+не освобождается автоматически (addressed provider-terminal observation/release — шаг 8).
+[Контракт](backend/artifacts.md#sequential-image-execution-result-wake-and-exact-retry),
+[evidence](../test-results/README.md#comfyui-step-72--sequential-worker-result-wake-and-exact-retry--9-october-2026).
+
+**На этом checkpoint NEXT был 7.3A Continue/минимальный status/UI → 7.3B guarded originals**, затем live portrait → background → sheet
+в рабочем `stuff`, restart между units и powered-off app reads/screenshots. Private acceptance не закрывает
+эту сквозную приёмку или шаг 8 selection/assets; рабочие данные и пользовательский процесс не активировались.
+
+### Checkpoint после 7.3A — 10 октября 2026
+
+**7.3A backend/frontend принят offline/mock и browser checks.** Общая backend policy обслуживает
+Continue и status; Pipeline/Chat используют один command journal, показывают effective process и X/N.
+Первый image handoff требует явно показанных settings и exact production intent: offline preparation
+возвращает configured connection pin, отдельный Continue click авторизует рендер. DB22→23 additive:
+только `continue_handoffs`/`continue_commands`, atomic transition dedup и delivery receipts.
+Нового scheduler нет; terminal source не меняется. Shared command/status policy уже реализована;
+более широкое упрощение архитектуры остаётся отдельной работой.
+[Контракт](backend/runtime.md#continue-command-accepted-73a),
+[evidence и inspected Pipeline/Chat v78](../test-results/README.md#comfyui-step-73a--backend-universal-continue-and-action-projection--10-october-2026).
+
+**На этом checkpoint NEXT был 7.3B guarded originals → live three-unit batch → provider-off app reads.** Шаг 7 в целом
+не закрыт; рабочий `stuff` не мигрирован, live calls в этой docs-only синхронизации не выполнялись.
+
+### Checkpoint после 7.3B — 10 октября 2026
+
+**7.3B backend/frontend принят offline/mock и browser checks.** Два guarded GET дают ordered
+image projection и exact original bytes по opaque media refs выбранного consumer. Partial/import-only
+не означает complete; complete подтверждает прежний full manifest reader. Missing/invalid original
+остаётся явно недоступным, без healing/Retry. Pipeline/Chat показывают один общий originals strip.
+DB23 сохраняется; 7.3B не меняет DB schema, Continue policy, runner или shared domain contracts.
+[Контракт](backend/artifacts.md#guarded-originals-and-ordered-image-reads-accepted-73b),
+[evidence и primary-inspected Pipeline/Chat v80](../test-results/README.md#comfyui-step-73b--backend-guarded-originals-and-ordered-image-reads--10-october-2026).
+
+**NEXT — отдельная live приёмка portrait → background → sheet в рабочем `stuff`, restart после
+каждого parent/между steps и provider-off app reads.** Шаг 7 в целом остаётся открытым.
+
+### Коррекция курса — 10 октября 2026
+
+7.1–7.2 построили image-production lifecycle; принятый 7.3A добавил пользовательскую Continue —
+**одно сквозное действие в существующем UI**, не ещё один private orchestration-слой. 7.3A и 7.3B
+ниже разделяют command/status и показ originals; полная приёмка шага 7 по-прежнему требует живого набора.
+
+- **Continue** продолжает выбранный процесс по сохранённым фактам. Это не Retry, Regenerate,
+  автоматический approval или поиск последней генерации по timestamp. Команда и projection используют
+  одну backend policy доступного действия; UI не выводит следующий переход из graph ID/pending work.
+- **Текущие executions:** Wardrobe завершает text run. Для него используем уже построенный image consumer
+  и атомарную дедупликацию логического handoff, включая новый delivery key. Сохранённые terminal outcomes,
+  graph identities/checkpoints и provider recovery сохраняют прежнюю семантику.
+- **Новые cinematic runs:** целевая модель — один execution через поддерживаемые этапы;
+  завершение ноды не завершает запуск. В пределах frozen авторизации маршрут продолжается автоматически,
+  без обязательной паузы после Wardrobe или каждого этапа. Ожидания нужны для human input/review,
+  внешнего результата или реального block; отдельную границу авторизации рендера определить до его активации,
+  не смешивая её с creative approval. Это новая versioned topology, не переинтерпретация старых запусков
+  и не prerequisite 7.3A. Jobs, attempts, batch result и provider recovery остаются нужны внутри единого execution.
+- **Ownership:** graph задаёт бизнес-маршрут; storage валидирует и атомарно сохраняет факты;
+  runner доставляет/reconciles работу; UI показывает stage facts и allowed actions. Новые переходы
+  не должны независимо вычисляться во всех четырёх слоях. Provider job/attempt остаётся владельцем effects.
+
+После первого работающего Continue — отдельные локальные упрощения по наблюдаемой сложности:
+
+- [ ] Убрать повторную реализацию transition/action policy в затронутых runtime/read/UI местах;
+  shared Continue command/status policy уже реализована в 7.3A; здесь остаётся более широкое локальное упрощение.
+  route-specific проверки держать рядом с маршрутом, общий claim/invoke/drain/cancel — в runner.
+  Приёмка: command и projection согласованы по доступному действию; UI не вычисляет переход из graph ID/work,
+  повтор доставки и restart не создают новое применение решения или provider effect.
+- [ ] Переиспользовать validated immutable context внутри одной операции; сохранить fresh control/OCC
+  проверки после await и на commit. Не подменять это глобальным cache.
+- [ ] Локализовать framework-sensitive checkpoint inspection и оценить сокращение проверки полной ancestry
+  до необходимых инвариантов. Сохранить exact wait/result, pending-write recovery и commit/checkpoint crash cases;
+  изменение frozen topology или Retry ownership требует отдельного versioned решения.
+
+Расширение Retry, универсальный registry/compiler и новый scheduler не являются зависимостями Continue.
+Эта коррекция задаёт план; статический аудит не заменяет runtime-приёмку уже реализованных механизмов.
 
 ## Checkpoint после 6А
 
@@ -102,7 +191,9 @@ backend resolution и дедупликация перехода входят в 
 restart-safe portrait 6А в их принятых границах; [evidence](../test-results/README.md#comfyui-step-6a--restart-safe-portrait--8-october-2026).
 Рабочая БД после отдельного historical DB15 repair — DB18; repair и прежние creative records сохраняются.
 
-| Граница | Сейчас | Следующий результат |
+Историческое состояние **на checkpoint 6А**, не текущая готовность 7.2:
+
+| Граница | На этом шаге | Следующий результат |
 |---|---|---|
 | Saved compact V2 → prepared inputs | Реализовано, без повторного Wardrobe call | Использовать тот же exact saved plan в новом image execution |
 | Один portrait → verified original | 6А принят, live check на изолированной копии проекта | Не считать этот candidate результатом рабочего `stuff` |
@@ -129,16 +220,16 @@ restart-safe portrait 6А в их принятых границах; [evidence](
 
 | Область | Фактическое состояние |
 |---|---|
-| Текст/runtime | Compact Wardrobe V2 сохраняет исходный graph v2/digest, adapter 2 и saved `batch_prompt`; [W8 reduced acceptance](roadmap-mvp.md#wardrobe-batch-output) не закрывает deferred full discovery/real-model harness. V1 изолирован; прежние Story routes сохраняются. Private 6А/6Б lifecycle и [7.1 image execution/group/wait](#checkpoint-после-71--9-октября-2026) реализованы; NEXT — 7.2 sequential worker/join. |
+| Текст/runtime | Compact Wardrobe V2 сохраняет исходный graph v2/digest, adapter 2 и saved `batch_prompt`; [W8 reduced acceptance](roadmap-mvp.md#wardrobe-batch-output) не закрывает deferred full discovery/real-model harness. V1 изолирован; прежние Story routes сохраняются. Private 6А/6Б, 7.1 admission/group/wait и [7.2 sequential worker/result wake/exact Retry/join](#checkpoint-после-72--9-октября-2026) реализованы; 7.2 принят offline/mock. 7.3A Continue/shared status/UI и [7.3B guarded originals](#checkpoint-после-73b--10-октября-2026) приняты offline/mock и browser checks. NEXT — live рабочая приёмка шага 7. |
 | Подключение | Backend config, явный env-file allowlist launcher и `backend/comfyui.py` подключены. Guarded API/CLI preflight проверяет выбранный workflow; private `acquire_preparation_context` передаёт installed schemas в preparation после проверки frozen connection/registry pins. |
 | Workflow | Единый SHA-pinned registry в `backend/comfyui_workflows.py`: preparation включена для portrait/background txt2img и Qwen 1/2/3 inputs; остальные кандидаты inspection-only. `backend/production.py` даёт preparation-only bundle/diagnostics, не cinematic profiles/defaults. [Mappings](tools/comfyui-tool.md#текущие-файлы-и-порты). |
-| Хранение | W8 сохранял DB14; DB15 — input pins, DB16 — jobs/attempts, DB17 — candidates, DB18 — submissions, DB19 — `anchor_reference_transfers`. Current DB20 добавляет только `image_groups`; прежние identities/bytes сохраняются. Group result/wake, assets, selection и публичный media-путь ещё нужны. |
-| UI | Есть первоначальная «Начать историю», отдельные Retry/Cancel и exact Story review; общей ▶ «Продолжить» пока нет. Pipeline/Chat показывают saved Wardrobe plan и frozen inputs/config; карта следующих этапов не означает их исполнимость. Anchor render/review не подключены; Canvas пуст, provider graph unavailable. |
+| Хранение | W8 сохранял DB14; DB15 — input pins, DB16 — jobs/attempts, DB17 — candidates, DB18 — submissions, DB19 — `anchor_reference_transfers`, DB20 — `image_groups`. DB21 расширяет четыре attempt-owned таблицы, снимая только per-job UNIQUE, и добавляет Retry allocations; DB22 добавляет unit/result/join/Retry-request records; current DB23 additive — только `continue_handoffs`/`continue_commands`. Initial identities/rowids/bytes сохраняются; assets, selection и публичный media-путь ещё нужны. |
+| UI | Pipeline/Chat имеют общую ▶ «Продолжить», shared journal, backend-derived effective status/X/N, явные first-image settings и ordered originals strip (7.3B). «Начать историю», отдельные Retry/Cancel и exact Story review сохраняются. Anchor review, Canvas и provider graph остаются pending. |
 | Brief | V1/text inputs сохранены. Новый BriefV2 и отдельный cinematic draft имеют image/video sizes, shot count, total/per-shot ms и video mode. Guarded diagnostics и UI draft подключены; public cinematic Start отсутствует. |
 
 **Текущие ограничения:**
 
-1. **Multi-image Qwen:** preparation для 1/2/3 входов и private two-reference sheet upload/submit реализованы; live role-delivery и batch activation ещё предстоят.
+1. **Multi-image Qwen:** preparation для 1/2/3 входов, private two-reference sheet upload/submit и batch execution реализованы; live role-delivery и рабочая приёмка ещё предстоят.
 2. **`img2vid` / `ref2vid`:** разные контракты с выбором в Brief. Img2vid использует `162:MiniMaxH3ImageToVideo.first_frame`, ref2vid — `136:MiniMaxH3ReferenceToVideo`; installed video capability ещё не проверена.
 3. **Длительность/FPS/RIFE/audio — остаётся открытым.** Новые references не исправляют timing: `132.value=5` даёт 124 исходных frames; результат RIFE ×2 при 30 FPS нельзя считать пятисекундным. Измерение и исправление — шаг 12.
 
@@ -201,7 +292,7 @@ def bind_image_slots(template, consumer_id, slots, uploaded_names):
 
 Для shots без персонажа/с другим явно заявленным набором profile может разрешить 1/2 refs; compact order сохраняет объявленные роли. Это не разрешение выкинуть отсутствующий required portrait/sheet. В полном character ref2vid обязательны все три перечисленные роли. Prompt guidance использует тот же порядок: в MiniMax reference upstream labels — `<Picture 1>`, `<Picture 2>`, `<Picture 3>`, несмотря на zero-based socket suffixes.
 
-Новый anchor порядок: **portrait → background → sheet**, где portrait и background независимы друг от друга, но оба — родители sheet. Wardrobe V2 использует `batch_unit` со стабильным `unit_key` и source/role refs; исторические V1 `anchor_unit` не input нового renderer. Будущий worker фиксирует оба candidate IDs/digests перед sheet submit. Изменение portrait **или background** инвалидирует зависимый sheet; изменение sheet не пересоздаёт родителей. Complete-set review проверяет обе lineage, включая retained candidates.
+Новый anchor порядок: **portrait → background → sheet**, где portrait и background независимы друг от друга, но оба — родители sheet. Wardrobe V2 использует `batch_unit` со стабильным `unit_key` и source/role refs; исторические V1 `anchor_unit` не input нового renderer. Private worker фиксирует оба candidate IDs/digests перед sheet submit. Изменение portrait **или background** инвалидирует зависимый sheet; изменение sheet не пересоздаёт родителей. Будущий complete-set review проверяет обе lineage, включая retained candidates.
 
 Все нынешние resize используют Lanczos, center `crop`, `divisible_by=2`. Значит, adapter не только меняет links: должен объявить и закрепить эту preprocessing policy по роли. Crop может потерять края лица/одежды; совместимость/preview проверяется до effects, а изменение crop/pad требует новой workflow/profile version. Для Qwen `resolution` задаёт pixel budget, не независимый output width: latent следует aspect ratio первого reference с rounding к 32. Произвольные output W×H пока не обещаем. Для `img2vid` storyboard preprocessing должен сохранять утверждённую композицию, без скрытого crop/stretch.
 
@@ -367,7 +458,7 @@ boundary, не принятая image activation/job. [Storage contract](backend
 **Сквозная интеграция — шаги 5–7.** Следующий родительский пункт и его уточнения закрываются
 по мере подключения потребителей; они не блокируют переход от готовой preparation-границы к шагу 5.
 
-- [ ] **Закреплённые входы jobs.** Связать подготовку со storage/submit шагов 5–6:
+- [x] **Закреплённые входы jobs.** Связать подготовку со storage/submit шагов 5–6:
   сохранить plan pin, exact parent candidates/digests, profile/workflow pins и resolved size/crop/seed
   до соответствующего submit. Повтор использует прежние подготовленные входы;
   UI и worker не сочиняют prompts заново и не вызывают LLM для технического retry.
@@ -375,7 +466,7 @@ boundary, не принятая image activation/job. [Storage contract](backend
    - [x] Явно авторизовать один zero-reference portrait и закрепить native wire request/correlation до HTTP — 6А;
     technical intent 5А не является submit authorization или provider acceptance.
    - [x] Resolver verified parent bytes/lineage/rights и post-upload final graph/receipts — 6Б.
-  - [ ] Принять и сохранить отдельную image-only activation, подключить graph wait/group — шаг 7;
+  - [x] Принять и сохранить отдельную image-only activation, подключить graph wait/group — 7.1;
     diagnostic API не является Start или принятым render work.
 
 **Приёмка preparation-границы:** offline handoff передаёт prompts, use cases/modes, stable unit keys/order и обе sheet dependencies
@@ -405,7 +496,7 @@ Self/future/missing refs, mode/role mismatch и unsupported mapping блокир
 и exact published input binding в DB16. Intent body/digest закрепляет граф и остальные private snapshots
 через immutable batch/unit refs без второй копии; reopen проверяет SQL и bytes, conflicts/corruption
 не исправляет. Только zero-reference `hero-face`/portrait; сам модуль 5А не владеет authorization/dispatch:
-они реализованы отдельно в 6А. Новые attempts/retry allocator не реализованы. [Контракт](backend/artifacts.md#offline-portrait-job-intent),
+они реализованы отдельно в 6А. На шаге 5А новые attempts/retry allocator отсутствовали; private 7.2 теперь добавляет explicit attempts с сохранением initial intent. [Контракт](backend/artifacts.md#offline-portrait-job-intent),
 [evidence](../test-results/README.md#comfyui-step-5a--offline-portrait-job-intent--8-october-2026).
 
 **Реализовано 5Б:** `backend/portrait_candidate_store.py` импортирует static PNG original через bounded
@@ -426,12 +517,12 @@ DB17 reservation → immutable publication → guarded published marker; тол�
   и bounded zlib completeness проверяют decode/MIME/size; critical chunk order/palette bounds проверяются
   отдельно от Pillow. Canonical original не проходит Character re-encode.
   Video metadata/`ffprobe` — при включении видео.
-- [ ] До первого submit сохранять frozen API graph/mapping/input digests и snapshots/digests **использованных node schemas** отдельно от creative artifact. Исторический attempt не зависит от последующего `/object_info` или изменённого registry. Input snapshots и candidates доступны по committed metadata; технические audit/credentials не уходят в общий DTO.
+- [x] До первого image submit сохранять frozen API graph/mapping/input digests и snapshots/digests **использованных node schemas** отдельно от creative artifact. Исторический attempt не зависит от последующего `/object_info` или изменённого registry. Input snapshots и candidates доступны по committed metadata; технические audit/credentials не уходят в общий DTO. Video — при его активации.
   - [x] Full per-unit `pre_upload` snapshot (graph/settings/resolved seed/ordered parents/schema pins)
     сохраняется immutable; snapshots не выдаются публичным API.
   - [x] Привязать portrait input pin к job/initial attempt — 5А.
   - [x] Закрепить native submit envelope/correlation для zero-reference portrait до HTTP — 6А.
-  - [ ] После verified uploads закрепить final graph/receipts — шаг 6Б.
+  - [x] После verified uploads закрепить final graph/receipts — 6Б, принят offline/mock.
 
 **Приёмка:** file→DB crash, disk-full, tampering и конфликт destination не создают видимый полурезультат и не заменяют original. Reopen читает прежние bytes/digest; corruption не лечится rerender под тем же ID.
 
@@ -449,7 +540,7 @@ diagnostic `/prepare` и preparation-only профиль сами по себе 
 - [x] Exact native tuple ID/graph/outputs и namespaced `kinodel_portrait_v1` correlation проверяются; `client_id` при наличии совпадает, но не является idempotency key. Только exact finite int→float для frozen schema-declared FLOAT допускается; другие значения/types/links не нормализуются. Автоматических POST retries нет.
 - [x] Native calls используют установленный async `httpx`, verified TLS, `trust_env=False`, no redirects/retries, identity encoding и bounded strict JSON. `ComfyRunner` не является durable adapter.
 - [x] 6А download/import: strict declared PNG descriptor, безопасный Windows subfolder нормализуется для metadata, actual native spelling сохраняется в `/view` query. Bytes/time/transfer bounds, decode/geometry/digest и immutable import; filename не выбирает local destination. Invalid/partial stream и corruption не создают/не лечат candidate.
-- [x] Response ID сохраняется до проверки `node_errors`/contract failure. Lost response/restart использует только exact queue/history evidence; пустая history не доказывает unsent. Ambiguous acceptance остаётся blocked; second attempts/retry allocator отсутствуют.
+- [x] Response ID сохраняется до проверки `node_errors`/contract failure. Lost response/restart использует только exact queue/history evidence; пустая history не доказывает unsent. Ambiguous acceptance остаётся blocked; на шаге 6А second attempts/retry allocator отсутствовали. Private 7.2 добавляет только explicit failed-only Retry.
 - [x] Owned-ID response contract error остаётся `blocked/contract_error`; malformed provably foreign queue/history не блокирует хорошую job и сохраняется как bounded private `broken_job` diagnostic. Own/ambiguous records и конфликт exact matches продолжают блокировать.
 - [x] Explicit `revalidate_contract=True` разрешает исправить known/unknown-ID contract block только после одной uniquely matched exact успешной completed history и safe declared output. Первый ID/evidence коммитятся до import; известные ID/first evidence сохраняются. One explicit durable output-only grant ≤5 min разрешает GET/import того же accepted prompt после original expiry; original deadline/acceptance сохраняются, renewal/new POST запрещены.
 - [x] Receipt-less reference `blocked_sent` при reopen сохраняет прежние reason/revision без HTTP/повторной загрузки; known receipt сохраняет GET-only recovery.
@@ -481,12 +572,13 @@ diagnostic `/prepare` и preparation-only профиль сами по себе 
 [Current contract](backend/artifacts.md#restart-safe-portrait-submission),
 [6А evidence](../test-results/README.md#comfyui-step-6a--restart-safe-portrait--8-october-2026).
 6А live и 6Б offline/mock завершены. Live two-reference sheet остаётся приёмкой шага 7;
-7.1 private image execution/group/wait реализован; следующая implementation — 7.2 sequential worker/join.
+7.1 private image execution/group/wait реализован; 7.2 sequential worker/result wake/exact Retry/join принят offline/mock.
+7.3A Continue/shared status/UI и 7.3B guarded originals приняты offline/mock и browser checks; NEXT — live рабочая приёмка шага 7.
 
 ### 7. Batch-generation: последовательные jobs и один graph wait
 
 **Что означает ▶ «Продолжить».** Это одно общее действие выбранного процесса в workspace,
-доступное из Pipeline/Chat, чтобы идти дальше из сохранённой точки. Сейчас его в рабочем UI нет:
+доступное из Pipeline/Chat, чтобы идти дальше из сохранённой точки; подключено в 7.3A.
 «Начать историю» создаёт новый text execution; после exact Story approval граф сам выполняет
 Wardrobe и завершает этот execution с сохранённым планом, без рендера.
 
@@ -514,28 +606,37 @@ consumer, а не изменением старого outcome. Правила в
   - [x] Сохранить полный N, порядок и зависимости; атомарно принять execution/group/start work.
   - [x] Закрепить один durable graph wait; duplicate с тем же project/client key и restart возвращают прежние identities, конфликтующие pins отклоняются.
   - [x] Регистрация не отправляет prompt/upload и не готовит будущие unit payloads/seeds.
-  Дедупликация логического перехода при новом delivery key и публичная кнопка входят в 7.3.
+  Дедупликация логического перехода при новом delivery key и публичная кнопка реализованы в 7.3A.
   [Контракт](backend/artifacts.md#accepted-image-execution-and-group-wait),
   [evidence](../test-results/README.md#comfyui-step-71--accepted-image-execution-and-durable-wait--9-october-2026).
 
-- [ ] **7.2 · Worker: последовательно выполнить принятую группу и собрать полный набор.**
-  - [ ] Исполнять N units строго в порядке плана: один provider job одновременно, следующий после verified import предыдущего.
-  - [ ] Для каждого unit сохранить job/attempt; inputs/seed/digests закрепить до submit. Self/future/missing refs отклонять; sheet использует оба exact parent originals и verified upload receipts.
-  - [ ] После restart переиспользовать готовые originals и prepared inputs; неопределённое acceptance не повторять вслепую.
-  - [ ] Атомарно сохранить terminal group result и unique wake work; ранний результат ждёт exact graph wait.
-  - [ ] Join выдаёт `batch_outputs`: immutable complete-set manifest с plan/parent lineage. Partial/failed набор показывает причину и допустимое действие.
-  - [ ] Проверить failure первого unit и sheet после обоих parents, crash result/wake до checkpoint, [explicit Retry](tools/batch-generation.md#retry-identity) с сохранением successes. Старый wake не отвечает новому wait/review.
+- [x] **7.2 · Private worker: последовательно выполнить принятую группу и собрать полный набор — принят offline/mock.**
+  - [x] Исполнять N units строго в порядке плана: один global native job одновременно, следующий после verified import предыдущего.
+  - [x] Для каждого unit сохранить exact job/attempt; JIT inputs/seed/digests закрепить до submit. Self/future/missing refs отклонять; sheet использует оба exact parent originals и verified upload receipts.
+  - [x] После restart переиспользовать готовые originals и original root prepared inputs; неопределённое acceptance не повторять вслепую.
+  - [x] Атомарно опубликовать terminal group result и unique wake work после reservation/bytes; ранний результат ждёт exact graph wait.
+  - [x] Exact graph-owned join выдаёт `batch_outputs` ref на immutable complete-set manifest с plan/parent/origin lineage; failed join сохраняет причину без complete output. Receipt и terminal outcome коммитятся до END; public показ — 7.3.
+  - [x] Проверить failure первого unit и sheet после обоих parents, crash result/wake до checkpoint, [explicit Retry](tools/batch-generation.md#retry-identity) с сохранением successes и competing-key fence. Старый wake не отвечает новому wait/review; sent local failure остаётся blocked без Retry.
+  [Контракт](backend/artifacts.md#sequential-image-execution-result-wake-and-exact-retry),
+  [evidence](../test-results/README.md#comfyui-step-72--sequential-worker-result-wake-and-exact-retry--9-october-2026).
 
-- [ ] **7.3 · Общая команда и кнопка ▶ «Продолжить» в существующем UI.**
-  - [ ] Backend-команда определяет точку продолжения по durable work/controls/outcomes и checkpoint/wait; graph задаёт маршрут, UI отправляет intent, не имя следующей ноды или произвольный resume.
-  - [ ] Незавершённую работу продолжать с frozen inputs; активную работу открывать. Committed результаты не повторять, unfinished owner calls выполняются в пределах бюджета.
-  - [ ] Human wait открывает exact review; blocked показывает allowed action. Approval, Retry и Regenerate требуют явного решения; terminal execution не переоткрывается.
-  - [ ] Для предусмотренного следующего handoff найти принятый consumer по exact source/intent; при отсутствии атомарно принять переход. Saved V2 → images использует 7.1.
-  - [ ] Double click, lost response и reload, включая новый delivery key, возвращают прежний переход/group. Conflicting source/intent и stale OCC отклоняются.
-  - [ ] Public projection связывает source с текущим consumer и возвращает доступное действие/причину недоступности; terminal статус source не скрывает предусмотренный следующий handoff. Дедупликация Continue не запрещает отдельный явно принятый Regenerate/new run из того же плана.
-  - [ ] Добавить видимую общую ▶ «Продолжить» в controls выбранного процесса, с одним command journal для Pipeline/Chat и persist-before-POST. Она доступна после saved Wardrobe plan; «Начать историю» остаётся первоначальным запуском. Во время active/delivery показывать состояние; при review/block направлять к соответствующему действию с понятной подписью.
-  - [ ] Показать `готово X / N`, причину остановки, доступное действие, guarded originals и диагностики. Images пока candidates; approval — шаг 8, полный Canvas — шаг 9.
-  - [ ] Проверить видимость/действие кнопки после terminal text + saved plan, Continue после остановки на text шаге, human wait и между image units; active/blocked/terminal без следующего handoff возвращают фактическое состояние. Approval не создаётся нажатием Play; обычный переход между units не требует кликов.
+- [x] **7.3A · Общая команда и кнопка ▶ «Продолжить» + минимальный статус в существующем UI — принят offline/mock и browser checks.**
+  - [x] Backend-команда определяет точку продолжения по durable work/controls/outcomes и checkpoint/wait; graph задаёт маршрут, UI отправляет intent, не имя следующей ноды или произвольный resume.
+  - [x] Незавершённую работу продолжать с frozen inputs; активную работу открывать. Committed результаты не повторять, unfinished owner calls выполняются в пределах бюджета.
+  - [x] Human wait открывает exact review; blocked показывает allowed action. Approval, Retry и Regenerate требуют явного решения; terminal execution не переоткрывается.
+  - [x] Для предусмотренного следующего handoff найти принятый consumer по exact source/intent; при отсутствии атомарно принять переход. Saved V2 → images использует 7.1.
+  - [x] Double click, lost response и reload, включая новый delivery key, возвращают прежний переход/group. Conflicting source/intent и stale OCC отклоняются.
+  - [x] Public projection связывает source с текущим consumer и возвращает доступное действие/причину недоступности; terminal статус source не скрывает предусмотренный следующий handoff. Дедупликация Continue не запрещает отдельный явно принятый Regenerate/new run из того же плана.
+  - [x] Добавить видимую общую ▶ «Продолжить» в controls выбранного процесса, с одним command journal для Pipeline/Chat и persist-before-POST. Она доступна после saved Wardrobe plan; «Начать историю» остаётся первоначальным запуском. Во время active/delivery показывать состояние; при review/block направлять к соответствующему действию с понятной подписью.
+  - [x] Показать `готово X / N`, причину остановки и доступное действие из той же backend policy, что использует команда. Не добавлять отдельную state machine или UI routing по graph IDs; существующий command/work путь исполняет принятое действие.
+  - [x] Проверить видимость/действие кнопки после terminal text + saved plan, Continue после остановки на text шаге, human wait и между image units; active/blocked/terminal без следующего handoff возвращают фактическое состояние. Approval не создаётся нажатием Play; обычный переход между units не требует кликов.
+  - [x] Первый image production intent авторизуется отдельно по показанным settings и exact pins из offline preparation; accepted settings заморожены.
+  [Контракт и границы OCC](backend/runtime.md#continue-command-accepted-73a),
+  [evidence / inspected Pipeline+Chat v78](../test-results/README.md#comfyui-step-73a--backend-universal-continue-and-action-projection--10-october-2026).
+
+- [x] **7.3B · Сохранённые originals в существующем UI — принят offline/mock и browser checks.** Guarded ordered image reads и exact opaque original refs подключены к одному Pipeline/Chat strip. Partial candidates доступны до manifest; import-only/N originals не доказывают complete, только прежний full manifest reader. Missing original явно unavailable без healing/Retry. Fresh-process offline и real guarded API/browser reads приняты на disposable fixtures с запрещёнными provider/network effects и writes. Approval — шаг 8, Canvas — шаг 9.
+  [Контракт](backend/artifacts.md#guarded-originals-and-ordered-image-reads-accepted-73b),
+  [evidence / primary-inspected Pipeline+Chat v80](../test-results/README.md#comfyui-step-73b--backend-guarded-originals-and-ordered-image-reads--10-october-2026).
 
 - [ ] **Сквозная приёмка шага 7 в рабочем `stuff`.**
   - [ ] Через «Продолжить» получить настоящий portrait → background → sheet: три jobs и три originals в проекте, оба references доставлены в отдельные slots.
@@ -548,6 +649,8 @@ consumer, а не изменением старого outcome. Правила в
 - [ ] Media review предъявляет полный manifest: approve выбирает один candidate на каждый required unit; apply атомарно сохраняет `RenderResult`/assets/binding, receipt и следующий transition с OCC и cancel checks.
 - [ ] Разделить technical Retry (прежние inputs/seed), Regenerate (те же prompts, новые frozen seeds/identity) и Revise (Wardrobe создаёт новый план). New portrait **или background** → new dependent sheet; неизменные parents сохраняют исходную lineage. Новый полный набор требует нового review.
 - [ ] Cancel прекращает локальное scheduling/promotion. Pending removal — только owned prompt ID; running cancel — только проверенная адресная capability сервера. Без неё сообщаем, что внешняя работа может продолжиться; глобальные clear/interrupt не используем на общем endpoint.
+  Private 7.2 уже ограждает local effects; cancelled sent/unknown attempt консервативно удерживает native
+  occupancy. Addressed provider-terminal observation/release ещё pending и не обещает automatic release.
 
 **Приёмка:** face B + sheet A и background B + sheet A отклоняются, если sheet использовал parents A; duplicate/stale decision и restart после selection commit не меняют выбранный результат. Старое review не утверждает новый набор. Late/cancelled results остаются audit/history и не продвигают execution.
 
@@ -609,8 +712,8 @@ consumer, а не изменением старого outcome. Правила в
 
 Базовая regression: `./.venv313/Scripts/python.exe -B -m unittest discover -s tests -q`, зависимости — `python -m pip check` в той же venv. UI checks — [web/README](../web/README.md#checks), с focused media/navigation cases и screenshot review по AGENTS.md. Новые tests не объявляем существующими до реализации.
 
-**Ближайшее действие после checkpoint 7.1:** 7.2 — sequential worker/complete-set join;
-затем 7.3 — общая команда и кнопка ▶ «Продолжить»/status/media, с live three-unit приёмкой в рабочем project root.
+**Ближайшее действие после принятого 7.3B:** отдельная live portrait → background → sheet приёмка
+в рабочем `stuff`, restart после каждого parent/между steps и provider-off app reads. Шаг 7 остаётся открытым.
 Без Comfy Cloud, GPU-install
 внутри Kinodel, WebSocket dependency, workflow editor, generic provider SDK, cloud storage и автоматического GC.
 

@@ -3,9 +3,13 @@
 Status: **Accepted boundaries; text/Story UI and compact Wardrobe V2 retain their scoped acceptance.
 Private zero-reference portrait lifecycle (6A, DB18) is implemented and accepted; live import and fresh-process
 network-forbidden reopen after user-confirmed provider shutdown passed. Bounded anchor/reference lifecycle
-(6B, DB19) is accepted offline/mock. Private image execution/group/wait (7.1, DB20) is implemented.
-NEXT: sequential units/complete-set join 7.2; live reference delivery,
-public cinematic Start, media DTO/API/UI and selection/assets remain pending.**
+(6B, DB19) is accepted offline/mock. Private image execution/group/wait (7.1, DB20) and sequential
+worker/result wake/exact Retry/join (7.2, DB21–22) are implemented; 7.2 is accepted offline/mock.
+7.3A universal Continue/shared status/UI is accepted offline/mock and in browser checks.
+[7.3B guarded originals reads/UI](artifacts.md#guarded-originals-and-ordered-image-reads-accepted-73b) is accepted
+offline/mock and in browser checks. NEXT: live three-unit working `stuff` batch, restart between
+parents/steps and provider-off app reads; live reference delivery, public cinematic Start/review
+and selection/assets remain pending.**
 
 W1–W7/W6 live remain historical V1 evidence. [W8](../roadmap-mvp.md#wardrobe-batch-output) patches compact V2
 in place under the original `kinodel.story-wardrobe` v2/digest, adapter 2 and ordinary Start route;
@@ -18,6 +22,13 @@ DB19 adds only `anchor_reference_transfers`; [6B](artifacts.md#bounded-anchor-li
 preserves 6A records and adds verified parents/ordered uploads/final graph without public activation.
 DB20 adds only `image_groups`: private image admission and one durable external wait through the
 existing runner, with immutable source-owned membership. [Contract](artifacts.md#accepted-image-execution-and-group-wait).
+DB21–22 add explicit attempts and unit/result/wake/join/Retry ownership; they do not replace jobs or
+provider recovery. [7.2 contract](artifacts.md#sequential-image-execution-result-wake-and-exact-retry).
+Additive DB23 adds only `continue_handoffs` and `continue_commands`: source-transition deduplication
+and delivery receipts. [Continue command and projection](runtime.md#continue-command-accepted-73a)
+share one backend policy; Pipeline/Chat explicitly authorize shown first-image settings using offline
+preparation. Existing runner executes accepted work; terminal sources stay immutable. Broader local
+simplification and new end-to-end topology remain pending.
 
 Kinodel is a **runtime-vibe-factory for creators**. A creator follows a pipeline from an idea through story, characters, storyboard and video, or another production scheme, inspecting and revising results through human-in-the-loop decisions. Cinematic is one pipeline, not the definition of the entire product.
 
@@ -65,9 +76,26 @@ Each new logical output has one declared writer. A creative owner can have a gen
 
 ## Runtime Boundaries
 
+**Target for new runs of supported user pipelines:** one frozen end-to-end execution, not a run per stage.
+Stage completion advances the authored graph automatically within frozen authorization; it is not run
+completion. Human gates, required input, external waits, real blocks or an explicit authorization
+requirement can stop progress; Wardrobe and ordinary stage boundaries need no compulsory manual pause.
+Render authorization is distinct from creative approval, not an invented extra review gate.
+
+Existing Story/Wardrobe/image terminal outcomes and frozen topologies remain immutable. The separate
+image-consumer bridge remains supported transitional behavior, not a reason to reopen a terminal run.
+The accepted [Continue command](runtime.md#continue-command-accepted-73a) delivers the selected process's
+supported continuation through the existing runtime; it adds no scheduler, retry or approval policy.
+
 Local API and one graph runner share one process holding the data-directory lock. API transactions accept commands into durable work; only the runner invokes LangGraph. Provider jobs persist separately so generation can continue while no graph invocation or model call is active. Browser disconnection does not cancel accepted work.
 
 Business commits and checkpoints are separate. An operation records prepared inputs and its committed result; replay returns that result rather than repeating the effect. External submission may remain ambiguous after a lost response and must be reconciled, not blindly retried. Details belong to [runtime](runtime.md), [artifacts](artifacts.md) and [tools](../tools/tools.md).
+
+Transition meaning belongs to the authored graph; concrete stage handlers implement its declared
+node semantics. Storage validates/commits those facts; the shared runner owns delivery, not stage policy.
+The backend projects stage state and allowed actions from those facts; UI renders that projection.
+Simplify redundant checks before removing durable facts. One end-to-end execution still needs jobs,
+attempts, batch results and exact provider recovery; it is not a generic node DSL/compiler/registry.
 
 Human approval, direct edits and questions follow the [HITL contract](../hilp/hilp.md). Cancellation is durable and prevents later creative commits; checkpoint rewind cannot mutate production history.
 

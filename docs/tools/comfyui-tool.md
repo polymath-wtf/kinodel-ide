@@ -1,6 +1,6 @@
 # ComfyUI Tool: workflow и REST-путь
 
-Статус: **6А portrait принят live; 6Б anchor lifecycle/verified parents/ordered uploads/final graph (DB19) принят offline/mock. [Private 7.1 image execution/group/wait](../backend/artifacts.md#accepted-image-execution-and-group-wait) реализован в DB20. NEXT: 7.2 sequential worker/result wake/complete-set join, затем 7.3 Continue commands/status/media; live three-unit working `stuff` acceptance остаётся pending**. Это не public render route или capability promotion: кандидаты становятся выбранными `anchor_frames`, `story_frames`, `shot_videos` только через review/selection. [Current storage/worker contract](../backend/artifacts.md#bounded-anchor-lifecycle-and-reference-transport), [provider boundary](../backend/comfyui.md), [roadmap](../roadmap-comfyui.md).
+Статус: **6А portrait принят live; 6Б anchor lifecycle/verified parents/ordered uploads/final graph (DB19) принят offline/mock. Private 7.1 image execution/group/wait (DB20) и [7.2 sequential worker/result wake/exact Retry/join](../backend/artifacts.md#sequential-image-execution-result-wake-and-exact-retry) (DB21–22) реализованы; 7.2 принят offline/mock. [7.3A Continue/shared status/UI](../backend/runtime.md#continue-command-accepted-73a) (DB23) и [7.3B guarded originals reads/UI](../backend/artifacts.md#guarded-originals-and-ordered-image-reads-accepted-73b) приняты offline/mock и browser checks. NEXT: live three-unit working `stuff` batch, restart между parents/steps и provider-off app reads**. Public cinematic Run и capability promotion остаются pending: кандидаты становятся выбранными `anchor_frames`, `story_frames`, `shot_videos` только через review/selection. [Current storage/worker contract](../backend/artifacts.md#sequential-image-execution-result-wake-and-exact-retry), [provider boundary](../backend/comfyui.md), [roadmap](../roadmap-comfyui.md).
 
 ## Текущие файлы и порты
 
@@ -32,7 +32,8 @@
 | `video-gen`, `img2vid` | `162` `MiniMaxH3ImageToVideo.first_frame` с selected storyboard frame данного shot | Закрепить обновлённые workflow/mapping digests и проверить first-frame delivery/model/timing на сервере. |
 | `video-gen`, `ref2vid` | `minimax-h3-ref2vid`, ordered `[storyboard_frame, portrait, character_sheet]`; отдельный background не передаётся | Самостоятельный Brief-selected mode, не экспериментальная подмена img2vid. Проверить references/continuity/timing; точный frame 0 этим mode не обещается. |
 
-Image stage names — [новый batch-проект](batch-generation.md), не активированный runtime;
+Private anchor batch runtime принят offline/mock в 7.2; public cinematic image stages остаются
+[batch-проектом](batch-generation.md), без public activation;
 original inspection/V1 names `anchor-gen`/`frames-gen` сохраняются в исторических declarations.
 `workflow=txt2img|img2img` в creative output обозначает режим; actual template выбирается exact pinned
 mapping. Frame signature `[previous_frame,character_sheet,portrait]` для earlier-frame + anchors
@@ -51,6 +52,16 @@ mapping. Frame signature `[previous_frame,character_sheet,portrait]` для earl
 4. **Ожидание/импорт:** polling `GET /queue` и `GET /history/{prompt_id}` (WebSocket опционален). В history проверять `status.status_str == "success"` и отсутствие `execution_error`, а не выводить успех только из completion flag. Читать **только** outputs объявленных нод (`865`, `881`, `494` либо `157`) и фактически возвращённые filename/subfolder/type; скачать original `GET /view?filename=...&subfolder=...&type=...` с корректным URL-encoding и `type` из проверенного output. Для VHS не предполагать имя поля history (`gifs`/`videos`/`video`) без проверки установленной версии. Проверить media bytes/MIME, размеры, длительность и audio stream, затем импортировать как immutable candidate с provenance. Путь на сервере — не `AssetRef`.
 
 Глобальные `/interrupt` и clear queue нельзя использовать для адресного cancel на общем сервере. Поздний результат после cancel не продвигается в selected result. Подробный протокол неоднозначного принятия, retry и сохранения payload — [backend ComfyUI](../backend/comfyui.md#workflow-submission).
+
+Private 7.2 worker выполняет declared N/order/dependencies с JIT inputs/seed и следующим unit только
+после verified import. Historical omitted attempt selector означает initial, не latest. Explicit failed-job
+Retry сохраняет job/prepared input/seed, но отделяет attempt authorization/deadline/correlation и sheet
+uploads/final graph/candidate. Unknown acceptance и sent local timeout/contract/deadline failure остаются
+blocked на той же попытке, без failed group/Retry; terminal authority — только unsent deadline или owned
+exact-history provider failure. Unresolved sent work удерживает global native slot при block/cancel/terminal
+consumer; cancelled sent/unknown slot не освобождается автоматически (addressed observation/release — шаг 8).
+SQL consumer/turn и after-await checks ограждают effects; result/wake publication отдельно от graph join
+и не создаёт approval/assets. [Контракт и evidence](../backend/artifacts.md#sequential-image-execution-result-wake-and-exact-retry).
 
 ### Upload → конкретный LoadImage
 

@@ -81,6 +81,45 @@ const load = require('./load-typescript.cjs');
   }));
   await deliverCommand(storage, start.id, async () => { throw new Error('receipt must not POST again'); }, async record => { handled++; assert.deepEqual(record.receipt, receipt); });
   assert.equal(handled, 1); assert.equal(posts, 2); assert.equal(pendingCommands(storage).length, 0);
+  // Continue is its own strict envelope: a read/open receipt legitimately has no work.
+  const token = `sha256:${'c'.repeat(64)}`;
+  const continuation = createCommand('continue', id, id, null, { command_key: 'continue-delivery', expected_token: token });
+  const continueReceipt = { schema_version: '1', selected_execution_id: id, source_execution_id: id,
+    effective_execution_id: id, project_id: id, status: 'waiting_review', action: 'review', reason: 'explicit_decision_required',
+    allowed_actions: ['approve', 'cancel'], occ_token: token, work_id: null, group_id: null, review: {
+      request_id: token, digest: token, revision: 1, binding_revision: 1, subject_artifact_id: id },
+    source_plan_ref: null, image_progress: null, production: null, command_key: 'continue-delivery', expected_token: token, disposition: 'review' };
+  saveCommand(storage, continuation);
+  await assert.rejects(deliverCommand(storage, continuation.id, async (_, body) => {
+    assert.equal(body, continuation.payload); throw new ReadError('network', 'Continue response lost');
+  }, async () => {}));
+  assert.equal(pendingCommands(storage)[0].payload, continuation.payload);
+  for (const wrong of [{ ...continueReceipt, command_key: 'other' }, { ...continueReceipt, expected_token: `sha256:${'d'.repeat(64)}` },
+    { ...continueReceipt, selected_execution_id: '00000000-0000-0000-0000-000000000002' }, { ...continueReceipt, project_id: '00000000-0000-0000-0000-000000000002' }]) {
+    await assert.rejects(deliverCommand(storage, continuation.id, async () => wrong, async () => assert.fail('foreign receipt resolved')));
+    assert.equal(pendingCommands(storage)[0].receipt, undefined);
+  }
+  await assert.rejects(deliverCommand(storage, continuation.id, async (endpoint, body) => {
+    assert.equal(endpoint, `/api/executions/${id}/continue`); assert.equal(body, continuation.payload); return continueReceipt;
+  }, async record => {
+    assert.deepEqual(pendingCommands(storage)[0].receipt, continueReceipt, 'Continue receipt persisted before resolution');
+    throw Error('interrupted Continue resolution');
+  }));
+  await deliverCommand(storage, continuation.id, async () => assert.fail('saved Continue receipt must not POST'), async record => assert.deepEqual(record.receipt, continueReceipt));
+  assert.throws(() => createCommand('continue', id, id, null, { command_key: 'bad', expected_token: 'latest' }));
+  assert.throws(() => createCommand('continue', id, id, null, { command_key: 'bad', expected_token: token, approve: true }));
+  const source = { artifact_id: id, project_id: id, execution_id: id, operation_id: token, schema_id: 'visual_anchor_plan', schema_version: '2',
+    produced_by_stage: 'wardrobe', digest: token, uri: `kinodel://projects/${id}/artifacts/${id}`, media_type: 'application/json' };
+  const intent = { source_plan_ref: source, image_size: { width: 1024, height: 1024 }, image_profile: { profile_id: 'exact-profile', version: '1', digest: token },
+    connection: { connection: 'server', endpoint_digest: token } };
+  const imageContinue = createCommand('continue', id, id, null, { command_key: 'images', expected_token: token, production_intent: intent });
+  saveCommand(storage, imageContinue);
+  const imageReceipt = { ...continueReceipt, action: 'open', disposition: 'open', status: 'created', reason: null, review: null, command_key: 'images',
+    source_plan_ref: source, production: { image_size: intent.image_size, image_profile: intent.image_profile, connection: 'server' } };
+  await assert.rejects(deliverCommand(storage, imageContinue.id, async () => ({ ...imageReceipt, production: { ...imageReceipt.production, connection: 'local' } }),
+    async () => {}));
+  assert.equal(pendingCommands(storage)[0].receipt, undefined, 'mismatched render receipt remains uncertain');
+  await deliverCommand(storage, imageContinue.id, async () => imageReceipt, async () => {});
   const cancel = key => createCommand('cancel', id, id, null, { command_key: key });
   const a = cancel('tab-a'), b = cancel('tab-b'); saveCommand(storage, a); saveCommand(storage, b);
   await deliverCommand(storage, a.id, async () => { throw new ReadError('http', 'stale OCC', 409); }, async record => assert.equal(record.rejection.status, 409));

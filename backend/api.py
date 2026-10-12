@@ -11,13 +11,15 @@ import secrets
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from pydantic import Field, model_validator
 
 from backend import batch_preparation, comfyui, config, production
 from backend.batch_generation import BatchConnectionPinV1
 from backend.batch_preparation import AnchorBatchPreparationRequestV1, PublicBatchPreparationV1
 from backend.config import resolve_data_root
+from backend.continue_command import ContinueProjection, ContinueReceipt, ContinueRequest
+from backend.image_reads import ImageMediaRefV1, ImageProjectionV1, image_projection, read_image_original
 from backend.character_api import character_router
 from backend.characters import CharacterRef
 from backend.domain import (
@@ -31,7 +33,7 @@ from backend.story_start import (DEFAULT_CHARACTER_ROOT, InvalidCharacterSelecti
                                  RetiredWardrobeRoute, RETIRED_WARDROBE_MESSAGE, reject_retired_wardrobe)
 from backend.story_reads import recent_story_executions, story_projection, story_activity, wardrobe_activity, retired_wardrobe_counts
 from backend.story_store import read_story
-from backend.wardrobe import VisualAnchorPlanV2, WardrobeInputV2
+from backend.wardrobe import AnchorKey, ExactDigest, VisualAnchorPlanV2, WardrobeInputV2
 from backend.openrouter_client import OpenRouterModelMetadataV1
 from backend.openrouter_wardrobe import WardrobeInputSizeDiagnostic
 from backend.wardrobe_store import WardrobeDiagnostic, read_wardrobe_plan
@@ -252,6 +254,7 @@ class StoryProjection(DomainModel):
     allowed_actions: list[Literal["approve", "revise", "clarify"]]
     wardrobe_plan_ref: ArtifactRef | None = None
     wardrobe_stop: WardrobeStopState | None = None
+    process: ContinueProjection | None = None
 
 
 class RecentStory(DomainModel):
@@ -604,9 +607,11 @@ def create_app(root: Path | None = None, produce_story=fixture_story, *,
         return {"execution_id": receipt.execution_id, "work_id": receipt.work_id}
 
     @app.get("/api/executions/{execution_id}/projection", response_model=StoryProjection, response_model_exclude_unset=True)
-    async def read_projection(execution_id: CanonicalUUID, request: Request):
+    async def read_projection(execution_id: CanonicalUUID, request: Request, include_process: bool = False):
         try:
-            projection = story_projection(request.app.state.runtime.db, execution_id)
+            runtime = request.app.state.runtime
+            process = await runtime.process_projection(execution_id) if include_process else None
+            projection = story_projection(runtime.db, execution_id, process=process)
             if projection is None:
                 raise HTTPException(404, "Unknown internal Story execution")
             result = StoryProjection.model_validate(projection).model_dump(mode="json")
@@ -614,11 +619,73 @@ def create_app(root: Path | None = None, produce_story=fixture_story, *,
                 # Existing Story clients use strict JSON schemas; keep their wire unchanged.
                 result.pop("wardrobe_plan_ref")
                 result.pop("wardrobe_stop")
+            if not include_process:
+                result.pop("process")
             return result
         except RetiredWardrobeRoute as error:
             raise HTTPException(410, str(error)) from error
+        except LookupError as error:
+            raise HTTPException(404, "Selected process not found") from error
+        except OSError as error:
+            raise HTTPException(409, "Selected process is unavailable or invalid") from error
         except (ValueError, TypeError) as error:
-            raise HTTPException(409, str(error)) from error
+            raise HTTPException(409, "Selected process is unavailable or invalid" if include_process else str(error)) from error
+
+    @app.get("/api/executions/{execution_id}/process", response_model=ContinueProjection)
+    async def read_process(execution_id: CanonicalUUID, request: Request):
+        runtime = request.app.state.runtime
+        try:
+            return await runtime.process_projection(execution_id)
+        except RetiredWardrobeRoute as error:
+            raise HTTPException(410, str(error)) from error
+        except LookupError as error:
+            raise HTTPException(404, "Selected process not found") from error
+        except (ValueError, TypeError, KeyError, OSError) as error:
+            raise HTTPException(409, "Selected process is unavailable or invalid") from error
+
+    @app.post("/api/executions/{execution_id}/continue", status_code=202, response_model=ContinueReceipt)
+    async def continue_selected(execution_id: CanonicalUUID, body: ContinueRequest, request: Request):
+        try:
+            return await request.app.state.runtime.continue_execution(execution_id, body)
+        except RetiredWardrobeRoute as error:
+            raise HTTPException(410, str(error)) from error
+        except LookupError as error:
+            raise HTTPException(404, "Selected process not found") from error
+        except config.ComfyUIConfigError as error:
+            raise HTTPException(422, error.code) from error
+        except (ValueError, TypeError, KeyError, OSError) as error:
+            # Restricted response: no stored provider payload/endpoint/path diagnostic.
+            raise HTTPException(409, "Continue conflicts, is stale, or requires valid production intent") from error
+
+    @app.get("/api/executions/{execution_id}/images", response_model=ImageProjectionV1)
+    async def read_images(execution_id: CanonicalUUID, request: Request):
+        try:
+            # Stay on the runtime DB's owning thread; no run/sweep/to_thread in GET.
+            return image_projection(request.app.state.runtime.db, execution_id)
+        except LookupError as error:
+            raise HTTPException(404, "Exact image consumer not found") from error
+        except (ValueError, TypeError, KeyError, OSError, RecursionError) as error:
+            raise HTTPException(409, "Exact image declaration or manifest is unavailable or invalid") from error
+
+    @app.get("/api/executions/{execution_id}/images/candidates/{candidate_id}/original",
+             response_class=Response, responses={200: {"content": {"image/png": {}}}})
+    async def image_original(execution_id: CanonicalUUID, unit_key: AnchorKey, candidate_id: ExactDigest,
+                             request: Request, group_id: ExactDigest, job_id: ExactDigest,
+                             attempt_id: ExactDigest, unit_input_digest: ExactDigest,
+                             origin_execution_id: CanonicalUUID, candidate_digest: ExactDigest,
+                             candidate_metadata_digest: ExactDigest):
+        try:
+            ref = ImageMediaRefV1(execution_id=execution_id, group_id=group_id, unit_key=unit_key,
+                job_id=job_id, attempt_id=attempt_id, unit_input_digest=unit_input_digest,
+                origin_execution_id=origin_execution_id, candidate_id=candidate_id,
+                candidate_digest=candidate_digest, candidate_metadata_digest=candidate_metadata_digest)
+            original = read_image_original(request.app.state.runtime.db, ref)
+        except LookupError as error:
+            raise HTTPException(404, "Exact completed image original not found") from error
+        except (ValueError, TypeError, KeyError, OSError, RecursionError) as error:
+            raise HTTPException(409, "Exact image original selectors or stored bytes are unavailable or invalid") from error
+        return Response(original, media_type="image/png", headers={"X-Content-Type-Options": "nosniff",
+                                                                   "Cache-Control": "no-store"})
 
     @app.get("/api/executions/{execution_id}", response_model=ExecutionState)
     async def read_execution(execution_id: CanonicalUUID, request: Request):

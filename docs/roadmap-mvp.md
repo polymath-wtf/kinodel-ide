@@ -1,15 +1,17 @@
 # Local Cinematic MVP: Build Plan
 
-Обновлено: **9 октября 2026**.
+Обновлено: **10 октября 2026**.
 
 - Шаг 3 закрыт: Storytell и Wardrobe W1–W7 приняты, включая live-приёмку W6 и UI-приёмку W7 с mocked HTTP; сохранённый план и полные image prompts доступны до рендера.
-- [Wardrobe W8 / compact batch_prompt V2](#wardrobe-batch-output) принят по сокращённому критерию автора; full discovery/real-model harness отложены, не PASS. Saved V2 handoff, immutable 5А/5Б и [private restart-safe portrait 6А](backend/artifacts.md#restart-safe-portrait-submission) реализованы. 6А принят live; [6Б](roadmap-comfyui.md#checkpoint-после-6б) принят offline/mock. Private [7.1 image execution/group/wait](backend/artifacts.md#accepted-image-execution-and-group-wait) реализован; NEXT — 7.2 sequential worker/complete-set join; [Storyboard batch plan](#storyboard-batch-backend) ещё pending.
-- ComfyUI шаги 1–3 реализованы: preflight, image preparation и production settings/draft diagnostics. Cinematic Run/render и media API/UI ещё не подключены.
+- [Wardrobe W8 / compact batch_prompt V2](#wardrobe-batch-output) принят по сокращённому критерию автора; full discovery/real-model harness отложены, не PASS. Saved V2 handoff, immutable initial 5А/5Б и [private restart-safe portrait 6А](backend/artifacts.md#restart-safe-portrait-submission) реализованы. 6А принят live; [6Б](roadmap-comfyui.md#checkpoint-после-6б) принят offline/mock. Private 7.1 admission/group/wait реализован; [7.2 sequential worker/result wake/exact Retry/join](backend/artifacts.md#sequential-image-execution-result-wake-and-exact-retry) принят offline/mock. [7.3A Continue/shared status/UI](roadmap-comfyui.md#checkpoint-после-73a--10-октября-2026) и [7.3B guarded originals/UI](roadmap-comfyui.md#checkpoint-после-73b--10-октября-2026) приняты offline/mock и browser checks. NEXT — live рабочая приёмка шага 7; [Storyboard batch plan](#storyboard-batch-backend) ещё pending.
+- ComfyUI шаги 1–3 реализованы: preflight, image preparation и production settings/draft diagnostics. Public cinematic Run/render ещё не подключён; private batch и guarded originals API/UI приняты в своих offline/mock и browser-границах.
 - ComfyUI шаг 4: exact saved compact V2 handoff и native preparation/replay подключены через guarded
   diagnostic API; private durable input pins добавлены в DB15, offline 5А job/first-attempt records — в DB16,
    offline 5Б portrait candidate/original import — в DB17; DB18 — private `portrait_submissions`.
-   DB19 — `anchor_reference_transfers` для 6Б; current DB20 добавляет только `image_groups` для 7.1.
-   Рабочий `stuff` в этой сборке не мигрировался; sequential group execution/join — 7.2.
+   DB19 — `anchor_reference_transfers` для 6Б; DB20 — `image_groups` для 7.1; DB21 — explicit attempts/Retry
+   allocations с сохранением initial rows/rowids/bodies, DB22 — unit/result/join/Retry-request records;
+   current DB23 additive — только `continue_handoffs` и `continue_commands`.
+   Рабочий `stuff` в этой сборке не мигрировался; full-step-7 live acceptance ещё pending.
 
 Здесь ведём общий порядок сборки и задачи агентов: LLM, текстовые входы/результаты, версии, review, восстановление и подключение готового агента к существующему UI в его milestone. Подключение ComfyUI к сохранённым планам и render/media-задачи ведутся в [roadmap-comfyui.md](roadmap-comfyui.md). Статусы ниже — фактическая готовность, не обещание работающего приложения.
 
@@ -17,7 +19,7 @@
 
 ## Результат для пользователя
 
-Целевой последовательный [cinematic](pipelines/cinematic.md): brief → Storytell → HITL → Wardrobe → Batch generation (Anchors) → HITL → Storyboard → Batch generation (Storyboard) → HITL → Filmmaker → video-gen → HITL → Montage → final. Текущий authored UI-каркас уже именует будущие image-tools `anchor-batch`/`frames-batch`, но они не подключены; [batch runtime](tools/batch-generation.md) ещё pending. Исторический `cinematic.v1.json` и frozen execution identities не переписываются. Пользователь видит входы/результаты нод, пишет правки непосредственно владельцу, сравнивает v1/v2/v3 и утверждает конкретную версию.
+Целевой последовательный [cinematic](pipelines/cinematic.md): brief → Storytell → HITL → Wardrobe → Batch generation (Anchors) → HITL → Storyboard → Batch generation (Storyboard) → HITL → Filmmaker → video-gen → HITL → Montage → final. Текущий authored UI-каркас уже именует будущие image-tools `anchor-batch`/`frames-batch`, но они не подключены; private [anchor batch runtime](tools/batch-generation.md) принят offline/mock, public integration и frames ещё pending. Исторический `cinematic.v1.json` и frozen execution identities не переписываются. Пользователь видит входы/результаты нод, пишет правки непосредственно владельцу, сравнивает v1/v2/v3 и утверждает конкретную версию.
 
 Первый пилот выпускается для **Windows** и включает видео и сборку финального файла. Текстовый и image-only эксперименты — промежуточные инженерные проверки. Linux проверяется отдельным последним шагом после Windows-пилота. Critic, публикация памяти, свободный конструктор, произвольная исполняемая группировка нод, облачные аккаунты/кредиты и творческий монтаж не входят в этот выпуск. Фиксированные раскрываемые UI-матрёшки и виды Pipeline/Chat не меняют маршрут исполнения.
 
@@ -25,28 +27,42 @@
 
 ## Сейчас и следующий результат
 
-**Шаги 0–3 закрыты на Windows; W8 принят по сокращённому критерию автора.** Обычный Start сохраняет исходный `kinodel.story-wardrobe` v2/digest и adapter 2: exact Story approval → compact `VisualAnchorPlanV2.batch_prompt` → END без рендера. W8 сохранял DB14; последующие DB15–18 pins/jobs/candidates/submissions сохраняются. DB19 добавил `anchor_reference_transfers`, current DB20 — только `image_groups`; historical DB15 repair/retention описан в [local startup](backend/local-startup.md). V1 Wardrobe retained/isolated, unversioned Start — 410. Private 6А live portrait потребляет exact сохранённый V2 без повторного LLM; 6Б принят offline/mock; 7.1 private admission/group/wait реализован. Public cinematic Start/media API/UI ещё не подключены.
+**Шаги 0–3 закрыты на Windows; W8 принят по сокращённому критерию автора.** Обычный Start сохраняет исходный `kinodel.story-wardrobe` v2/digest и adapter 2: exact Story approval → compact `VisualAnchorPlanV2.batch_prompt` → END без рендера. W8 сохранял DB14; initial DB15–19 identities/bodies сохранены. DB20 добавил `image_groups`, DB21 — explicit attempts/Retry allocations, DB22 — unit/result/join/Retry-request records, current DB23 — additive Continue handoff/delivery records; historical DB15 repair/retention описан в [local startup](backend/local-startup.md). V1 Wardrobe retained/isolated, unversioned Start — 410. Private 6А live portrait потребляет exact сохранённый V2 без повторного LLM; 6Б принят offline/mock; 7.1 private admission/group/wait реализован, 7.2 sequential worker/result wake/exact Retry/join принят offline/mock. 7.3A universal Continue/shared status/UI и 7.3B guarded originals API/UI приняты offline/mock и browser checks; public cinematic Start/review ещё не подключены.
 
-**Story UI 6A–6E и Wardrobe W8 приняты; cinematic-каркас 6F визуально утверждён.** W8 frontend показывает exact compact V2 prompts/refs и frozen inputs. Private ComfyUI 6А реализован и принят: live original импортирован, после user-confirmed provider shutdown fresh-process network-forbidden reopen пройден. Media/job projection, anchor review, кадры/видео и montage в UI не подключены. [6А evidence](../test-results/README.md#comfyui-step-6a--restart-safe-portrait--8-october-2026).
+**Story UI 6A–6E и Wardrobe W8 приняты; cinematic-каркас 6F визуально утверждён.** W8 frontend показывает exact compact V2 prompts/refs и frozen inputs. Private ComfyUI 6А реализован и принят: live original импортирован, после user-confirmed provider shutdown fresh-process network-forbidden reopen пройден. 7.3A показывает shared process status/X/N, 7.3B — ordered saved originals в Pipeline/Chat; anchor review, кадры/видео и montage в UI не подключены. [6А evidence](../test-results/README.md#comfyui-step-6a--restart-safe-portrait--8-october-2026).
 
-**NEXT implementation: 7.2 sequential worker/join → 7.3 универсальная «Продолжить» → N batch/review → image/video → montage.** 7.1 private admission/group/wait реализован; live two-reference sheet и рабочий three-unit batch ещё не проверены. [6А private portrait](backend/artifacts.md#restart-safe-portrait-submission) сохраняет прежние identities, deadline и no-blind-resubmit. Technical completion — не approval/selection; preparation-only diagnostics и public capability activation неизменны. MVP render остаётся открытым.
+**NEXT: отдельная live portrait → background → sheet приёмка в рабочем `stuff`, restart после каждого parent/между steps и provider-off app reads → review → image/video → montage.** Private 7.1–7.2 реализованы, 7.2 принят offline/mock; 7.3A и 7.3B backend/frontend приняты offline/mock и browser checks. [7.3B evidence / primary-inspected Pipeline+Chat v80](../test-results/README.md#comfyui-step-73b--backend-guarded-originals-and-ordered-image-reads--10-october-2026). Live two-reference sheet и рабочий three-unit batch ещё не проверены. Technical completion — не approval/selection; preparation-only diagnostics и public capability activation неизменны. Шаг 7 и MVP render остаются открытыми.
 
-**[Checkpoint после 6Б](roadmap-comfyui.md#checkpoint-после-6б):** базовый code commit `99e2c17`, новая сборка пока не закоммичена.
+**[Коррекция курса 10 октября](roadmap-comfyui.md#коррекция-курса--10-октября-2026):** сначала одно сквозное пользовательское действие поверх существующего lifecycle, с общей backend policy для command/projection и дедупликацией перехода независимо от delivery key. Архитектурные упрощения идут отдельными bounded-задачами; новый scheduler и развитие Retry не нужны для Continue. Цель новых cinematic runs — один versioned execution с автоматическими переходами в пределах frozen авторизации, без обязательной паузы после Wardrobe. Render authorization и creative approval — разные факты. Текущие completed text runs продолжаются через существующий image handoff без изменения истории; jobs/attempts/provider recovery сохраняются и в сквозном execution.
+
+**[Checkpoint после 7.3B](roadmap-comfyui.md#checkpoint-после-73b--10-октября-2026):** базовый code commit `99e2c17`, новая сборка пока не закоммичена.
 Принятый live portrait находится в isolated evidence root, не в рабочем `stuff`. Следующий
 пользовательский milestone — **«Продолжить»** из exact saved compact V2: новый image-only execution
 в том же project → portrait/background txt2img → sheet с обоими references → verified originals
 и records в рабочем data root. 6Б background/sheet lifecycle, verified parents и ordered upload/final
-pins реализованы и приняты offline/mock; private 7.1 execution/group/wait реализован в DB20.
-Остальной шаг 7 — sequential worker/join и
-минимальные command/status/media reads с кнопкой. Полный Canvas/workflow viewer не блокирует
+pins реализованы и приняты offline/mock; private 7.1 execution/group/wait и 7.2 sequential worker/result
+wake/exact Retry/join реализованы до DB22; 7.2 принят offline/mock. DB23 Continue/shared status/UI принят
+в 7.3A; guarded originals API/UI принят в 7.3B без новой DB schema. Остальной шаг 7 — live рабочая приёмка. Полный Canvas/workflow viewer не блокирует
 этот срез; terminal text execution не переоткрывается, selection/assets остаются шагом 8.
 
-**Общей ▶ «Продолжить» в рабочем UI пока нет:** «Начать историю» создаёт текстовый запуск,
+**Общая ▶ «Продолжить» подключена в Pipeline/Chat:** «Начать историю» создаёт текстовый запуск,
 exact Story approval автоматически ведёт к Wardrobe → saved plan → END без рендера.
-В 7.3 кнопка продолжит выбранный процесс из backend-derived точки; saved V2 → отдельный image
+В 7.3A кнопка продолжает выбранный процесс из backend-derived точки; saved V2 → отдельный image
 consumer в том же project — один сценарий. Human review требует явного решения; внутри принятого
 маршрута worker выполняет следующие шаги автоматически. Поведение по сохранённым точкам — в [шаге 7](roadmap-comfyui.md#7-batch-generation-последовательные-jobs-и-один-graph-wait).
 Порядок и приёмка: [7.1 admission/wait → 7.2 worker/join → 7.3 Continue/UI](roadmap-comfyui.md#7-batch-generation-последовательные-jobs-и-один-graph-wait).
+Первый image production intent требует показанных settings и exact pins из offline preparation;
+отдельный Continue click авторизует рендер. Новый scheduler и изменение terminal source не вводятся.
+
+## Упрощение runtime и путь к node interface
+
+Архитектурное направление принято; shared Continue command/status policy реализована в 7.3A, более широкие пункты ниже **остаются открытыми** и не расширяют свободным конструктором текущий Windows MVP. Контракт экземпляра — [Node interface](backend/node.md#целевой-интерфейс-экземпляра), routing/versioning — [Pipeline](backend/pipeline.md). Порядок: пользовательский Continue → локальное устранение дублирования → новая сквозная topology → настройки и constrained editor. Это не единый инфраструктурный rewrite.
+
+- [ ] **Пользовательский срез:** 7.3A и 7.3B приняты; закрыть живую приёмку по [ComfyUI roadmap](roadmap-comfyui.md#коррекция-курса--10-октября-2026). Generic node registry и переделка checkpoint inspection не являются prerequisites.
+- [ ] **Одна семантика перехода:** на уже подключённых этапах graph/route задаёт переход и terminal факт, storage проверяет/коммитит, runner доставляет работу, backend projection сообщает stage state и allowed actions. Приёмка: UI не реконструирует переход из graph ID/work; command и read согласованы; replay/approval/cancel сохраняют исходные гарантии. Детализация локальных упрощений — в ComfyUI roadmap, без второго checklist здесь.
+- [ ] **Первая сквозная topology для новых запусков:** определить frozen render authorization и подключить поддерживаемый Story → Wardrobe → images в одном execution. Продолжение между этапами автоматическое; ожидания только по реальной причине. Приёмка: restart на text шаге и между image units продолжает тот же execution, без повторного committed результата/POST; terminal только в конце поддерживаемого маршрута. Исторические terminal runs и текущий image bridge сохраняются, существующие checkpoints не мигрируют в новый graph.
+- [ ] **Минимальный node interface на реальных этапах:** выразить instance ID/type, typed ports/bindings и отдельные owner slots, настройки/context/budget и concrete handler в существующих route-модулях; переиспользовать только подтверждённое дублирование. Приёмка: два экземпляра одного поддерживаемого типа изолируют inputs/operations/outputs и восстанавливаются; shared runner не получает новую ветку бизнес-политики для каждого экземпляра. Не строить abstract base hierarchy/DSL для этой проверки.
+- [ ] **После работающих настроек — constrained последовательный editor:** добавление известных типов нод и изменение совместимых bindings/порядка только в draft нового запуска. Приёмка: incompatible ports, missing dependencies/authorization и обход required approval отклоняются; изменение draft не меняет активный запуск. Произвольные plugins/code, parallel/subgraphs и executable nesting остаются вне этого среза. Долгосрочный порядок — [Product roadmap](roadmap.md).
 
 ## Repository And Dependencies
 
@@ -278,7 +294,8 @@ Internal Story foundation сохраняет v1 → вопрос/правка �
     [Контракт](agents/wardrobe.md#durable-operation), [evidence](../test-results/README.md#backend-evidence).
       [ComfyUI saved V2 handoff/native preparation/durable input pins](roadmap-comfyui.md#wardrobe-comfyui) реализованы;
       offline 5А/5Б реализованы, private 6А portrait принят live, 6Б reference transport принят offline/mock;
-      private 7.1 image execution/group/wait реализован; NEXT — 7.2 sequential worker/join;
+      private 7.1 image execution/group/wait реализован, 7.2 sequential worker/result wake/exact Retry/join принят offline/mock;
+      7.3A Continue/shared status/UI и 7.3B guarded originals приняты offline/mock и browser checks; NEXT — live рабочая приёмка шага 7;
       [W8 принят по сокращённому критерию](#wardrobe-batch-output).
 
   <a id="storyboard-batch-backend"></a>
