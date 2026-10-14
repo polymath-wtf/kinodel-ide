@@ -1,61 +1,81 @@
-# Архитектура: Hermes-native first
+# Архитектура: localhost WebUI поверх Hermes
 
-**Статус:** предлагаемая композиция, не проверенный деплой. LangGraph не нужен в базовом решении. Имена/поведение Hermes ниже документированы в **неверсионированном снимке**, а не подтверждены на целевой установке.
+**Статус:** направление выбрано, конкретная упаковка и APIs подлежат проверке в целевом Hermes. Отдельный браузерный интерфейс — требование продукта, а не запасной вариант Desktop.
 
-## Владельцы
+## Как интерфейс общается с Hermes
 
 ```text
-Автор → React dashboard в native Hermes plugin
-                    ↕ проверенная action/validation boundary Kinodel
-         Hermes Kanban tasks + dependencies + claims/runs dispatcher
-                    ↕
-         четыре специалиста / generation tools / human review / Montage
-                    ↕
-         project-owned immutable JSON + original media + точные решения
+Браузер: React + React Flow
+        ↕ один локальный origin: команды, чтение, поток событий
+Тонкий web-слой пакета Kinodel
+        ├─ раздача UI и передача запросов/событий Hermes
+        └─ действия проекта: brief, версии, выбор, review, render
+        ↕
+Hermes Kanban: tasks / dependencies / dispatcher / worker runs
+        ↕ profiles / skills / sessions / tools / providers
+        ↕
+Материалы проекта: сохранённые версии, originals и решения автора
 ```
 
-| Владелец | Ответственность | Не его ответственность |
-|---|---|---|
-| Hermes | Task/session/attempt lifecycle, claims, dispatch, штатное хранение бесед | Неявное творческое утверждение файла |
-| Тонкий plugin layer | Фиксированные stage contracts, validation, exact pins, approvals, разрешённые действия и logical-operation dedup | Второй runner, копия task DB, произвольный graph engine |
-| Специалист | Полный typed creative result своего этапа | Маршрутизация, approval, выбор provider payload |
-| Tool/adapter | Проверяемый render/import, provider receipts, originals, детерминированный Montage | Творческое согласование и скрытая смена inputs |
-| Автор / UI | Явный выбор и решение; отображение сохранённых фактов | Самостоятельное продвижение маршрута клиентом |
+Предлагаем серверную передачу HTTP + SSE: ключ Hermes остаётся на сервере, браузер получает только доступ к Kinodel. Это небольшой транспортный слой, не второй агентный backend. Где он размещается — в поддерживаемой host-поверхности плагина или в поставляемом вместе локальном сервере — уточним при реализации. Native dashboard и Electron SDK для интерфейса не требуются.
 
-## Предлагаемая native composition
+UI отправляет сообщение в связанную с проектом Producer session; Hermes выполняет turn и возвращает события. После reconnect UI перечитывает сохранённое состояние, а не восстанавливает производство из потерянного SSE. Прямые кнопки выбора, review и Generate вызывают действия плагина без обязательного разговора с моделью.
 
-1. **Одна Kanban task на restartable production stage**, не на каждый shot, tool call или child. При фиксированных inputs технические попытки остаются в этой task. Новая creative revision/production имеет явную lineage. Зависимости задаёт plugin по фиксированному маршруту, не Producer и не `/goal`.
-2. Для story/anchors/frames/videos использовать **same-card human review**, если installed semantics подходят. Отключить automatic review dispatch и auto-decomposition для Kinodel; проверить область настроек, не менять чужие boards молча. Review в UI — состояние этапа, не обязательно новая task/agent.
-3. Планы валидируются/сохраняются, generation task принимает exact plan и required refs. Следующая stage task требует exact approval и действующей scoped authorization платных LLM/media attempts, в том числе заранее выданной на downstream; approval не выдаёт неограниченную стоимость. Наследование «latest completed parent metadata» само по себе не фиксирует входы. Учёт/резервации сначала переиспользовать у host, без нового budget engine; Continue/restart/retry не обновляют allowance.
-4. Hermes dispatcher остаётся единственным владельцем claims/runs. Plugin не копирует его цикл и БД. Восстановление этапа использует сохранённые inputs/results/receipts, а не обещание продолжить running child после restart.
+## Что переиспользуем, что добавляем
 
-Native `review`, `done` и завершение агента **не являются approval конкретной artifact revision**. Проверка plugin нужна до публикации, принятия решения и допуска downstream: проект/права, current revision, required approvals, dependency-compatible media selection и integrity.
+| Hermes предоставляет | Kinodel добавляет |
+|---|---|
+| Sessions, историю, model/tool loop, сжатие | Связь проекта и производства с Producer session |
+| Kanban tasks, dispatcher, профили, skills и model overrides | Фиксированный cinematic, пять ролей, точные входы и проверку результатов |
+| Image/video tools и provider interfaces | Связь заказов с шотами, сохранённые originals и выбор дублей |
+| Run status, stop, события | Четыре review конкретных версий и фиксированные переходы |
+| Доступные механизмы хранения/учёта | Только недостающие записи версий, решений и операций |
 
-До кода оценить обходы: прямые CLI/tools/dashboard complete, force/bulk/status patch, reopen/archive и прямую dispatch path. Даже принудительно закрытая карточка не должна разрешать непроверенные downstream inputs. Если native dependencies выпускают работу без этой проверки, интеграция **блокируется до решения**, а observer hook не используется как транзакционный запрет.
+Один общий проверяемый путь обслуживает UI и tools агента: прочитать точные входы → проверить действие → сохранить операцию → выполнить → сохранить результат. Producer предлагает действия, но не меняет маршрут и не утверждает работу вместо автора. Observer hooks показывают события, а не заменяют проверку перед действием.
 
-## UI surface и хранение
+## Минимальная оркестрация
 
-Предпочтение — native **dashboard Plugin SDK**, после проверки установленной версии. Generic Python plugins и dashboard SDK — разные поверхности: снимок описывает tools/hooks и ссылается на SDK, но его полная документация в этом пакете отсутствует. Не изобретать registration APIs, manifest/slot names или direct UI tool permissions.
+**Выбрано: фиксированный workflow поверх Hermes Kanban.** Plugin задаёт последовательность; Kanban владеет задачами, claims, запуском workers и историей попыток. Producer хранит brief и оформляет правки, но не диспетчеризует pipeline и не ждёт workers внутри своего turn. Отдельный scheduler/task DB не создаём.
 
-Отдельный **аутентифицированный companion** допустим лишь при конкретно доказанной недостаточности native SDK и отдельном выборе автора. Это не default второй backend. Противоречие Kanban auth в источнике блокирует exposed control surface до проверки middleware, Host/Origin/CSRF и доступа к media; loopback сам по себе не доказательство защиты.
+### Запуск и переходы
 
-Canonical storage: immutable typed JSON и original media в библиотеке проекта. Manifest — производный навигационный индекс. Сначала проверить host storage для atomic approvals/operation reservation; только если его недостаточно — узкая metadata persistence для этих фактов, с форматом/backend, выбранными в Hermes. Не дублировать task/session/attempt lifecycle. Подробнее: [артефакты](hermes-artifact.md).
+Ниже — требуемая последовательность действий. Конкретный host/plugin механизм её выполнения и восстановления выбираем уже внутри Hermes; [вопросы 1–4](hermes-questions.md) сохраняют эти пробелы и рекомендации. Наличие этого описания не означает готовый обработчик переходов.
 
-## Карта соответствия и источники
+1. Автор подтверждает brief. Plugin сохраняет производство и версию шаблона `cinematic.pipeline`.
+2. По шаблону plugin создаёт Kanban-задание Storytell: конкретный assignee/profile, skills, модель, точный подготовленный input и контракт output. Повтор команды использует ту же привязку production/stage/task.
+3. Dispatcher запускает worker. Plugin принимает только валидный structured result, сохраняет артефакт; карточка ожидает human review. Завершение LLM не разрешает следующий этап.
+4. Автор утверждает точную версию. Plugin сохраняет решение и завершает карточку через поддержанный Kanban lifecycle. Затем подготавливает точные входы и создаёт следующую task с parent-связью.
+5. На визуальных этапах worker создаёт план; общий render-путь исполняет его без удержания творческого LLM turn. Карточка этапа отражает подготовку, генерацию и review; точное отображение tool-wait на host lifecycle проверяется при реализации.
 
-Все строки ниже — **документированный снимок**. Последняя колонка задаёт installed verification, а не готовую гарантию.
+Для MVP задачи создаём **по мере допуска этапов**, а весь будущий маршрут UI показывает из шаблона. Это уменьшает риск преждевременного запуска дочерней task по одному `parent done`. Одна task соответствует производственному этапу; доработки на текущем review используют её attempts. Завершённая карточка остаётся историей; новый проход получает новую привязку.
 
-| Потребность | Источник `path:line` | Ограничение / что проверить |
-|---|---|---|
-| Tasks, dependencies, claims | [kanban-big-context.md](../hermes-docs/kanban/kanban-big-context.md):131–138 | Parent `done` недостаточен без artifact approval; scratch удаляется, project originals сохранять отдельно |
-| Runs и handoff | [kanban-big-context.md](../hermes-docs/kanban/kanban-big-context.md):1344–1354, 1382–1398 | Metadata свободная, downstream читает последний completed run; force/status bypasses; reserved workflow columns не маршрутизируют |
-| Human review | [kanban-worker-lanes.md](../hermes-docs/kanban/kanban-worker-lanes.md):79–91 | Default reviewer автоматический; проверить `review_dispatch: false` и same-card human actions |
-| Plugin / dashboard | [plugins.md](../hermes-docs/backend/plugins.md):95–106, 803–832; [kanban-big-context.md](../hermes-docs/kanban/kanban-big-context.md):845–896, 927–929 | Generic ctx не доказывает dashboard SDK; isolation и streaming могут ограничивать выбранную упаковку |
-| Auth | [kanban-big-context.md](../hermes-docs/kanban/kanban-big-context.md):873 **vs** 915–919 | Token-protected и unauthenticated routes противоречат друг другу; обязательный security blocker |
-| Structured output | [delegation.md](../hermes-docs/backend/delegation.md):57–59 | После bounded repair invalid output всё ещё `completed`; plugin обязан отдельно отказать публикации |
-| Child recovery | [delegation.md](../hermes-docs/backend/delegation.md):557–564; [subagent-lifecycle-api.md](../hermes-docs/backend/subagent-lifecycle-api.md):10–12, 51–55 | Running child не checkpoint; public launch требует active parent, API metadata/results in-process на час |
-| Hooks | [hooks-big-context.md](../hermes-docs/backend/hooks-big-context.md):488–500, 1733–1737 | Эти observers не transactional controls; streaming events могут теряться |
-| Runs, наблюдаемость, skills | [api-server.md](../hermes-docs/backend/api-server.md):448–461, 502–523, 554–559, 633–645 | Run dedup ограничен, не media idempotency; child tools отсутствуют в SSE; skill discovery — metadata, не факт загрузки |
-| `/goal` | [kanban-big-context.md](../hermes-docs/kanban/kanban-big-context.md):718–735 | Stage-local judge loop, не routing/approval; judge error допускает lifecycle handoff |
+### Два интерфейса, одна система задач
 
-Domain-основания: [architecture.md](../../backend/architecture.md):64–75 — разделение владельцев; [cinematic.md](../../pipelines/cinematic.md):35–51 — этапы. Их текущий runtime **не переносится**. Проверки установки и согласование реализации: [запрос](hermes-questions.md); внешний fallback — [только при доказанном пробеле](langgraph-hermes.md).
+Kinodel показывает Pipeline/Canvas, штатный интерфейс Hermes — те же Kanban-карточки, прогресс, вложения и attempts. В task metadata/attachments сохраняем ссылки на production, input snapshot и результаты; в Kinodel — ссылки на task/run/session. Карточки не дублируются в независимой БД.
+
+Штатный `complete`, status patch или перемещение карточки не должны обходить creative approval. Любой downstream запуск повторно проверяет собственные точные входы и решение Kinodel. Общий просмотр прогресса выбран; объём управления из Hermes UI пока открыт. Рекомендация: разрешать approval оттуда только через ту же проверку версии. Обычный статус `done` сам по себе фильм не продвигает.
+
+### Ограничения автоматизации
+
+- Для Kinodel отключаем `auto_decompose`, `review_dispatch` и автоматические creator-session wake-ups (`auto_subscribe_on_create`); область config должна быть проверена, при необходимости используется отдельный Hermes home/profile, чтобы не менять чужие workflows.
+- Manual mode отключает decomposer, но сам по себе не запрещает `kanban_create`. У workers исключаем произвольное создание/связывание задач, делегирование, terminal и редактирование кода. Способ ограничения проверяется в установленном host; одним prompt это не обеспечивается.
+- Не используем `/goal`, автоматический ремонт окружения или творческую смену модели/провайдера. Ошибка возвращается как `needs_input`/`failed`, этап останавливается.
+- Комментарий к task сохраняет feedback, но сам по себе не запускает работу. Request changes идёт через разрешённый lifecycle и ожидаемую версию результата.
+
+Следующий этап допускается по сохранённому результату и необходимому approval, а не по `task done`. Работающий child не считается восстановимым checkpoint. После перезапуска используем сохранённые результаты и известные заказы; неизвестный исход сначала выясняем. Правила состояний — [ноды](hermes-nodes.md), сохранности — [артефакты](hermes-artifact.md).
+
+## Подтверждено документацией, не установкой
+
+| Механизм | Источник и граница |
+|---|---|
+| Внешние UI: sessions/history, chat, session fork | [api-server.md](../hermes-docs/backend/api-server.md):603–630; fork относится к беседе, не к фильму |
+| Runs, SSE, stop, capabilities | [api-server.md](../hermes-docs/backend/api-server.md):448–565, 252–274; события не вечный журнал, shutdown может прервать run |
+| Bearer auth и CORS | [api-server.md](../hermes-docs/backend/api-server.md):708–774; локальный web-слой хранит ключ и проверяет доступ/Origin |
+| Регистрация tools/skills, direct dispatch | [plugins.md](../hermes-docs/backend/plugins.md):95–119; `ctx.dispatch_tool` не доказывает готовый HTTP execute-tool endpoint |
+| Ограниченное делегирование | [subagent-lifecycle-api.md](../hermes-docs/backend/subagent-lifecycle-api.md):8–61; active parent, in-process retention, не самостоятельный durable worker |
+| Structured output | [delegation.md](../hermes-docs/backend/delegation.md):55–59; `completed` может сопровождаться невалидной schema |
+| Task skills/model/attachments | [kanban-big-context.md](../hermes-docs/kanban/kanban-big-context.md):257–285, 632–703; attachments не доказывают фактическую загрузку нужного содержимого |
+| Human review и доработка | [kanban-worker-lanes.md](../hermes-docs/kanban/kanban-worker-lanes.md):79–93; та же task и implementer. Пользователь дополнительно проверил resume прежней worker session; точный механизм интеграции уточняется |
+| Автоматические wake-ups и handoff | [kanban-big-context.md](../hermes-docs/kanban/kanban-big-context.md):818–834, 1344–1354; latest parent metadata не заменяет exact input bindings |
+
+Dashboard plugin routes и API server — разные поверхности. В [Kanban snapshot](../hermes-docs/kanban/kanban-big-context.md):873 и 915–919 противоречивое описание auth; не переносим его на новый UI. Уточнить размещение custom routes и прямой вызов tools — [открытые вопросы](hermes-questions.md). Формат минимального хранилища выбираем по реальному пробелу, без обещания, что чатовая БД уже хранит все производственные факты.

@@ -15,12 +15,12 @@
       "docs-langchain": {
           "type": "remote",
           "url": "https://docs.langchain.com/mcp",
-          "enabled": true
+          "enabled": false
       },
       "reference-langchain": {
           "type": "remote",
           "url": "https://reference.langchain.com/mcp",
-          "enabled": true
+          "enabled": false
       },
       "context7": {
           "type": "remote",
@@ -43,6 +43,18 @@
           "docker compose exec -T backend ./vendor/bin/pint*": "allow"
         }
       }
+    },
+    "research-sol": {
+      "description": "Researches code and current documentation; returns evidence and a minimal recommendation.",
+      "mode": "subagent",
+      "model": "openai/gpt-6.1-sol",
+      "variant": "xhigh",
+      "permission": {
+        "edit": "deny",
+        "bash": "deny",
+        "task": "deny"
+      },
+      "prompt": "Research the assigned question using project sources and current official documentation. Do not modify files. Separate verified facts from hypotheses; cite file:line or URLs. Return a concise answer, relevant discrepancies and the smallest justified next step."
     },
     "coder": {
       "description": "Implements bounded coding tasks spanning related components or requiring substantial investigation and verification.",

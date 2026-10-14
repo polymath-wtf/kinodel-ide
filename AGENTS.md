@@ -55,6 +55,9 @@ Verification reports belong only in `test-results/README.md`; update existing en
 - Every `task` call must include `description`, `prompt`, and `subagent_type`; choose the type only from the tool's current available agents, never infer it from a role like "researcher".
 - On schema or unknown-agent errors, correct the arguments against the current tool definition before retrying directly; never repeat the invalid call or batch.
 
+### OpenCode Research
+
+- `research-sol` (`openai/gpt-6.1-sol`, `xhigh`) researches code and current official docs without edits. Assign one bounded question; require evidence, discrepancies and a minimal recommendation. Use it only when listed among the current `task` agents.
 
 ### Framework Documentation
 
@@ -84,7 +87,6 @@ Verification reports belong only in `test-results/README.md`; update existing en
 - Build the smallest restart-safe vertical slice before generic infrastructure.
 - Keep graph state compact and JSON-serializable; store references, not artifact bodies or media.
 - Give each logical output one owner.
-- Use typed node inputs and outputs; do not revive `delegate_task` envelopes or `/goal` routing.
 - Nodes route deterministically. Agents do not choose the next graph edge.
 - All mutating tools require validation and idempotency; replacing an existing binding or control record also requires optimistic concurrency.
 - Code before a LangGraph `interrupt()` must be pure or idempotent because the node replays on resume.

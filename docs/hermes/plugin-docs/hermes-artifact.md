@@ -1,91 +1,381 @@
-# Артефакты, handoff и действия
+# Артефакты: structured input/output, связи данных и версии
 
-**Статус:** логический контракт Kinodel. Физический storage/backend и имена host APIs выбираются после installed audit; примеры ниже — предложение, не исполняемая схема.
+**Статус: целевое поведение MVP.** Физический формат хранения выбирается при сборке плагина; это не готовая схема Hermes.
 
-## Что является истиной
+Ниже зафиксирован логический контракт для реализации. JSON-примеры — проектируемые структуры Kinodel, не существующие API Hermes. Имена schema и версии условны; конкретные host APIs и физическое хранилище уточняются в целевом Hermes.
 
-- **Canonical:** неизменяемые typed JSON revisions: brief, story, wardrobe/storyboard/video plans, selected media sets и final result; оригинальные image/video bytes принадлежат проекту.
-- **Точные связи:** project/production/stage identity, artifact/schema revision, digest; media candidate/unit identity, digest и проверенные технические metadata. Prompts, settings, seeds, workflow/profile versions и фактические parent refs сохраняются, не исчезают после чата.
-- **Решения:** validation, selection и human approval — разные факты. Approval связывает автора, gate, точную ревизию/digest, supporting plan и полный selection map. Файл, task `done` и schema-valid JSON не доказывают творческое принятие.
-- **Производные данные:** компактный project/pipeline manifest — навигационный индекс выбранных refs, stages и связей с Hermes tasks. Не монолитная mutable creative truth; его можно восстановить из canonical результатов и сохранённых решений. Превью/cache тоже производные.
-- **Hermes:** task/session/attempt lifecycle и беседы остаются у host, не копируются в новый runner/task DB. Узкая metadata persistence для approvals/operations допустима только при отсутствии подходящего atomic host storage.
+## Три разных контракта
 
-Иллюстративная раскладка, **не обязательные пути Hermes**:
+| Контракт | Что содержит | Кто отвечает |
+|---|---|---|
+| Stage definition | Роль исполнителя, input/output schemas, bindings, допустимые tools и условие перехода | Автор фиксированного workflow |
+| Prepared input | Разрешённые в точные версии значения входов, refs, инструкции и feedback одного задания | Plugin перед dispatch |
+| Artifact revision | Полный валидный результат с происхождением; для media — ссылки на originals | Plugin после проверки ответа/tool result |
 
-```text
-<project-root>/<project-id>/
-  artifacts/<revision-id>.<digest>.json
-  originals/<candidate-id>.<digest>.<ext>
-  project-index.json                   # производная навигация
-<wiki-root>/kinodel/{styles,characters,guidance}/
-```
+Worker получает смысловые данные, а не только пути и IDs. Prompt объясняет поля и задачу; backend проверяет schema и подставляет данные по явным bindings. Ни модель, ни UI не вычисляют следующий этап.
 
-Wiki хранит явно выбранные переиспользуемые знания, не project media и не автоматическую копию generated cast. Plugin code/cache/scratch не должны быть единственным местом originals. Пользовательский путь не даёт права чтения; публичный media ref не раскрывает credentials/provider URLs.
+## Structured input/output этапов
 
-## Подготовка и передача этапа
+Поля ниже задают минимальный смысловой состав; окончательные JSON Schemas оформляются вместе с реализацией. Все обязательные поля, единицы измерения и допустимые значения должны быть определены до вызова.
 
-До вызова заморозить required input revisions/digests, supporting approvals, stable shot/unit keys, schema/prompt/skill versions, selected context identities и digests его bounded projections. Technical retry использует этот же набор, не `latest` из wiki или последнего parent run.
+| Этап | Structured input | Structured output |
+|---|---|---|
+| Producer / preproduction | `idea`, `answers`, `selected_references`; текущий `brief`, если уже сохранён | Пока опрос не завершён — вопросы; после опроса — полный `brief.json`. Изменения создают новую Brief revision |
+| Storytell | Полный подтверждённый `brief`: `idea`, `characters`, `locations`, `visual_direction`, `shot_count`, `duration_seconds`, настройки и выбранный narrative context | `title`, `logline`, `narrative`, `characters`, `locations`, `shots[]` с `shot_id`, `subject_ids`, `location_id`, `state_before`, `action`, `state_after`, `duration_seconds` |
+| Wardrobe | Полный `brief`, **полный approved `story`**, его `characters`/`locations`, `visual_direction`, выбранные visual refs и возможности image profile | `anchors[]`: ровно `portrait`, `location`, `character_sheet`, по одному logical unit; `unit_id`, `role`, subject/location binding, `prompt`, `references[]` и зависимости |
+| Storyboard | Полный `brief`, **полный approved `story`**, его `shots`, approved anchor selections, `visual_direction`, image profile guidance | `frames[]`: `shot_id`, opening-frame `prompt`, точные anchor refs и объявленные earlier-frame dependencies |
+| Filmmaker | Полный `brief`, **полный approved `story`**, его `shots`, approved frame selections, согласованные durations и video profile guidance | `clips[]`: `shot_id`, motion/camera `prompt`, точный frame ref, `duration_seconds` |
+| Render / tool | Конкретный plan item, exact media refs, frozen supported settings | Candidate refs, receipt и проверенные media metadata; не creative approval |
+| Montage / tool | Approved clips в порядке `shots`, output settings | Final media ref, source clip refs и результат технической проверки |
 
-Пример предлагаемого **handoff metadata**, не Hermes API/готовая JSON Schema; IDs и digests условные:
+Количество/порядок шотов согласуются с brief, IDs не переиспользуются для другого смысла. `references` указывают роли данных, а не произвольные provider payloads. Ответ сохраняется полностью, не как patch к тексту в чате.
+
+**Полная Story — обязательный вход всех трёх визуальных специалистов.** Это весь утверждённый объект, включая narrative и все shots, не summary и не одна ссылка. `characters`, `locations`, `shots` — удобные field bindings той же revision; они не заменяют Story и не выбираются независимо из другой версии. Producer тоже видит полную текущую Story. Render/Montage — tools: им достаточно точного плана и media inputs, творческое чтение сценария не требуется.
+
+## Brief: один документ, последовательные версии
+
+До завершения опроса идея и ответы живут в беседе Producer. После опроса он собирает **Brief** с актуальными параметрами проекта; отдельного артефакта предварительного брифа нет. Автор проверяет конкретную версию и подтверждает запуск.
+
+`brief.json` — представление текущей выбранной версии того же документа. История сохраняет неизменяемые `brief_v1.json → brief_v2.json → brief_v3.json`; это версии, а не разные виды brief. Точное устройство current-ссылки/экспорта определим с Hermes. Производство и подготовленные операции всегда ссылаются на revision/digest, не на изменяемый путь `brief.json`.
+
+Пример сохранённого Brief; значения творческих и размерных параметров иллюстративны, не доказательство поддержки на сервере:
 
 ```json
 {
-  "project_id": "film-a",
-  "production_id": "production-1",
-  "stage": "wardrobe",
-  "hermes_task_id": "task-example",
-  "operation_key": "wardrobe-production-1-revision-1",
-  "input_refs": [
-    {"slot": "brief", "revision_id": "brief-1", "schema": "Brief@1", "digest": "<sha256>"},
-    {"slot": "story", "revision_id": "story-2", "schema": "Story@2", "digest": "<sha256>"}
-  ],
-  "required_approval_refs": ["approval-story-2"],
-  "context": [{"source_id": "style-a", "revision": "3", "source_digest": "<sha256>", "projection_digest": "<sha256>"}],
-  "output_contract": "VisualAnchorPlan@2"
+  "artifact_id": "brief-r1",
+  "schema": "Brief@1",
+  "project_id": "lighthouse",
+  "revision": 1,
+  "digest": "<sha256 canonical content>",
+  "created_by": {
+    "kind": "agent",
+    "agent_id": "producer",
+    "profile": "kinodel-producer",
+    "operation_id": "op-brief-1",
+    "worker_session_id": "session-producer"
+  },
+  "content": {
+    "idea": "Мира замечает первый свет на заброшенном острове.",
+    "characters": [{"id": "mira", "name": "Мира", "description": "Смотрительница маяка в тёмном плаще"}],
+    "locations": [{"id": "shore", "name": "Берег", "description": "Каменистый берег напротив острова, сумерки"}],
+    "visual_direction": "Сдержанный кинореализм, холодный свет, спокойная камера",
+    "visual_references": [],
+    "duration_seconds": 5,
+    "shot_count": 1,
+    "generation": {
+      "image": {
+        "provider": "comfyui",
+        "txt2img_workflow": "krea2-txt2img",
+        "img2img_workflow": "qwen21-multi-img2img",
+        "width": 1024,
+        "height": 1024,
+        "aspect_ratio": "1:1"
+      },
+      "video": {
+        "provider": "comfyui",
+        "workflow": "minimax-h3-img2vid",
+        "mode": "img2vid",
+        "quality": "720p",
+        "width": 720,
+        "height": 720,
+        "aspect_ratio": "1:1"
+      }
+    }
+  }
 }
 ```
 
-Это trace для хранения, **не достаточный prompt**. Проверенный host/plugin path разрешает refs, проверяет bytes/approval/права и передаёт следующему специалисту typed bodies и нужный ограниченный text/media content. Неразрешённые IDs вместо обязательного содержимого, сканирование каталога и полная история upstream-чата недопустимы. Недоступный/повреждённый required input блокирует этап.
+Здесь один герой и одна локация соответствуют трём anchor units MVP. Конкретные размеры видео, соответствие quality и длительности проверяются с выбранным workflow до запуска; неподдержанные параметры обсуждаются с автором, не подменяются. Workflow IDs ссылаются на конфигурацию; точные версии/digests файлов фиксирует подготовка операции. API payloads, endpoint и credentials не входят в Brief. Brief может быть создан до production/task, поэтому их IDs не выдумываются; запуск позже закрепляет точную Brief revision.
 
-Validated полный ответ публикует plugin, без LLM turn на переписывание общего pipeline file. Проверить no-overwrite publication, integrity и crash recovery на выбранном storage. Partial/invalid JSON и объяснение `needs_input/out_of_scope` не создают новую creative revision; валидатор отдельно проверяет schema, coverage/order и lineage.
+При изменении параметров Producer сохраняет новую полную версию Brief. Уже подготовленные операции используют прежнюю revision; последствия изменения определяет [граница правок](#граница-правки-фиксация-входов-следующей-операции).
 
-## Ревизии и выбор
+## Декларативные связи: что куда передаётся
 
-На одном review — одна text revision либо полный media set. Для каждого required unit выбрать ровно один candidate; без пропусков, лишних units и смешения несовместимых parents. Sheet от portrait A нельзя утвердить с portrait B. Генерация зависимой unit до human review допустима лишь с сохранёнными exact parent candidate refs/digests.
+Пример части фиксированного `cinematic.pipeline`; пути — ограниченная нотация доступа к полям, не исполняемые выражения или произвольный код:
 
-Новая версия не стирает предыдущую и требует своего review. Изменение утверждённого предка после downstream production в MVP создаёт **новую production/revision lineage**: старые downstream results и approvals остаются историческими, не становятся автоматически валидными для новых inputs. Автоматический каскад и selective rebuild отложены; reuse возможен только при явном совместимом pin/authorization, не через подмену истории.
+```json
+{
+  "stage_id": "wardrobe",
+  "assignee": "kinodel-wardrobe",
+  "input_schema": "WardrobeInput@1",
+  "output_schema": "AnchorPlan@1",
+  "input_bindings": {
+    "brief": "brief.output",
+    "story": "storytell.output",
+    "characters": "storytell.output.characters",
+    "locations": "storytell.output.locations",
+    "visual_direction": "brief.output.visual_direction",
+    "visual_references": "brief.output.visual_references"
+  },
+  "requires_approval": ["storytell.output"],
+  "next": "anchor_generation"
+}
+```
 
-## Разные действия — разные эффекты
+`kinodel-wardrobe` — предлагаемое имя профиля, не утверждение о наличии в установке. Связи заданы шаблоном и доступны для просмотра на нодах. UI показывает «Полная история ← Story v2» и «Персонажи ← та же Story v2 / characters», позволяет раскрыть содержимое и происхождение. Storyboard и Filmmaker также имеют обязательный binding `story: storytell.output`, а не только `shots`. Редактор произвольных маршрутов для этого не нужен.
 
-| Действие | Контракт |
+До dispatch plugin разрешает каждый binding в конкретный approved artifact, проверяет наличие/тип поля и подготавливает содержимое. Штатное Kanban «latest completed parent metadata» служит навигацией, но не выбирает творческие входы вместо этого контракта.
+
+Пример части **подготовленного задания**, где binding уже разрешён:
+
+```json
+{
+  "operation_id": "op-wardrobe-1",
+  "production_id": "production-1",
+  "stage_id": "wardrobe",
+  "input_schema": "WardrobeInput@1",
+  "resolved_bindings": {
+    "story": {
+      "artifact_id": "story-r2",
+      "revision": 2,
+      "digest": "<sha256>",
+      "pointer": "/content",
+      "approval_id": "approval-story-r2"
+    },
+    "characters": {
+      "artifact_id": "story-r2",
+      "revision": 2,
+      "digest": "<sha256>",
+      "pointer": "/content/characters",
+      "approval_id": "approval-story-r2"
+    }
+  },
+  "input": {
+    "story": {
+      "title": "Последний свет",
+      "logline": "Мира замечает сигнал с острова.",
+      "narrative": "На тёмном острове вспыхивает свет; Мира замечает его.",
+      "characters": [{"id": "mira", "name": "Мира"}],
+      "locations": [{"id": "shore", "name": "Берег"}],
+      "shots": [{
+        "shot_id": "shot-01",
+        "subject_ids": ["mira"],
+        "location_id": "shore",
+        "state_before": "Мира смотрит на тёмный остров",
+        "action": "На острове вспыхивает свет",
+        "state_after": "Мира замечает сигнал",
+        "duration_seconds": 5
+      }]
+    },
+    "characters": [{"id": "mira", "name": "Мира"}]
+  }
+}
+```
+
+Показана часть prepared input: полная Story и один field binding из неё. Brief и остальные поля таблицы также обязательны в реальном задании. Разрешённые refs фиксируются до работы; technical retry не подставляет новую Story v3. При повторной подготовке body читается та же неизменяемая версия и проверяется digest. Недоступное обязательное поле блокирует dispatch, а не заменяется предположением агента.
+
+## Ответ специалиста и приём результата
+
+```json
+{
+  "status": "completed",
+  "created_by": {
+    "kind": "agent",
+    "agent_id": "storytell",
+    "profile": "kinodel-storytell",
+    "stage_id": "storytell",
+    "operation_id": "op-story-revise-2",
+    "task_id": "task-storytell",
+    "run_id": "run-2",
+    "worker_session_id": "session-storytell"
+  },
+  "output": {
+    "title": "Последний свет",
+    "logline": "Мира замечает сигнал с заброшенного острова.",
+    "narrative": "На тёмном острове вспыхивает свет; Мира замечает его.",
+    "characters": [{"id": "mira", "name": "Мира"}],
+    "locations": [{"id": "shore", "name": "Берег"}],
+    "shots": [{
+      "shot_id": "shot-01",
+      "subject_ids": ["mira"],
+      "location_id": "shore",
+      "state_before": "Мира смотрит на тёмный остров",
+      "action": "На острове вспыхивает свет",
+      "state_after": "Мира замечает сигнал",
+      "duration_seconds": 5
+    }]
+  }
+}
+```
+
+Это пример формы короткой Story, не оценка её творческого качества. Выходы образуют tagged union: `completed` с полным `output`; `needs_input` с `questions`; `failed` с `error.code`, `message` и при необходимости ссылкой на проблемный вход. `completed` означает, что попытка вернула полный ответ, а не что результат прошёл проверку или утверждён человеком. Worker не выбирает retry или следующий этап. Ошибка инфраструктуры может формироваться host/plugin без ответа модели.
+
+`created_by` присутствует в ответе и сохраняемом артефакте для любого исхода. Служебную часть заполняет/проверяет plugin по фактическому запуску; модель не придумывает свою task/session identity. У агентного результата обязательны `kind: agent`, `agent_id` и фактический профиль, плюс доступные IDs операции/task/run/session. Для tool-артефакта — `kind: tool`, `tool_id`, операция и ссылки на входной агентный план; для прямого авторского изменения — `kind: user` и actor. Отсутствующие host IDs обозначаются явно, а не выдумываются. Так видно, кто создал каждый результат: Storytell, Producer, render tool или автор.
+
+Plugin проверяет schema, coverage/order, ссылки, принадлежность заданию и разрешённую область результата. Только после этого публикует новую revision. Невалидный JSON или частичный ответ сохраняется как диагностика попытки, не как готовая история. Автоматический ремонт кода/окружения и неограниченный schema-repair loop не допускаются; ограниченная повторная попытка возможна только по заранее заданной политике.
+
+## Физические связи и владельцы хранения
+
+```text
+project_id
+  └─ production_id + workflow version + submitted brief ref
+       └─ stage_id → board_id + task_id
+            ├─ operation_id → prepared input + exact refs
+            ├─ Kanban run/attempt → worker session_id (если host предоставляет)
+            └─ artifact_id/revision → JSON + digest
+                 ├─ approval_id → точная revision/selection
+                 └─ candidate_id → request/receipt → original media + digest
+```
+
+Kanban владеет task, attempt/run и своей историей; Hermes sessions — беседами. Plugin хранит недостающие производственные связи, решения и результаты. `operation_id`, `task_id`, `run_id` и `session_id` не взаимозаменяемы. Особо различаем session создателя карточки (например Producer) и фактическую worker session: поле с происхождением task не доказывает связь с чатом исполнителя.
+
+Иллюстративная раскладка, не обязательные пути Hermes:
+
+```text
+<project-root>/<project-id>/
+  artifacts/brief_v1.json             # до создания production
+  artifacts/brief_v2.json             # новая неизменяемая версия того же Brief
+  brief.json                         # current-представление; не pinned input
+  productions/<production-id>/
+    inputs/<operation-id>.json
+    artifacts/<artifact-id>.json
+    originals/<candidate-id>.<ext>
+```
+
+Сопоставления IDs с путями, approvals и reservations должны иметь атомарные записи; пригодный host storage выбираем при реализации, иначе добавляем только недостающие metadata. Не имитируем транзакционность набором произвольно переписываемых JSON-файлов. UI получает refs и разрешённые media URLs, не читает файловую систему напрямую.
+
+Kanban attachments могут хранить input snapshot и опубликованный JSON либо служить ссылками на материалы проекта. Для каждого original выбирается один canonical storage owner; scratch и временный URL не являются архивом. `kanban_request_review(artifacts=...)` документирует сохранение объявленных scratch deliverables перед cleanup, но не заменяет наши версии и approvals.
+
+Пример публикуемого envelope — служебной оболочки сохранённого результата:
+
+```json
+{
+  "artifact_id": "story-r2",
+  "schema": "Story@1",
+  "project_id": "lighthouse",
+  "production_id": "production-1",
+  "stage_id": "storytell",
+  "revision": 2,
+  "digest": "<sha256 canonical content>",
+  "created_by": {
+    "kind": "agent",
+    "agent_id": "storytell",
+    "profile": "kinodel-storytell",
+    "stage_id": "storytell",
+    "operation_id": "op-story-revise-2",
+    "task_id": "task-storytell",
+    "run_id": "run-2",
+    "worker_session_id": "session-storytell"
+  },
+  "input_snapshot_id": "input-story-revise-2",
+  "input_refs": [{"artifact_id": "brief-r1", "revision": 1, "digest": "<sha256>"}],
+  "supersedes": "story-r1",
+  "content": {
+    "title": "Последний свет",
+    "logline": "Мира замечает сигнал с острова.",
+    "narrative": "На тёмном острове вспыхивает свет; Мира замечает его.",
+    "characters": [{"id": "mira", "name": "Мира"}],
+    "locations": [{"id": "shore", "name": "Берег"}],
+    "shots": [{
+      "shot_id": "shot-01",
+      "subject_ids": ["mira"],
+      "location_id": "shore",
+      "state_before": "Мира смотрит на тёмный остров",
+      "action": "На острове вспыхивает свет",
+      "state_after": "Мира замечает сигнал",
+      "duration_seconds": 5
+    }]
+  }
+}
+```
+
+`content` содержит полный проверенный `output`. Digest вычисляется системой по определённой канонической сериализации content, не включает сам себя. Происхождение и IDs добавляет plugin из фактической попытки, не из догадки модели; недоступный worker session ID явно отсутствует. Approval — отдельная запись с actor, target ref/digest и expected revision, не изменяемый флаг внутри immutable артефакта.
+
+## Сквозной input/output flow
+
+```text
+Подтверждённый brief
+→ schema/binding resolution + freeze exact input
+→ Kanban task / dispatcher / ограниченный worker
+→ structured output
+→ schema + domain validation
+→ immutable artifact + task handoff refs
+→ human review точной версии
+→ durable approval
+→ подготовка следующего input по bindings
+```
+
+Публикация и approval должны предшествовать допуску downstream. При сбое между сохранением результата и обновлением Kanban повтор использует ту же operation/artifact, а не вызывает модель заново. Событие служит сигналом перечитать состояние; `done` без валидного approval не выпускает следующую работу. Контракт общий для действий из Producer, панели специалиста и UI-кнопок.
+
+## Что сохраняется
+
+Автор может открыть прошлую историю, увидеть точный prompt картинки и понять, из каких кадров собран фильм. Для этого сохраняем полные версии brief, story и планов, originals изображений/видео, настройки и seed каждого заказа, его входы, выбранные дубли и решения автора. Ответ в чате или временный provider URL не заменяет материал проекта.
+
+| Понятие | Простое правило |
 |---|---|
-| Read/inspect/select | Не вызывает LLM или render. Выбор дубля сам по себе не approval |
-| Approve | Явно принять точную revision или complete compatible set; сохранить решение до допуска downstream |
-| Revise | Вызвать owning specialist с предыдущим полным результатом, approved inputs и feedback; сохранить новую полную typed revision, затем отдельный review |
-| Technical retry | Те же frozen inputs/settings/seeds, reuse успешных units; без creative call. Сначала reconcile неопределённые заказы; новая платная попытка расходует существующее allowance либо требует явного дополнительного согласия |
-| Regenerate | Новый candidate с frozen prompt/settings и явно новой seed/attempt, где поддержано; отдельное разрешение новой стоимости |
-| Manual edit + render | Prompt/settings edit создаёт новый explicit render request, привязанный к plan revision и exact inputs; не переписывает план или старый заказ, показывает override и effective settings; без обязательного LLM |
-| Continue | Выполнить доступное действие, разрешённое host/plugin по сохранённому состоянию; не универсальное «run again» и не неявное approval |
+| Проект | Общая папка замысла и всех его запусков |
+| Производство / запуск | Один проход cinematic с зафиксированным brief; имеет собственный ID |
+| Версия результата | Новая сохранённая история или план внутри этапа, предыдущая не перезаписывается |
+| Дубль | Отдельная генерация одной картинки/клипа со своим request и точными входами |
+| Выбор | Какой дубль автор хочет использовать для каждого образа/шота |
+| Approval | Автор принял конкретную версию или полный набор выбранных дублей |
 
-Manual request проверяется по обязательным refs, ролям, mode и provider capabilities. Нарушение контракта маркируется incompatible и блокирует submit/использование в этом маршруте; нельзя молча отбросить refs или переключить mode. Изменённый anchor требует нового зависимого sheet; review охватывает весь совместимый набор. Изменение общих условий производства требует новой lineage.
+Связь материала содержит проект, производство, этап, revision/candidate ID и digest содержимого. Номера вроде «Story v3» — подписи внутри производства, не глобальные идентификаторы. Историю сообщений хранит Hermes; plugin связывает её с производством и результатами, не заводит второй transcript store.
 
-## Минимальный учёт платной операции
+## Правки текущего этапа
 
-Для **LLM attempts и media orders** до вызова требуется durable authorization автора: область `operation/stage/production`, разрешённые действия/параметры и выбранные автором caps числа попыток и стоимости с учётом известных provider limits. LLM repair/revise и оплачиваемый judge turn тоже расходуют соответствующий лимит. Сначала переиспользовать host accounting/reservation; хранить только недостающие узкие metadata, **не строить отдельный budget engine**.
+Producer передаёт специалисту замечание, предыдущий полный результат и точные входы. Специалист возвращает новую полную версию на review. «Почему герой ушёл?» — обсуждение; «измени финал» — задание на правку. Старое approval не переносится на новую версию.
 
-Заранее разрешённый downstream должен явно перечислять этапы, допустимые настройки и лимиты; exact generated inputs фиксируются перед каждой операцией. **Approval story не разрешает неограниченный render**. Continue, restart, retry и новый delivery key не продлевают/обнуляют allowance. Дополнительная платная попытка разрешается только в оставшемся allowance либо после явно сохранённого дополнительного согласия; reuse результата и повтор доставки не расходуют новую попытку.
+### Напрямую специалисту и в его рабочий чат
 
-Недостаточный, исчерпанный или неизвестный остаток/стоимость — **blocked/wait** до согласия или сверки учёта, без внешнего вызова. Дополнительное согласие не отменяет reconciliation заказа с неизвестным исходом.
+Автор может адресовать замечание Storytell непосредственно из панели Storytell, без пересказа через Producer. Адресат определяется `production_id + stage_id + task_id + artifact_ref`, не свободным выбором модели. Панель показывает историю карточки и доступные worker transcripts; фактические attempts остаются различимыми.
 
-1. До внешнего вызова атомарно сохранить **logical operation key**, authorized params, frozen input refs/digests, seeds, ожидаемую revision и reservation попытки/стоимости в пределах действующей authorization. Delivery key — отдельная идентичность доставки, не разрешение нового заказа. Повторные клики и новые delivery keys той же операции сходятся к одной reservation/receipt; конфликт payload и stale revision отклоняются.
-2. После submit сохранить provider receipt/job ID, известный статус, результаты и ссылки на проверенные originals. Результат ссылается на исходный заказ/attempt; успешные units не переименовываются в новые.
-3. После crash сначала читать сохранённый результат или сверять job поддержанным host/provider mechanism. Окно «provider принял, receipt ещё не записан» даёт **blocked reconciliation**, если acceptance нельзя доказать. Не включать automatic paid retry и не обещать exactly-once, которого provider contract не даёт.
-4. Approval/operation commit повторно проверяет authorization, cancellation, expected revision и dependency compatibility. Cancel model/session не доказывает отмену provider job. Credentials и raw provider payloads остаются в trusted adapter/host, не creative JSON/UI.
+| Ситуация | Поведение |
+|---|---|
+| Текущая task ожидает review | Сохранить feedback к точной версии и вернуть ту же карточку исходному implementer через поддержанный human rework lifecycle. Новая попытка возвращает новую полную revision |
+| Worker ещё работает | Не открывать параллельный turn в его session. Live steering допустим только при проверенной поддержке; иначе замечание сохраняется для явной доработки после результата |
+| Task уже завершена | Не использовать произвольный chat turn как скрытый reopen. Новое задание/производство по правилам изменения использованных результатов |
+| Продолжение прежней worker session | Пользователь проверил такую возможность в Hermes. Используем её для rework; точный вызов, связь с claim/attempt и ограничения требуется выяснить в целевой установке |
+| Host создаёт свежую session для rework | Сохраняем ту же task и профиль, передаём предыдущий полный результат, замечания и входы. UI не выдаёт это за продолжение одного transcript |
 
-URL/cache — только источник импорта. Original bytes нужно локально сохранить, проверить digest, формат, размеры/длительность и связь с exact request. Отключение провайдера не лишает проект принятых материалов; отсутствующие или испорченные originals нельзя объявлять валидными по metadata.
+Документировано **same-card rework к исходному implementer**; пользователь дополнительно сообщил о проверенном продолжении прежней worker session внутри Kanban lifecycle. Наличие возможности принято как пользовательское свидетельство; способ подключения к плагину ещё не установлен. Уточнение сохранено в [вопросах к Hermes](hermes-questions.md). Generic session chat API сам по себе не обеспечивает Kanban ownership, tools и запись результата в нужный attempt; не запускаем его параллельно dispatcher.
 
-## Источники и неопределённости
+На human-only board `kanban_request_changes` из reviewer-run и human `reopen-review` — разные входы lifecycle; точное plugin-действие выбираем по установленному контракту. Простой `kanban_comment` не является командой revise. Источник: [worker lanes](../hermes-docs/kanban/kanban-worker-lanes.md):79–93; [Kanban](../hermes-docs/kanban/kanban-big-context.md):1124–1131, 1174, 1354.
 
-- [artifacts.md](../../backend/artifacts.md):9–21, 150–179 и [hilp.md](../../hilp/hilp.md):7–38, 54–60 — неизменяемость, exact approval, compatible selection и revisions; это domain-контракты, не storage реализация Hermes.
-- [kanban-big-context.md](../hermes-docs/kanban/kanban-big-context.md):135–138, 1344–1354 — scratch/attachments и host runs; проверить durable project publication и atomic metadata, не считать free-form handoff валидатором.
-- [image-gen-provider-plugin.md](../hermes-docs/tools/image-gen-provider-plugin.md):128–155, 275 и [video-gen-provider-plugin.md](../hermes-docs/tools/video-gen-provider-plugin.md):129–135, 169–178, 229 — generic refs, clamping и URL/cache. Эти snapshot pages **не устанавливают media idempotency**, точный role mapping или сохранность project originals.
+### Граница правки: фиксация входов следующей операции
+
+Решающая граница — **сохранённый prepared input зависимой операции**, а не её статус «running» и не появление готового файла. До этой границы можно явно переоткрыть текущий review и создать новую revision/selection в том же производстве. Если следующая task создана без подготовленных входов, она должна остаться недоступной до нового approval; точный Kanban lifecycle уточним у Hermes.
+
+После фиксации ссылки в следующей операции изменение использованного результата требует **нового связанного производства**, даже если worker ещё не стартовал. Уже подготовленные inputs не переписываются. Это относится и к Brief после подготовки Storytell, и к кадру после подготовки video request. Старые результаты и approvals сохраняются. Запрос правки и подготовка следующего этапа должны проверять эту границу согласованно, без race между двумя действиями.
+
+Это граница замены принятого входа следующего этапа, а не запрет дополнительных дублей на текущем неутверждённом review. Например, новый portrait и новый sheet от него можно создать в том же anchor review: это новые render requests, старый sheet и его parents не изменяются. После approval набора и фиксации входов Storyboard замена набора уже требует нового производства.
+
+Поздний дубль не меняет утверждённый selection автоматически. Просмотр старых материалов не создаёт новую работу; остановка старого производства и запуск нового — явные действия.
+
+## Выбор из нескольких дублей
+
+1. Агент подготовил план, tool создал дубль A. Он доступен, но не утверждён.
+2. Автор сделал ещё B, C, D в [render-инспекторе](hermes-webui.md). Все четыре остаются в истории.
+3. Автор выбирает C. Последний полученный D не вытесняет этот выбор.
+4. Когда для каждого обязательного элемента выбран один совместимый дубль, автор утверждает набор этапа.
+
+Совместимость проверяется по точным входам: зависимая картинка от образа A не становится картинкой от образа B при смене выбора. Новые зависимые дубли создаются явно. Выбор из устаревшего окна не перезаписывает более новое решение.
+
+## История и новый запуск старого проекта
+
+В истории производства доступны brief, версии истории/планов, запросы, настройки, дубли, выбранные наборы и финал. Просмотр не вызывает модель или провайдера. Сохранённые оригиналы читаются локально; повреждённый или отсутствующий файл показывается как недоступный.
+
+**«Создать новый запуск из этого»** берёт выбранную историческую Brief revision и явные refs за основу, сохраняет `based_on` исходного производства/версии. Если автор меняет параметры, Producer выпускает следующую полную Brief revision; автор подтверждает точную версию для нового запуска. Отдельного draft-документа не появляется. Старый фильм остаётся нетронутым, новый проходит весь маршрут и получает новые approvals.
+
+Так можно повторить старую идею и настройки, но нельзя обещать побайтово тот же результат генерации. В MVP не копируем старые approvals, не делаем автоматический reuse downstream и не строим дерево merge/fork. Для интерфейса достаточно списка запусков с подписью «на основе…». Hermes session fork ветвит **разговор**, а не материалы и платные заказы; он не требуется для этой функции.
+
+## Хранение и операции
+
+Неизменяемые JSON-результаты и original media принадлежат проекту, не scratch/cache плагина. Навигационный индекс можно перестроить. Решения автора и состояние операций сохраняются отдельно от чатового summary; конкретное atomic storage сначала ищем у host.
+
+До работы фиксируем точные входы, версию инструкций, параметры и logical operation ID. Повтор доставки той же операции возвращает сохранённый статус/результат; новая творческая правка или **Generate** создаёт новую операцию. Approval проверяет ожидаемую версию и полноту выбранного набора перед открытием следующего этапа.
+
+Для render сохраняем provider receipt и originals. После неопределённого submit выясняем исход, а не отправляем новый заказ автоматически. Разрешение запуска и дополнительных генераций явно; используем доступные лимиты host, без нового универсального budget engine. Перезапуск и Continue не расширяют разрешённую работу. Детали провайдеров и повторов — [render](hermes-kinodel-render.md); состояния — [ноды](hermes-nodes.md); точный контекст — [контекст](hermes-kinodel-context.md).
+
+## Что уточнить перед исполняемыми JSON Schemas
+
+- Какие поля обязательны, какие допускают отсутствие/null, какие enum и единицы измерения используются? Brief создаётся после опроса; неполные ответы остаются беседой, не альтернативной schema.
+- Как проверять связи `subject_ids`/`location_id`, уникальность и порядок shot/unit IDs, сумму длительностей и соответствие Brief?
+- Какие изменения разрешены в revise одного шота? Рекомендация: не менять shot count, IDs других шотов и согласованные параметры без отдельного изменения Brief и оценки границы prepared input.
+- Как сериализовать и версионировать полный `story` и его field bindings без независимых расходящихся копий? Все поля должны разрешаться из одной approved revision.
+- Как зафиксировать один визуально выбранный subject и одну location для трёх anchors, если идея содержит дополнительных персонажей/места? Не выбирать их молча; уточнить покрытие с автором.
+- Как отображать отсутствующие host IDs в `created_by`, принимать file/tool output и отклонять лишние/невалидные поля? Рекомендация: единый валидатор публикации, независимо от Kanban `completed/done`.
+
+Сначала оформляем и проверяем Brief → StoryInput → StoryOutput → approval, затем остальные schemas. Примеры в этом документе не заменяют эти проверки.
+
+Основания: [исходные правила артефактов](../../backend/artifacts.md) — продуктовые принципы, не перенос их storage; [Hermes sessions](../hermes-docs/backend/api-server.md):603–619 — история и session fork; [delegation](../hermes-docs/backend/delegation.md):55–59 — завершение child не заменяет валидацию результата.

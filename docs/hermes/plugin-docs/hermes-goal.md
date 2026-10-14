@@ -12,7 +12,7 @@
 
 ## Правило Kinodel
 
-Сначала обычное bounded stage assignment. `/goal` допустим только если installed audit подтвердил пользу **stage-local** итерации; обязательным механизмом MVP он не является.
+В выбранном MVP используется обычное ограниченное Kanban-задание; `/goal` и judge loops отключены. Возможность stage-local итерации оставлена только для отдельного будущего решения после измеренной необходимости. Этот справочник не разрешает worker самостоятельно включать её.
 
 В задании фиксируются: один владелец/этап, exact inputs/context, один полный typed output contract, turn/cost budget, разрешённые tools и условия остановки. Schema/domain validation и publication делает plugin независимо от judge. После результата specialist не выбирает следующий этап, не утверждает медиа и не отправляет новые paid renders через скрытый loop.
 
@@ -32,4 +32,4 @@
 
 Durable recovery running child, однократный provider submit, полную корректность JSON, сохранность originals и approval artifact revision. Running child после process restart становится unknown ([delegation.md](../hermes-docs/backend/delegation.md):557–564); public child API хранит metadata/results in-process ([subagent-lifecycle-api.md](../hermes-docs/backend/subagent-lifecycle-api.md):51–55). Эти ограничения не устраняются хорошим текстом цели.
 
-Native stage tasks и validation boundary — [архитектура](hermes-kinodel-architecture.md); точные операции/reviews — [артефакты](hermes-artifact.md). Следующий шаг — [read-only аудит и согласование плана](hermes-questions.md), не запуск `/goal` для сборки плагина.
+Выбор lifecycle и проверка действий — [архитектура](hermes-kinodel-architecture.md); версии/reviews — [артефакты](hermes-artifact.md). `/goal` остаётся справочной возможностью вне обязательного MVP. Ближайшие работы — [roadmap](hermes-kinodel-roadmap.md); к целевой установке обращаемся с [вопросами реализации](hermes-questions.md) после продуктового препродакшна.
