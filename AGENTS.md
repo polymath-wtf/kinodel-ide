@@ -55,37 +55,6 @@ Verification reports belong only in `test-results/README.md`; update existing en
 - Every `task` call must include `description`, `prompt`, and `subagent_type`; choose the type only from the tool's current available agents, never infer it from a role like "researcher".
 - On schema or unknown-agent errors, correct the arguments against the current tool definition before retrying directly; never repeat the invalid call or batch.
 
-### Coding-Agent Context Budget
-
-These rules govern the coding assistant, not Kinodel's application agents.
-
-- The primary agent owns requirements, architecture, task scope and final acceptance. Delegate substantial implementation to `coder` via `task` when it spans related components or requires substantial code investigation and verification; handle small, obvious edits and local checks directly.
-- Delegate dependency/environment inventories, broad documentation or legacy audits, and independent external research to research subagents. Research is read-only unless edits are explicitly assigned. Use one coding subagent at a time by default; parallelize independent research.
-- Give bounded assignments using the template below. Pass paths, contracts and decisions, not conversation dumps or line-by-line implementation instructions. The worker locates relevant code and callers within the assigned module and chooses implementation details; return scope changes or unresolved product/architecture decisions to the primary agent. Delegation does not expand the user's authorization.
-- Never delegate an entire roadmap slice: give each worker one bounded behavior in one layer with its focused check; the primary agent owns decomposition, cross-layer decisions and final integration acceptance.
-- Request a concise report (normally at most 30 lines): findings/changed files, evidence paths or exact checks and results, and blockers. Review the diff and consequential evidence without repeating delegated investigation; reuse the same `task_id` for follow-ups on that assignment.
-- Read/search relevant sections and request targeted output. Keep full source files, inventories, logs and documentation pages out of the primary session unless needed to resolve a conflict or verify correctness.
-
-Assignment template (omit inapplicable fields for research):
-
-```text
-Goal: expected behavior and important edge cases.
-Edit scope: allowed files/modules, including tests; read-only for research.
-Context: relevant contracts, known entry points and accepted decisions.
-Invariants: behavior and boundaries that must remain valid.
-Acceptance: observable completion criteria.
-Verify: smallest focused checks plus affected regressions; name the risk each checks. Reuse existing passing evidence.
-Stop if: требуется менять shared-контракт или lifecycle runner.
-Return: changed files/findings, check results and unresolved issues.
-```
-
-### Verification Scope
-
-These rules apply to the primary agent and every subagent.
-
-- Run only checks for changed behavior and affected regressions; keep data-preservation and no-duplicate-effect checks where relevant.
-- Reuse passing evidence across agents. Repeat or broaden checks only for a concrete new risk/change; state why. Full suites require a release gate or broad impact.
-- Documentation-only and trivial edits need no runtime tests. Do not duplicate existing coverage.
 
 ### Framework Documentation
 
