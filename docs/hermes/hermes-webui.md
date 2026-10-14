@@ -1,37 +1,60 @@
-# Интерфейс Kinodel
+# React: рабочее пространство, dashboard, материалы
 
-**Статус: предложение для MVP; оболочка Hermes ещё не выбрана.**
+**Статус:** UI-контракт MVP, не проверенная упаковка. Предпочтение — native dashboard plugin после installed SDK/auth verification; не default отдельный localhost backend.
 
+## Одно компактное пространство
 
-## Цель
+- **Dashboard в центре:** фиксированный маршрут brief → story → anchors → frames → videos → Montage/final. Карточка этапа показывает роль Agent/Tool/Review, статус, прогресс units, выбранную ревизию и причину ожидания. Связи объясняют зависимости, не редактируются пользователем.
+- **Библиотека проекта:** локальные images/videos, typed outputs, inputs/references, candidates и прошлые production/revision lineages. Личные Hermes-чаты и чужие проекты сюда не попадают.
+- **Контекстные детали:** входы, prepared context, результат, versions/candidates, prompt/settings и доступные действия выбранной ноды. Frameboard — упорядоченное представление тех же shots, не новый архив.
+- **Producer chat по желанию:** компактная открываемая панель для замысла/feedback. Работа напрямую через brief/review/manual render не требует чата. Node discussion адресуется owning specialist, а не всегда Producer.
 
-Создать интуитивный и удобный интерфейс для работы с контентом внутри Hermes, который позволит пользователям эффективно управлять проектами, просматривать материалы и взаимодействовать с агентами.
-Проблема текущего hermes в том, что интерфейс там в виде чата, и даже сейчас можно прогнать cinematic.pipeline напрямую в чате и агент методом тыка разберётся как его сделать, но пользователь не сможет видеть результаты и контролировать процесс, агент просто пойдёт и сделает всё за один runtime, а если пользователь захочет внести правки, то они вносятся в основной чат и заполняют контекст и агенты путаются.
-Наша цель это сделать удобный графический интерфейс на React, в котором будет видно промежуточные этапы сгенерированного контента, а так-же наглядно видеть продакн на доске.
-А так-же облегчают некоторые фичи, например ручной render вместо агентного render. 
+Изображения, клипы и final видны как материалы с originals, не только как пути в чатах. Dashboard, библиотека и chat используют одни refs/receipts; автор не переносит ответы специалистов вручную. Исторический результат явно показывает свою lineage, не выдаётся за текущую версию.
 
-## Одно рабочее пространство
+## Детали контекста и наблюдаемость
 
-- **Dashboard:** нодовый маршрут и материалы проекта. Изображения/видео видны как результаты, а не только как пути в чате.
-- **Frameboard:** упорядоченные кадры с описанием, выбранным дублем и состоянием работы. Это представление тех же материалов, не отдельный архив.
-- **Producer:** основной чат взаимодействия с user, обсуждение замысла, задания и правки. Надо подумать куда его вставить минималистично.
+Показывать задание, exact input revisions, подготовленные bounded projections и их роли, pinned guidance/settings, output validation и approval отдельно. В раскрываемой trace различать:
+1. **Подготовлено к передаче** — сохранённый input/context snapshot.
+2. **Наблюдалось** — доступный host факт загрузки skill/tool execution.
+3. **Недоступно** — нет поддержанного события/transcript или невозможно подтвердить фактическое использование.
 
-Чат producer и доски видят одинаковые результаты. Автор не должен вручную переносить ответы специалистов между окнами.
+Каталог skills не равен loaded skills; пустая activity не означает отсутствие работы. Child-chat/transcript открывать только через проверенный authorized host path, если доступен. Не обещать private reasoning или полную child-tool ленту в parent SSE. Inspect/read не инициирует LLM для объяснения отсутствующих данных.
 
-## Действия без агента (manual render)
+## Состояния и универсальный Continue
 
-Посмотреть файл, выбрать дубль (например из нескольких версий), поменять prompt/seed и отправить подготовленную генерацию — без обязательного LLM turn. Один и тот же инструмент генерации доступен UI и агенту; два разных пути учёта заказов не нужны.
+Это названия для UI, **не новая Hermes API enum**. Host/plugin проецирует состояние и разрешённые действия из task/run, operations, approvals и provider receipts. UI не решает маршрут самостоятельно.
 
-Одиночная генерация может открываться как компактная панель, без запуска полного маршрута. Это желаемая возможность, её включение в первый MVP зависит от простоты поддерживаемого tool API.
+| Наблюдаемая ситуация | Поведение |
+|---|---|
+| Не хватает required input/capability | Показать конкретный blocker, не отправлять generation с урезанными refs |
+| Активная работа | Прогресс и разрешённый Cancel; Continue не создаёт новый заказ/agent turn |
+| Остановленная незавершённая работа | Continue доставляет разрешённое продолжение существующей logical operation в сохранённых inputs/бюджете |
+| Human review | Exact subject/plan и complete selection; отдельные Approve/Revise, Continue не заменяет решение автора |
+| Provider wait / частичный набор | Known job IDs и X/N; ждать/сверять существующие заказы, не submit всего набора снова |
+| Unknown/crash ambiguity | Blocked reconciliation с объяснением; нет automatic paid retry |
+| Недостаточный/исчерпанный/неизвестный allowance | Blocked/wait; показать scope и остаток LLM/media attempts/cost cap либо причину неопределённости, запросить явное дополнительное согласие/сверку до вызова |
+| Failed/cancelled/blocked | Только явно разрешённое recovery/new production; не скрытый restart |
+| Этап завершён / final | Продолжить только объявленный доступный следующий handoff; terminal не открывается заново, final даёт просмотр/скачивание |
 
-## Что не входит в MVP
+Continue — универсальная команда доступного продолжения, не кнопка «ещё раз запусти выбранную ноду» и не Wardrobe-only start. Маршрут движется автоматически в пределах сохранённого разрешения; не вводить обязательный ручной Continue на каждой обычной границе. Continue/restart/retry не обновляют caps попыток/стоимости; planned downstream authorization выбирается явно и не возникает из story approval.
 
-Ручной конструктор связей и нод, сложный timeline/video editor, произвольные панели для всех tools. Нодовая доска сначала объясняет готовый маршрут, а не требует его программирования.
+## Review и manual render
 
-## Вопросы к Hermes
+- На четырёх gates показать точную story revision или complete media set и supporting plan. Selection и approval — отдельные действия; невалидные/несовместимые candidates нельзя утвердить. Устаревшая вкладка получает stale denial и перечитывает факты.
+- Revise явно вызывает owning specialist и новую typed revision. Простое сообщение «ок», просмотр файла или `task done` не approval.
+- Technical retry сохраняет inputs/seeds и успешные units, не вызывает творческого агента; новая платная попытка расходует существующее allowance либо требует отдельного явного согласия. Regenerate разрешает новую стоимость и новый candidate с frozen prompt/settings.
+- Prompt/seed/settings edit в компактной render-панели создаёт **новый явный request**, связанный с plan revision и exact refs; effective settings/override видны до submit. Никакой перезаписи прежнего плана/дубля и обязательного LLM turn.
+- UI и специалист используют одну validation/operation boundary для render, не два независимых submit/accounting paths. Incompatible mode/required refs блокируют действие, а не молча заменяются.
+- Базовый video mode — img2vid. Optional ref2vid показывает per-shot subject/frame и compatible approved portrait/sheet pins; N=0, отсутствующая pair или неразрешённое/неподдержанное multi-character conditioning дают unavailable с причиной до submit. Никаких auto identity/drop refs/скрытого mode fallback; несколько персонажей в Story сами по себе не запрещены.
 
-Какой SDK лучше подходит для такого React UI и зависимостей доски? Можно ли использовать готовые chat/media components? Какие события обновляют карточки без polling? Можно ли запускать tool напрямую из UI с его штатными permissions и result storage? См. [единый список](hermes-questions.md).
+Повтор доставки, reload и новый delivery key той же logical operation возвращают её saved receipt/status. Потеря ответа отображается как неопределённая доставка/сверка, не приглашение сделать новый платный заказ. Command acceptance не равен готовому результату. Правка утверждённого предка предлагает новую lineage без автоматической пересборки старых сцен.
 
-А так-же большой и важный вопрос, как мы можем переиспользовать kanban backend оффициального hermes?
-Может мы пересоберём его под свой графический интерфейс?
-В kanban точно есть фичи которые мы можем использовать, и например сделать свой графический интерфейс, с улучшеными карточками/нодами ?
+Обновления использовать через verified native events + повторное чтение сохранённого состояния; если событий недостаточно — ограниченное polling. Observer stream не canonical state. Exposed controls/media запрещены до устранения auth contradiction; tokens/secrets/raw paths не помещать в UI.
+
+## Границы и основания
+
+Нет graph editor, drag-to-change routing, timeline/editor, generic tool dashboard или новой chat system. [Артефакты и действия](hermes-artifact.md) задают точные гарантии, [MVP](hermes-mvp.md) — приёмку полного фильма.
+
+- [kanban-big-context.md](../hermes-docs/kanban/kanban-big-context.md):845–896, 915–929 — documented dashboard/events и противоречивый auth, не installed evidence.
+- [api-server.md](../hermes-docs/backend/api-server.md):499–523, 633–645; [subagent-lifecycle-api.md](../hermes-docs/backend/subagent-lifecycle-api.md):43–55 — private reasoning/child-tool gaps, skill metadata и in-process lifetime.
+- [hooks-big-context.md](../hermes-docs/backend/hooks-big-context.md):500 — observer события могут теряться; [hilp.md](../../hilp/hilp.md):13–38, 54–60 — exact действия и compatible selection.

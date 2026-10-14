@@ -1,103 +1,77 @@
-# Запрос на анализ Hermes
+# Запрос к целевому Hermes: аудит, затем план
 
-**Статус: вопросы подготовлены; ответы и практические проверки ещё не получены.** Этот файл можно передать Hermes вместе с `hermes-kinodel.md`. Вопросы — не утверждения о наличии функций.
+**Статус:** готовая bounded read-only постановка. Продуктовые решения пакета фиксированы; неизвестны installed APIs и покрытие требований. Ответ на аудит не является разрешением полной сборки.
 
 ## Готовый запрос
 
-> Мы планируем Kinodel — минималистичный творческий плагин поверх Hermes. Прочитай сначала `hermes-kinodel.md`, затем короткие файлы architecture/react/nodes/artifact/mvp из этой папки по необходимости. Они описывают желаемое поведение, не выбранный runtime.
+> Подготовь минимальный план реализации Kinodel **в этой установке Hermes**. Прочитай [входной файл](hermes-kinodel.md), [MVP](hermes-mvp.md), [архитектуру](hermes-kinodel-architecture.md), [этапы](hermes-nodes.md), [артефакты](hermes-artifact.md) и [UI](hermes-webui.md); `/goal` и fallback — только по необходимости.
 >
-> Найди самый короткий путь на существующих возможностях Hermes. Не проектируй второй agent framework и не переноси автоматически backend standalone Kinodel. LangGraph, отдельный сервер и новая DB не заданы как требования. Но не убирай сохранность материалов, явный выбор автора и защиту от незаметного повторного render ради простоты.
+> Цель: полный фиксированный cinematic от brief до verified silent MP4. Четыре специалиста и четыре human gates; Producer optional, Montage tool. Native Hermes-first, без LangGraph, второго runner/task DB и graph editor. Предложение: одна Kanban task на restartable production stage, existing dependencies/claims/runs, same-card human review с отключёнными auto-review/decomposition. Не считай его уже реализованным.
 >
-> Сначала укажи свою версию/commit, доступные plugins/tools и ограничения доступа к исходникам. Затем ответь на Q1–Q10 ниже. Проверяй механизмы по целевой установке, docs и исходникам; не считай собственное знание или рекламное описание доказательством. Если проверить нельзя, напиши «не проверено» и предложи одну маленькую проверку.
+> **Только read-only аудит:** не устанавливай зависимости, не меняй files/config/boards/tasks, не запускай agent runs, `/goal`, decomposition, render/provider calls или платные проверки. Не показывай secrets. Проверяй установленный source/config без изменений; read API используй только если доказано отсутствие инициализации/записей. Если безопасной проверки нет — пометь «не проверено» и предложи последующий offline/mock check. Не переносись автоматически в backend standalone Kinodel.
 >
-> Анализ read-only: ничего не устанавливай, не меняй конфигурацию/файлы, не запускай провайдеров или платные генерации. Сначала покажи вывод и предложи эксперимент; реализация — только после отдельного согласования. Старые `README.md`, `research.md` и `langgraph-hermes.md` — справка/альтернативы, а не обязательная архитектура.
+> Сначала установи version/commit, доступность исходников, dashboard SDK и активных plugins/toolsets/profiles по безопасным metadata. Затем ответь на Q1–Q8 ниже, с точными installed `path:line`. Снимок docs неверсионирован и не доказательство версии. Не выдумывай APIs; отдельно различай documented snapshot, проверенное installed source и runtime evidence.
+>
+> Верни краткую fit/gap таблицу, один минимальный план по срезам и blockers. **Остановись и запроси утверждение плана.** Не приступай к реализации по результатам этого запроса. Если требуется companion, новая persistence или внешний orchestration, покажи конкретный пробел, минимальную альтернативу и получи отдельный выбор автора.
 
-## Вопросы
+## Q1. Native dashboard SDK и безопасная поверхность
 
-### Q1. Что уже можно переиспользовать?
+Найди установленную документацию/source именно **dashboard Plugin SDK**, а не только generic Python plugin ctx: registration, packaging/build, React/page slots, backend routes, auth и isolation limitations. Какая поддержанная поверхность даёт media reads и direct tool action без LLM? Если SDK отсутствует/недостаточен, зафиксируй конкретный gap; authenticated companion — только вариант для выбора, не default.
 
-Для нашего сценария какие штатные tools, plugins, skills, UI-компоненты и механизмы хранения полезны? Дай короткую карту **потребность Kinodel → существующая возможность → ограничение → что дописать**. Включи неочевидные возможности, которые позволят удалить собственную логику. Не нужен полный каталог Hermes.
+**Blocker:** снимок [kanban-big-context.md](../hermes-docs/kanban/kanban-big-context.md):873 утверждает token auth, :915–919 — unauthenticated plugin HTTP routes. Проследи actual middleware/router, Host/Origin/CSRF, media access и WS auth. До устранения противоречия exposed controls запрещены; «это localhost» не ответ.
 
-### Q2. Где разместить UI?
+## Q2. Stage tasks, dependencies и human review
 
-Desktop plugin, dashboard extension или отдельное localhost-окно (local server + web UI): какой путь минимален в нашей версии?
-Мне нравится больше вариант с отдельным local webui, а например в desktop plugin можно будет сделать адаптацию после mvp в #future.
+Проверь task/run/claim ownership, durable metadata/attachments, restart/reclaim, exact handoff и same-card human-only review. Где отключаются `review_dispatch` и auto-decomposition без изменения чужих boards? Как фиксировать topology и освобождать следующую stage только после required approval, а не просто `done`?
 
-Как добавить React-доску с зависимостями, медиа и чатами? Можно ли обойтись штатным plugin backend? Какие ограничения сборки, sandbox и permissions существенны?
+Проследи обходы через CLI/tools/dashboard complete, force/bulk/status patch, reopen/archive и auto dispatch. Назови **одну обязательную validation/action boundary**, которую downstream не обходит. Reserved workflow columns не считай готовым routing. Hooks-observers не назначай transactional controls.
 
-Кстате, я нашёл оф документацию [backend/plugins.md](backend/plugins.md) — 1 020 строк, ≈15 591 токен, про то как писать плагины.
+## Q3. Специалисты, outputs и hydration
 
-### Q3. Как поручать работу специалистам?
+Выбери минимальное отображение четырёх specialists на installed profiles/skills/tasks. Покажи, как exact inputs/context projections превращаются в bounded typed bodies/text/media для следующего агента; неразрешённых IDs недостаточно. Как отдельно валидируются полная schema, shot/unit coverage/order и provenance до публикации?
 
-Что выбрать для продюсера и этапов: transient `delegate_task`, постоянные Bots/profiles или другой существующий механизм? Как передать skill, ограничения tools, выбранные версии входов и получить результат? Можно ли открыть, уточнить и повторно использовать разговор специалиста после завершения/reconnect? Что реально видит продюсер?
+Учти [delegation.md](../hermes-docs/backend/delegation.md):57–59: invalid output после repair всё ещё `completed`. Как plugin не пропустит его? Running children не восстанавливаются как checkpoints (:557–564); public child API требует active parent и хранит данные in-process ([subagent-lifecycle-api.md](../hermes-docs/backend/subagent-lifecycle-api.md):10–12, 51–55). Не планируй standalone UI launch/reconnect как доказанную durable поверхность.
 
-### Q4. Что именно обеспечивает `/goal`?
+## Q4. Storage, revisions и exact approvals
 
-Существует ли команда в целевой версии и доступна ли она через plugin/API для parent и child? Как определяются успех, лимит, ошибка и остановка? Что происходит после restart? Можно ли ограничить работу до одного проверяемого результата и ожидания человека? Раздели цель, завершение задания, checkpoint и approval; не считай их синонимами. Приложенный `hermes-goal.md` — справочный текст, его применимость нужно проверить.
+Что host умеет атомарно сохранять для immutable JSON/original bytes, exact approvals, complete selection и operation reservation? Что переживает scratch cleanup/restart? Как сохраняются digest и lineage, не затирая старые ревизии?
 
-### Q5. Можно ли выполнить маршрут без LangGraph?
+Manifest — derived navigation, task/session/attempt lifecycle остаётся у Hermes. Если нужна узкая metadata persistence, назови только недостающие факты и минимальный backend/format. Покажи stale denial и совместимость parent/child candidates, а не общий `approved=true`. Правка approved ancestor — новая lineage, без каскада и без relabel старых media.
 
-Как штатно реализовать **история → описания кадров → решение автора → render** с зависимостями, событиями и возобновлением? Нужен ли только skill продюсера, native orchestration или маленькая функция плагина? Если чего-то нет, назови конкретный пробел и минимальное дополнение. Какой наблюдаемый случай действительно оправдал бы LangGraph? Где будет единственный владелец продвижения маршрута?
+## Q5. Manual render и реальные provider capabilities
 
-### Q6. Как принимать результаты без лишних токенов?
+Найди общий UI/agent путь validation/authorization/operation accounting без обязательного LLM. Проверь по installed source доступные image/video providers (включая ComfyUI, если установлен): frozen settings/seeds, ordered reference capacity/roles, duration/size, receipt/job lookup, cancel и original import.
 
-Какие structured input/output и validators реально поддерживаются? Что происходит с невалидным/обрезанным ответом? Есть ли hook/tool для автоматической публикации проверенного результата, без turn на переписывание project file? Как привязать ответ к заданию и выбранным входам? Как не выдавать каждому агенту все prompts, медиа metadata и чаты?
+Нужны V2 portrait + character-free location → sheet с двумя exact parents; storyboard anchors/earlier frames; базовый img2vid exact frame. Optional ref2vid — только при доказанной поддержке `[frame, portrait, sheet]` и явной совместимой approved anchor pair для каждого shot, без frame-0 promise. Где до Filmmaker/provider call фиксируются `shot_key`, selected frame ref/digest, `subject_id`, approved anchor-set revision/digest и portrait/sheet unit keys + candidate refs/digests, включая parent compatibility?
 
-### Q7. Как вызывать render из UI без LLM?
+Проверь unavailable ref2vid при N=0, отсутствующей compatible pair и неразрешённом multi-subject binding; неподдержанное обязательное multi-character conditioning блокирует selected mode, не Story с несколькими персонажами вообще. Агент не выбирает identity сам, не удаляет required refs и не переключает mode молча. Generic refs, refs-only video example routing и provider clamping не считай доказанным mapping.
 
-Можно ли вызвать существующий tool/script с prompt/seed/workflow напрямую, сохранив permissions, progress, job ID и файл? Что готово для ComfyUI/другого доступного provider? Как UI и агент используют один путь, а не два несогласованных submit? Что делать при потере ответа, повторном клике и отмене, чтобы не отправить незаметно второй заказ?
+## Q6. Duplicate commands, crash и Continue
 
-### Q8. Как хранить проект и показывать его после restart?
+Где до вызова резервируются stable logical operation key, authorized params и exact inputs? Как **разные delivery keys одной операции** сходятся к одному эффекту/receipt? Host run Idempotency-Key не доказывает media idempotency. Проверь race/stale revision и ACL, не только double-click UI.
 
-Что уже есть для файлов, media metadata, версий, выбора автора, wiki и session linkage? Какой минимум плагин должен сохранять сам? Можно ли оставить чаты в Hermes, wiki и медиа в отдельной локальной библиотеке? Как учитывать compression/смену session ID и конкурентные правки? Какие действия восстанавливаются, а какие становятся неизвестными?
+Как host сохраняет authorization автора для LLM attempts и media orders в области operation/stage/production, выбранные caps попыток/стоимости и reservations с учётом известных provider limits? Проверь расход LLM repair/revise/judge и technical retry, отсутствие renewal через Continue/restart/retry и blocked/wait при недостаточном, исчерпанном или неизвестном allowance. Дополнительное согласие сохраняется явно; scoped planned downstream authorization не заменяется generic story approval. Сначала host accounting, только недостающие узкие metadata, без нового budget engine.
 
-ответ: Мб файлы проектов надо хранить в папке самого плагина? например у нас такое расположение:
-hermes/kinodel/projects/project_id/...
+После ambiguous submit нужна supported reconciliation или blocked state, не automatic paid retry. Technical retry сохраняет inputs/seeds/успехи; regenerate/manual edit — явно новая стоимость. Continue разрешает доступное продолжение сохранённой работы, не uncontrolled run again; active/human wait/provider wait/blocked/terminal различаются. Не обещай exactly-once и отмену provider job по остановке агента.
 
-А контекст чанки, например style, characters, prompts, vibe и тд, вообщем файлы которые мы хотим добавить в контекст через @ можно хранить в /hermes/wiki/kinodel/...
+## Q7. Observability и изоляция
 
+Как автор видит stage state, prepared context и отдельно observed loaded skills? Skills discovery — metadata; parent SSE не даёт полной child-tool ленты, hidden reasoning недоступно. Какие authorized transcripts реально можно открыть, что сохраняется после restart/compression и как перечитать canonical state при потерянном событии?
 
-### Q9. Как не смешивать проекты и личный Hermes?
+Проекты и личные Hermes sessions не смешиваются; profile/workspace/tenant не объявляются полноценным security sandbox без проверки. Credentials остаются у host/adapter; boards/media/context reads проходят authorization, raw paths не становятся публичными IDs.
 
-Что дают profile, session и workspace, а чего не изолируют? Как показывать только Kinodel-чаты и открыть основному Hermes явное чтение выбранной библиотеки? Где ограничить filesystem/network/tools, хранить credentials и проверять доступ из UI? Может ли штатная авторизация покрыть это без новой системы аккаунтов?
+## Q8. Минимальный план и проверки после согласования
 
-Ответил частично в Q8 где мы будем хранить проекты, а где хранить контекст
-Например мы можем переиспользуемый контекст для @ хранить в /hermes/wiki/kinodel/... , а проекты мы храним в директории плагина /hermes/kinodel/projects/...
+Предложи срезы из [MVP](hermes-mvp.md#сборка-после-согласованного-аудита): validated Story → exact review/reopen; anchors + manual render; frames; videos; deterministic Montage/final. Для каждого — минимальные файлы/host mechanisms и focused offline/mock check, затем отдельно согласуемый live budget. Одни изображения — промежуточная проверка, не релиз.
 
-### Q10. Какой самый маленький проверяемый эксперимент?
+Обязательные будущие проверки: invalid output denial; stale/duplicate/new-delivery-key convergence; direct native completion bypass; restart/reuse без duplicate paid effects; ambiguous receipt blocked; compatible selection; manual override/no LLM; ancestor edit/no cascade; provider-off originals; final ffprobe/no audio. Не запускай их во время read-only аудита.
 
-На финале mvp мы хотим собрать целый `cinematic.pipeline` , а какие у нас промежуточные этапы?
-Предложи один путь: UI → один специалист → проверенный сохранённый результат → reopen; 
-А так-же отдельно **manual render**.
-Назови минимальные файлы/компоненты и проверки, что нужно выяснить до кода? 
-Что из нашего MVP ты советуешь убрать, потому что штатная функция уже решает задачу или сценарий пока не нужен?
+## Формат результата и следующий шаг
 
-## Формат ответа
+1. Version/commit и границы доступа; короткая таблица **потребность → installed механизм → evidence path:line → gap**.
+2. Что подтверждено по source, что только в snapshot, что не проверено. Source inspection ≠ выполненный runtime check.
+3. Минимальная native composition, ownership/action boundary, storage выбор или конкретный blocker. Не полный каталог Hermes и не новая документация вместо ответа.
+4. План по срезам с минимальными проверками; choices для автора только там, где действительно нужен SDK fallback/persistence/provider/budget.
+5. Запрос утверждения плана; **никакой автоматической реализации**. После утверждения — один bounded срез с focused evidence, затем следующий.
 
-1. Версия и границы проверки.
-2. Краткие ответы Q1–Q10 с именами APIs/tools и ссылками на docs или `source_path:line`; обозначить **проверено / предположение / недоступно для проверки**. «Есть в source» не равно «протестировано».
-3. Одна минимальная схема без LangGraph, если реализуема; иначе конкретный недостающий механизм, не абстрактное «для надёжности».
-4. Что берём готовым, что дописываем и что не строим.
-5. Один следующий эксперимент и вопросы к автору, если есть нерешённый продуктовый выбор.
-
-Не переписывай весь пакет документации в ответе. После обсуждения внесём только подтверждённые решения; ответы сами по себе не являются runtime evidence.
-
-## Как поручать чтение по главам документации сабагентам [official-hermes-docs](hermes-docs)
-
-1. Выбери файл по карте и открой **его блок** в `CHAPTERS.md` по последней колонке; например, plugins: `offset=20, limit=31`.
-2. Передай ресёрчеру вопрос, путь и диапазоны нужных глав. Он читает соседние разделы только при необходимости.
-3. Для диапазона `start–end`: `offset=start`, `limit=end-start+1`. Нумерация с 1, конец включён.
-
-Например, вместо загрузки всех ≈15,6k токенов `plugins.md`:
-
-```text
-Задача: выяснить extension point, consent и isolation для нашего плагина.
-→ Read docs/hermes/hermes-docs/plugins.md [offset=352, limit=29]
-→ Read docs/hermes/hermes-docs/plugins.md [offset=518, limit=65]
-→ Read docs/hermes/hermes-docs/plugins.md [offset=803, limit=51]
-Вернуть: вывод, ограничения, ссылки path:line и что требуется проверить в коде.
-```
-
-Для инструмента `read` путь передаётся абсолютным: `filePath="D:\\Ai\\kinodel-ide\\docs\\hermes\\hermes-docs\\plugins.md"`. Пример целевого чтения hooks: `offset=546, limit=79` — контракт `pre_tool_call` вместо всего файла на ≈31,4k токенов.
-
-Целый файл нужно читать в случае если нужно глубокое познание backend, например когда дело уже доходит до практических действий или хирургической точности.
+Навигация по снимку: [README](../hermes-docs/README.md), [CHAPTERS](../hermes-docs/CHAPTERS.md). Читать нужные разделы по `path:line`, не загружать весь каталог. Опорные ограничения собраны в [карте архитектуры](hermes-kinodel-architecture.md#карта-соответствия-и-источники) и [media/storage sources](hermes-artifact.md#источники-и-неопределённости).

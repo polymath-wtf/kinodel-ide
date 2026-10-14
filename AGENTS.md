@@ -52,7 +52,8 @@ Verification reports belong only in `test-results/README.md`; update existing en
 ### Tool Call Arguments
 
 - Call `read` and `skill` directly with required arguments (`filePath`, `name`); do not wrap these tools in `multi_tool_use.parallel`.
-- On schema errors, fix the arguments and retry the affected tool directly; never repeat the invalid batch.
+- Every `task` call must include `description`, `prompt`, and `subagent_type`; choose the type only from the tool's current available agents, never infer it from a role like "researcher".
+- On schema or unknown-agent errors, correct the arguments against the current tool definition before retrying directly; never repeat the invalid call or batch.
 
 ### Coding-Agent Context Budget
 

@@ -6,15 +6,15 @@
 
 **Все значения токенов приблизительные:** число Unicode-символов / 4, с округлением; учитываются frontmatter, текст и код. Токенизатор модели не использовался, реальный объём зависит от модели и языка. Строки посчитаны точно, с 1.
 
-21 исходник суммарно содержит **≈143 775 токенов**. Особенно большие: hooks **≈31,4k**, Kanban **≈30,6k**, plugins **≈15,6k**, delegation **≈12,7k**, API **≈11k**. Их следует читать по главам: `limit=400` ограничивает строки, но не токены — длинные строки тоже занимают контекст.
+В карте 22 документа: 21 исходник и авторский дистиллят Kanban, суммарно **≈152 656 токенов**. Особенно большие: hooks **≈31,4k**, Kanban **≈30,6k**, plugins **≈15,6k**, delegation **≈12,7k**, API **≈11k**. Дистиллят `kanban-context.md` — **≈8,8k**; для общей модели Kanban начни с него, затем проверяй конкретные контракты по исходникам. `limit=400` ограничивает строки, но не токены — длинные строки тоже занимают контекст.
 
 ## Карта файлов
 
-В колонке «Содержание / задача ресёрчеру» указано, какой вопрос отправлять в соответствующий файл. Последняя колонка — **строки нужного блока в CHAPTERS.md**, а не в исходнике. Сам README занимает ≈2,9k токенов, полный индекс — ≈3,8k; индекс можно читать только нужным блоком.
+В колонке «Содержание / задача ресёрчеру» указано, какой вопрос отправлять в соответствующий файл. Последняя колонка — **строки нужного блока в CHAPTERS.md**, а не в исходнике. Сам README занимает ≈3,1k токенов, полный индекс — ≈4,1k; индекс можно читать только нужным блоком.
 
 | Файл | Строк | ≈ токенов целиком | Содержание / задача ресёрчеру | Главы: строки CHAPTERS |
 | --- | ---: | ---: | --- | --- |
-| [overview.md](overview.md) | 57 | 1 827 | Каталог возможностей: core, automation, media/web, integrations, customization. Найти семейство функций и дальнейшие upstream-источники. | [7–19](CHAPTERS.md#overview) |
+| [overview.md](overview.md) | 59 | 1 947 | Каталог возможностей: core, automation, media/web, integrations, customization; локальный маршрут к дистилляту Kanban. Найти семейство функций и дальнейшие источники. | [7–19](CHAPTERS.md#overview) |
 | [backend/plugins.md](backend/plugins.md) | 1 020 | **15 591** | Расширения: discovery, opt-in, установка/обновление, consent, isolation, message injection, MCP. Выбрать extension point и проверить условия активации. | [20–50](CHAPTERS.md#plugins) |
 | [backend/api-server.md](backend/api-server.md) | 841 | **11 038** | HTTP/OpenAI-compatible endpoints, Runs/SSE/approval, sessions/jobs, model/profile routing, auth. Исследовать внешний UI/control plane, continuation и повторы запросов. | [51–76](CHAPTERS.md#api-server) |
 | [backend/delegation.md](backend/delegation.md) | 674 | **12 700** | Subagents: отдельный контекст, batch/schema, async delivery, steering/cancel, модели, nesting, worktrees. Составить briefing и проверить lifetime/durability делегации. | [77–108](CHAPTERS.md#delegation) |
@@ -25,6 +25,7 @@
 | [tools/tools.md](tools/tools.md) | 265 | 3 787 | Tools/toolsets, terminal backends, контейнеры, background processes/receipts, sudo. Выбрать поверхность исполнения и исследовать изоляцию/сохранность результатов. | [232–245](CHAPTERS.md#tools) |
 | [tools/batch-processing.md](tools/batch-processing.md) | 230 | 2 259 | JSONL batch runner для training/evals: toolset distributions, ShareGPT trajectories, checkpoint/resume, filtering. Исследовать массовый сбор траекторий. | [246–263](CHAPTERS.md#batch-processing) |
 | [kanban/kanban-big-context.md](kanban/kanban-big-context.md) | 1 449 | **30 568** | Основной справочник board/SQLite: dependencies, claims/runs, dispatcher, artifacts/workspaces, PR gates, GUI/REST, notify/wake. Проверить долговечную координацию и lifecycle задач. | [264–300](CHAPTERS.md#kanban) |
+| [kanban/kanban-context.md](kanban/kanban-context.md) | 500 | **8 761** | Авторский архитектурный дистиллят: Kanban + delegate_task + /goal + public child lifecycle; плагин — строки 426–500. Получить общую модель, границы ответственности и разночтения; затем исследовать детали в исходниках. | [459–485](CHAPTERS.md#kanban-context) |
 | [kanban/kanban-tutorial.md](kanban/kanban-tutorial.md) | 310 | 4 995 | Сквозные сценарии solo/fleet/role pipeline, review/retry, crash recovery и follow-up. Восстановить последовательность работы и handoff. | [301–318](CHAPTERS.md#kanban-tutorial) |
 | [kanban/kanban-worker-lanes.md](kanban/kanban-worker-lanes.md) | 143 | 3 349 | Контракт executor lane: assignee, spawn/env, descendant scope, outputs/review, audit/failures. Оценить подключение внешнего CLI-worker. | [319–334](CHAPTERS.md#worker-lanes) |
 | [kanban/kanban-multi-gateway.md](kanban/kanban-multi-gateway.md) | 52 | 562 | Один dispatcher и доставка по владельцу profile, включая review feedback. Проверить несколько gateway без дублирования dispatch. | [335–345](CHAPTERS.md#multi-gateway) |
@@ -34,7 +35,7 @@
 | [tools/image-gen-provider-plugin.md](tools/image-gen-provider-plugin.md) | 321 | 3 310 | Image provider plugin: ABC, capabilities/references, model/setup metadata, discovery, response, URL/base64 и overrides. Выделить контракт адаптера генерации и минимальные contract/smoke-проверки. | [396–415](CHAPTERS.md#image-gen-provider-plugin) |
 | [backend/subagent-lifecycle-api.md](backend/subagent-lifecycle-api.md) | 61 | 737 | Plugin API управления дочерними сессиями: capability handle, launch/status/wait/cancel/result/reconnect. Проверить supervision и in-process lifetime; отличить от model-facing delegation и restart recovery. | [416–423](CHAPTERS.md#subagent-lifecycle-api) |
 | [tools/tools-runtime.md](tools/tools-runtime.md) | 250 | 2 997 | Внутренние registry/dispatch: schema, availability/toolsets, override consent, hooks/errors/async, terminal approval и owner-bound process receipts. Восстановить путь исполнения и границы полномочий/результатов. | [424–439](CHAPTERS.md#tools-runtime) |
-| [tools/video-gen-provider-plugin.md](tools/video-gen-provider-plugin.md) | 233 | 2 327 | Video provider plugin: text/image-to-video, ABC/capabilities, model families → endpoints, selection, response и media cache. Проверить modality routing, ограничения параметров и сохранение output. | [440–457](CHAPTERS.md#video-gen-provider-plugin) |
+| [tools/video-gen-provider-plugin.md](tools/video-gen-provider-plugin.md) | 233 | 2 327 | Video provider plugin: text/image-to-video, ABC/capabilities, model families → endpoints, selection, response и media cache. Проверить modality routing, ограничения параметров и сохранение output. | [440–458](CHAPTERS.md#video-gen-provider-plugin) |
 
 `future/` пока пуст. `README.md` — краткая карта; `CHAPTERS.md` — навигационный индекс, а не дополнительный upstream-источник.
 
@@ -42,6 +43,7 @@
 
 | Вопрос | Начать с | Дополнительный источник при необходимости |
 | --- | --- | --- |
+| Как связаны Kanban, delegate_task, /goal и lifecycle сабагентов? | kanban-context → нужные главы; обзор 1–25 | оригинальные контракты по ссылкам дистиллята |
 | Как выдавать ограниченные задачи сабагентам? | delegation → How Subagent Context Works; Batch Mode Details | kanban → Kanban vs. delegate_task; сверить различия с delegation |
 | Как организовать долговечную очередь, review/retry и recovery? | kanban-tutorial → Stories 3–4 | kanban → worker lifecycle; Runs; worker-lanes |
 | Как подключить UI к выполнению/статусу/сессиям? | api-server → Runs; Sessions; Endpoints | kanban → Dashboard (GUI); hooks → lifecycle observers |
@@ -61,6 +63,8 @@
 2. Передай ресёрчеру вопрос, путь и диапазоны нужных глав. Он читает соседние разделы только при необходимости.
 3. Для диапазона `start–end`: `offset=start`, `limit=end-start+1`. Нумерация с 1, конец включён.
 
+Для дистиллята: `Read .../CHAPTERS.md [offset=459, limit=27]` покажет его карту глав; `Read .../kanban/kanban-context.md [offset=426, limit=75]` прочитает только подключение собственного плагина.
+
 Например, вместо загрузки всех ≈15,6k токенов `backend/plugins.md`:
 
 ```text
@@ -76,6 +80,7 @@
 ## Как трактовать источники
 
 - Большие справочники пересекаются: plugins даёт обзор hooks; tutorial/lanes/multi-gateway дополняют Kanban. Читать весь набор для одного вопроса обычно не требуется.
+- `kanban-context.md` — локальный синтез исходников, а не независимая upstream-спецификация; в нём отдельно отмечены предлагаемая композиция и неподтверждённые гарантии.
 - Единой версии/commit snapshot здесь не указано. В источниках есть расхождения по concurrency/durability делегации, plugin opt-in и защите Kanban REST. При исследовании гарантий сверяй профильную главу, соседний контракт и актуальную реализацию; возвращай расхождения явно.
 - Tool Gateway описывает managed provider routing, а не messaging Gateway. Subagent Lifecycle API хранит supervision/results in-process; гарантии завершённых результатов из delegation не переносятся на него автоматически. Image/video provider-контракты сами по себе не задают durable jobs или idempotency.
 - Часть исходных upstream-ссылок и изображения отсутствуют локально. Ссылки в этой карте ведут к имеющимся файлам. Диапазоны индекса относятся к текущей копии: после изменения исходников их нужно пересчитать.
