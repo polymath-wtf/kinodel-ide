@@ -22,7 +22,8 @@
 Этап: Storytell. Используй переданный immutable brief и bounded character context.
 Верни полный Story с выданными shot keys/order, hook, narrative, before/action/after
 и generated cast. Не меняй brief, не вызывай render, не создавай downstream tasks.
-При нехватке required input верни needs_input; на out-of-scope дай объяснение.
+При смысловом конфликте переданных inputs верни question с вопросом автору.
+Отсутствие обязательного input блокирует запуск на backend; out-of-scope объясни.
 Работай только в заранее согласованном бюджете, затем остановись для exact review.
 ```
 
