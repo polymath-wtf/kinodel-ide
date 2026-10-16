@@ -23,7 +23,7 @@ from backend.comfyui import NativeImagePreparationContext
 from backend.database import _check_file, _sync_directory
 from backend.domain import (ArtifactRef, ExactProfilePin, MAX_JSON_BYTES, MediaSize, _exact_artifact_ref,
                             canonical_json, sha256_digest)
-from backend.story_store import _root, _uuid
+from backend.story_store import _assert_writable, _root, _uuid
 from backend.wardrobe import AnchorKey, ExactDigest
 
 
@@ -267,6 +267,44 @@ def pin_saved_batch_input(db: sqlite3.Connection, execution_id: str, *, source_p
                              (batch_id, record.input_digest, body.decode("utf-8")))
         if changed.rowcount != 1:
             raise ValueError("Batch input reservation changed during publication")
+    return read_batch_input(db, batch_id)
+
+
+def pin_active_anchor_batch_input(db: sqlite3.Connection, execution_id: str,
+                                  approval_request_id: str) -> BatchInputPinV1:
+    """Source and consumer are one active execution; publication allocates no work.
+
+    The committed Wardrobe next_activation owns identity. Recovery uses reserved
+    bytes, not current catalogs; every new publication step rechecks source/control.
+    """
+    _committed(db)
+    _assert_writable(db, execution_id)
+    source = batch_preparation.read_story_anchor_plan(db, execution_id, approval_request_id)
+    batch_id = _identity('kinodel.batch-input.v1', execution_id, 'anchor-batch', source.next_activation)
+    row = _batch_row(db, batch_id)
+    if row is None:
+        with _transaction(db):
+            result = batch_preparation.read_active_batch_input(db, execution_id, approval_request_id)
+            if result.prepared_input.activation_id != source.next_activation:
+                raise ValueError('Story/anchor source activation changed before reservation')
+            body = canonical_json(result.prepared_input)
+            uri = _uri(source.ref.project_id, batch_id, result.input_digest)
+            db.execute('INSERT INTO batch_input_pins VALUES (?,?,?,?,?,?,?,?,?)',
+                (batch_id, execution_id, 'anchor-batch', source.next_activation, source.ref.artifact_id,
+                 result.input_digest, body.decode('utf-8'), uri, 'reserved'))
+        row = _batch_row(db, batch_id)
+    record, body, path = _restore_batch(db, row)
+    batch_preparation.validate_story_anchor_batch(db, record.prepared_input)
+    if row[8] == 'published':
+        return read_batch_input(db, batch_id)
+    _assert_writable(db, execution_id)
+    _publish_body(path, body)
+    with _transaction(db):
+        _assert_writable(db, execution_id)
+        batch_preparation.validate_story_anchor_batch(db, record.prepared_input)
+        if _batch_row(db, batch_id) != row:
+            raise ValueError('Story/anchor batch reservation changed during publication')
+        db.execute("UPDATE batch_input_pins SET publication_state='published' WHERE batch_id=?", (batch_id,))
     return read_batch_input(db, batch_id)
 
 

@@ -29,6 +29,39 @@ def _digest(*values: object) -> str:
     return sha256_digest(json.dumps(values, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
 
 
+def validate_applied_story_resume(db: sqlite3.Connection, execution_id: str, work: tuple) -> None:
+    """Authorize a non-image resume through its exact bound/applied review decision.
+
+    Prior revision/clarification resumes may coexist with a later external wait;
+    a random resume row (even on this execution) is never an authorized source.
+    """
+    request_id = work[2]
+    cursor = db.execute('SELECT * FROM review_requests WHERE execution_id=? AND request_id=?',
+                        (execution_id, request_id))
+    values = cursor.fetchone()
+    if values is None:
+        raise ValueError('Unrelated resume has no authorized Story decision')
+    review = dict(zip((column[0] for column in cursor.description), values))
+    action, message = review['action'], review['message']
+    if (action not in ('approve', 'revise', 'clarify')
+            or (action == 'approve' and message is not None)
+            or (action != 'approve' and (not isinstance(message, str) or not message.strip() or len(message) > 131072))
+            or not all(review[key] for key in ('checkpoint_id', 'task_id', 'interrupt_id', 'decision_key', 'decision_id'))
+            or request_id != _digest('kinodel.story-review.v1', execution_id, review['trigger_activation'])
+            or review['request_digest'] != _digest('kinodel.story-review-body.v1', request_id, review['request_revision'],
+                review['subject_artifact_id'], review['subject_digest'], review['binding_revision'], review['previous_request_id'])
+            or review['decision_id'] != _digest('kinodel.story-decision-id.v1', request_id, review['decision_key'])
+            or review['decision_digest'] != _digest('kinodel.story-decision.v1', request_id, review['request_digest'],
+                review['binding_revision'], action, message)
+            or review['applied_activation'] != _digest('kinodel.story-review-apply.v1', request_id, review['decision_id'], action)
+            or work != (_digest('kinodel.story-resume-work.v1', review['decision_id']), execution_id,
+                        request_id, review['decision_id'], review['decision_digest'])):
+        raise ValueError('Unrelated resume does not match its applied Story decision')
+    ref, _ = read_story(db, execution_id, artifact_id=review['subject_artifact_id'])
+    if ref.digest != review['subject_digest']:
+        raise ValueError('Story resume subject digest mismatch')
+
+
 def prepare_story_review(db: sqlite3.Connection, execution_id: str, trigger_activation: str,
                          subject: ArtifactRef, binding_revision: int,
                          *, previous_request_id: str | None = None) -> ReviewRef:
@@ -205,8 +238,9 @@ def apply_story_decision(db: sqlite3.Connection, execution_id: str, request_id: 
         from backend import wardrobe_store
         identity = db.execute("SELECT graph_id,graph_version,graph_digest FROM executions WHERE execution_id=?",
                               (execution_id,)).fetchone()
-        wardrobe = wardrobe_store.is_current_wardrobe_graph(identity)
-        if identity[0] == wardrobe_store.GRAPH_ID and not wardrobe:
+        wardrobe = wardrobe_store.is_current_wardrobe_graph(identity) or wardrobe_store.is_story_anchor_graph(identity)
+        from backend.story_anchor_start import GRAPH_ID as ANCHOR_GRAPH_ID
+        if identity[0] in (wardrobe_store.GRAPH_ID, ANCHOR_GRAPH_ID) and not wardrobe:
             raise ValueError("Unsupported frozen Wardrobe route")
         next_activation = _digest("kinodel.story-review-apply.v1", request_id, decision_id, row[1])
         db.execute("UPDATE review_requests SET applied_activation=? WHERE request_id=?",

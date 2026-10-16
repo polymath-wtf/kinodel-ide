@@ -35,7 +35,7 @@ status: preproduction
 
 ## Недостающие материалы исходного проекта
 - Полные инструкции пяти ролей из внешнего `hermes-agents/README.md` и связанных файлов.
-- ComfyUI workflow JSON, registry/mappings и прежний comfyui-tool документ.
+- Registry/mappings и прежний comfyui-tool документ. Уточнение 2026-10-15: шесть API workflow JSON уже есть отдельно в `wiki/raw/comfyui-workflow/`; JSON разобраны без запуска, детали в [[kinodel-preproduction/hermes-mechanisms]].
 - Указанные в исходниках Hermes documentation snapshots, research и test-results.
 - Старые standalone backend/context contracts и Chat reference.
 
@@ -44,7 +44,7 @@ status: preproduction
 ## Что проверено, а что нет
 **Этот проход:** чтение источников и существующей wiki, визуальный разбор двух референсов, создание новой документации, проверка структуры/ссылок и неизменности raw.
 
-**Не выполнялось:** проверка host API, capabilities моделей, permissions profiles, установка plugin, создание Kanban задач, запуск worker/render/FFmpeg, тесты frontend/backend. Поэтому данные concept-файлов о Hermes представлены как основания будущего исследования, не актуальная API-справка.
+**При первоначальной перепаковке не выполнялось:** проверка host API, capabilities моделей, permissions profiles, установка plugin, создание Kanban задач, запуск worker/render/FFmpeg, тесты frontend/backend. Дополнение 2026-10-15: выполнено чтение текущих host source/docs и шести workflow JSON; результаты отдельно в [[kinodel-preproduction/hermes-mechanisms]] и [[kinodel-preproduction/kinodel-features]]. Runtime и установка по-прежнему не выполнялись; исходные concept-файлы не стали API-справкой.
 
 Названия tools в концепте могут быть настоящими именами, но этого недостаточно для утверждения об их доступности, scope или совместимости. Детальные JSON-примеры raw — иллюстрации. Дата страницы — дата перепаковки, не дата технической верификации интеграции.
 

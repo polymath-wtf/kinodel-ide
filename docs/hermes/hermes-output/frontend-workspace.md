@@ -1,7 +1,7 @@
 ---
 title: "Frontend — творческое рабочее пространство"
 created: 2026-10-15
-updated: 2026-10-15
+updated: 2026-10-16
 type: concept
 tags: [kinodel, preproduction, frontend, artifacts]
 sources: [raw/kinodel-plugin-raw/hermes-webui.md, raw/kinodel-plugin-raw/pipeline reference.png, raw/kinodel-plugin-raw/canvas reference.png]
@@ -12,6 +12,9 @@ status: preproduction
 # Frontend — творческое рабочее пространство
 
 **Целевой UX, не макет работающего приложения.** React Flow отвечает за обзор и навигацию, а не за исполнение workflow. Producer находится в чате, не отдельной исполнительной ноде. ^[raw/kinodel-plugin-raw/hermes-webui.md]
+
+## Техническая поверхность
+Standalone localhost WebUI: собственная React/React Flow оболочка в обычном браузере, не Desktop-панель. Предлагается существующий Hermes listener для static/API, REST/polling для производства и native JSON-RPC WS для ProducerChat. Browser auth/bootstrap ещё требует проверки; UI не получает Desktop composer или SDK автоматически. Механизм и приёмка: [[kinodel-preproduction/localhost-webui]].
 
 ## Представления одного проекта
 | Представление | Вопрос автора | Содержимое |

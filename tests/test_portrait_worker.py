@@ -203,6 +203,43 @@ class PortraitWorkerTests(fixtures.WardrobeFixtures, unittest.IsolatedAsyncioTes
         with database.open_database(self.root) as db:
             self.assertEqual(await self.tick(db, completed, lambda _: self.fail('Reopen HTTP')), completed)
 
+    async def test_extended_native_image_descriptor_reopens_and_imports_verified_original(self):
+        async with self.committed() as (db, ref):
+            original = self.job(db, ref)
+            accepted = await self.tick(db, original, self.server(db, original))
+            blocked = submissions.block_portrait_submission(db, accepted.preview.job_id,
+                **self.args(accepted), reason='contract_error')
+        with database.open_database(self.root) as db:
+            restored = submissions.read_portrait_submission(db, blocked.preview.job_id,
+                expected_unit_digest=blocked.preview.unit_input_digest, expected_wire_digest=blocked.preview.wire_digest)
+            self.assertEqual(await self.tick(db, restored, lambda _: self.fail('Sticky block HTTP')), restored)
+            native = history(restored.preview, subfolder='kinodel\\api')
+            native['prompt-1']['outputs']['865']['images'][0].update(
+                metadata={'kind': 'image', 'width': 1024, 'height': 1024}, id='provider-image-id')
+            snapshot = copy.deepcopy(native)
+            completed = await self.tick(db, restored, self.server(db, restored, histories=native), revalidate_contract=True)
+            self.assertEqual((completed.state, completed.reason, completed.prompt_id), ('completed', None, 'prompt-1'))
+            self.assertEqual(completed.preview, original.preview)
+            self.assertEqual(completed.acceptance_evidence, accepted.acceptance_evidence)
+            assert completed.candidate_id is not None and completed.evidence is not None
+            candidate = candidates.read_portrait_candidate(db, completed.candidate_id,
+                expected_unit_digest=original.preview.unit_input_digest)
+            self.assertEqual(candidate.descriptor.model_dump(), dict(node_id='865', history_key='images', index=0,
+                filename='portrait.png', subfolder='kinodel/api', type='output', mime_type='image/png'))
+            self.assertEqual((candidate.job_id, candidate.attempt_id, candidate.unit_input_digest),
+                (original.preview.job_id, original.preview.attempt_id, original.preview.unit_input_digest))
+            self.assertEqual(self.path(candidate).read_bytes(), png())
+            self.assertEqual((candidate.digest, candidate.byte_length, candidate.width, candidate.height),
+                             (sha256_digest(png()), len(png()), 512, 512))
+            self.assertNotIn(b'provider-image-id', candidate.metadata_body)
+            self.assertEqual(completed.evidence.digest, sha256_digest(encoded(snapshot['prompt-1'])))
+            self.assertEqual(native, snapshot)
+            self.assertEqual([(r.method, r.url.path) for r in self.calls], [
+                ('POST', '/native/prompt'), ('GET', '/native/queue'), ('GET', '/native/history/prompt-1'), ('GET', '/native/view')])
+            self.assertEqual(self.calls[-1].url.params['subfolder'], 'kinodel\\api')
+            self.assertEqual(await self.tick(db, completed, lambda _: self.fail('Completed replay HTTP')), completed)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM portrait_candidates').fetchone(), (1,))
+
     async def test_response_id_commits_before_node_errors_or_later_bad_response_contract(self):
         async with self.committed() as (db, ref):
             original = self.job(db, ref)
@@ -532,6 +569,18 @@ class PortraitWorkerTests(fixtures.WardrobeFixtures, unittest.IsolatedAsyncioTes
                 if change == 'messages': item['status']['messages'] = ['malformed']
                 if change == 'traversal': item['outputs']['865']['images'][0]['filename'] = '../evil.png'
                 variants.append((change, value))
+            for field in ('filename', 'subfolder', 'type'):
+                value = copy.deepcopy(base)
+                del value['prompt-1']['outputs']['865']['images'][0][field]
+                variants.append(('missing_' + field, value))
+            for field, invalid in (('filename', 123), ('subfolder', None), ('type', 'input')):
+                value = copy.deepcopy(base)
+                value['prompt-1']['outputs']['865']['images'][0][field] = invalid
+                variants.append(('invalid_' + field, value))
+            for count in (0, 2):
+                value = copy.deepcopy(base)
+                value['prompt-1']['outputs']['865']['images'] *= count
+                variants.append(('image_count_' + str(count), value))
             for name, value in variants:
                 record = self.accepted(db, self.reset(db, original))
                 result = await self.tick(db, record, self.server(db, record, histories=value))

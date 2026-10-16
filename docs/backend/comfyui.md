@@ -55,6 +55,7 @@ Before submission the adapter must:
 
 1. Load the pinned trusted workflow from the project workflow registry and its explicit input/output mapping. Remove only declared top-level descriptive metadata; reject other malformed entries and broken links. Every submitted graph entry must be a node with `class_type` and `inputs`. Never send a workflow file verbatim as the HTTP body.
 2. Validate ordered roles/cardinality and prepare the declared graph variant before any upload. Bind all required semantic inputs to declared node fields; missing/ignored mappings are errors, not warnings. Remove unused slots and their declared exclusive branches, never required roles or shared nodes; revalidate remaining links/schemas. Resolve digest-verified managed input bytes, multipart-upload with `type=input` and `overwrite=false`, validate actual returned name/subfolder/type, and bind each role to its declared `LoadImage.inputs.image` using an input-relative path, never a Kinodel path/URL. Verify uploaded original bytes via `/view` before submit; use isolated or content-addressed names without overwriting another job's input. [Concrete binding](../tools/comfyui-tool.md#upload--конкретный-loadimage) includes empty/nonempty subfolder and current role mappings.
+   Only receipt-invalid, receipt-less reference blocks may recover an actual native binding through a unique complete asset observation plus full verified original bytes, without replaying the lost POST or reuploading. Native upload envelopes are projected to strict transport fields; [exact recovery guard](../tools/comfyui-tool.md#upload--конкретный-loadimage) leaves unsupported/ambiguous evidence blocked and unknown acceptance unchanged.
 3. Resolve random seeds and all other effective parameters once. Persist the resolved node graph, mapping/workflow digests, used node-schema snapshots/digests, input-asset digests and upload bindings, expected output nodes, endpoint identity, and submission correlation in restricted durable job storage before `POST /prompt`. Credentials are supplied separately. Technical retry must not rerun randomization, reload an edited workflow, or discover a different output node; historical inspection must not depend on a later `/object_info` response.
 4. Persist a submission-attempt intent under job ownership before the HTTP call, then persist the response/`prompt_id` before polling. A restart between these writes is ambiguous acceptance, not an unsent job. A response with `prompt_id` and `node_errors` may already have queued valid branches: record acceptance first, then block the contract failure; never classify it as definitely unsent. Review requires verified outputs from all declared nodes and successful execution status, not merely HTTP 200 or a completion flag.
 
@@ -83,8 +84,9 @@ Attempt selectors omitted by historical callers mean initial, never latest. Expl
 preserves prepared input/seed but has separate authorization/deadline/correlation and sheet uploads/final
 graph/candidate. Unknown acceptance and sent local timeout/contract/deadline failure cannot authorize a
 failed group or Retry; only unsent deadline or owned exact-history provider failure can. Unresolved
-dispatched work retains the global native slot despite graph block/cancel/terminal consumer; cancelled
-sent/unknown work has no automatic release. Addressed provider-terminal observation/release remains step 8.
+  dispatched work retains the global native slot despite graph block/cancel/terminal consumer until exact
+  terminal history is observed. The [DB24 GET-only observation fact](artifacts.md#sequential-image-execution-result-wake-and-exact-retry)
+  releases only native occupancy, never promotes cancelled/blocked output or authorizes rerun; unknown/absent history retains it.
 [Exact Retry/result contract and evidence](artifacts.md#sequential-image-execution-result-wake-and-exact-retry).
 Public media reads, selection/assets and live reference delivery remain pending.
 

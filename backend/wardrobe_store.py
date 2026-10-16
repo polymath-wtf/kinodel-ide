@@ -5,6 +5,7 @@ new route's applied Story approval is a required input, not something this store
 can create. Character delete hides a card; general ACL/withdrawal is not active.
 """
 
+from dataclasses import dataclass
 import json
 import sqlite3
 from typing import Literal
@@ -43,12 +44,17 @@ def is_retired_wardrobe_graph(identity: tuple[str | None, str | None, str | None
     return identity == (RETIRED_GRAPH_ID, RETIRED_GRAPH_VERSION, RETIRED_GRAPH_DIGEST)
 
 
+def is_story_anchor_graph(identity: tuple[str | None, str | None, str | None]) -> bool:
+    from backend import story_anchor_start as anchor
+    return identity == (anchor.GRAPH_ID, anchor.GRAPH_VERSION, anchor.GRAPH_DIGEST)
+
+
 def _require_current_route(db: sqlite3.Connection, execution_id: str) -> None:
     """Reject unsupported runs before loading any frozen config, artifact or authority."""
     _uuid(execution_id)
     identity = db.execute("SELECT graph_id,graph_version,graph_digest FROM executions WHERE execution_id=?",
                           (execution_id,)).fetchone()
-    if identity is None or not is_current_wardrobe_graph(identity):
+    if identity is None or not (is_current_wardrobe_graph(identity) or is_story_anchor_graph(identity)):
         raise ValueError("Wardrobe requires its exact new frozen route identity")
 
 
@@ -115,10 +121,12 @@ def wardrobe_authority(db: sqlite3.Connection, execution_id: str, request_id: st
     row = db.execute("SELECT project_id,input_message,shot_ids,client_key,start_digest,graph_id,"
                      "graph_version,graph_digest,owner_config FROM executions WHERE execution_id=?",
                      (execution_id,)).fetchone()
-    if row is None or not is_current_wardrobe_graph(row[5:8]):
+    if row is None:
         raise ValueError("Wardrobe requires its exact new frozen route identity")
     config = read_owner_config(row[8])
-    if not isinstance(config, StoryWardrobeOwnerConfigV2):
+    from backend.story_anchor_start import StoryAnchorOwnerConfigV1
+    if (not isinstance(config, StoryWardrobeOwnerConfigV2)
+            or isinstance(config, StoryAnchorOwnerConfigV1) != is_story_anchor_graph(row[5:8])):
         raise ValueError("Wardrobe requires frozen Start settings v2")
     shots = json.loads(row[2])
     _validated_test_inputs(row[0], row[1], shots)
@@ -262,9 +270,13 @@ def find_wardrobe_operation(db: sqlite3.Connection, execution_id: str, request_i
 
 def _check_start_settings(db: sqlite3.Connection, execution_id: str, config: WardrobeOwnerConfigV2,
                           repair_instruction: str) -> None:
+    from backend.story_anchor_start import StoryAnchorOwnerConfigV1
     start = read_owner_config(db.execute("SELECT owner_config FROM executions WHERE execution_id=?",
                                          (execution_id,)).fetchone()[0])
-    if not isinstance(start, StoryWardrobeOwnerConfigV2):
+    identity = db.execute("SELECT graph_id,graph_version,graph_digest FROM executions WHERE execution_id=?",
+                          (execution_id,)).fetchone()
+    if (not isinstance(start, StoryWardrobeOwnerConfigV2)
+            or isinstance(start, StoryAnchorOwnerConfigV1) != is_story_anchor_graph(identity)):
         raise ValueError("Wardrobe requires frozen Start settings v2")
     settings = start.wardrobe_settings
     if (any(getattr(config, key) != getattr(settings, key) for key in
@@ -442,6 +454,65 @@ def replay_wardrobe_operation(db: sqlite3.Connection, record: dict) -> tuple[Art
     result = (read_wardrobe_plan(db, record["execution_id"], artifact_id=record["artifact_id"])[0]
               if record["candidate_kind"] == "plan" else record["candidate"])
     return result, record["next_activation"]
+
+
+@dataclass(frozen=True)
+class CommittedWardrobePlanV1:
+    ref: ArtifactRef
+    plan: VisualAnchorPlanV2
+    pins: PreparedWardrobeInputsV2
+    wardrobe_input: WardrobeInputV2
+    next_activation: str
+
+
+def read_committed_wardrobe_plan(db: sqlite3.Connection, execution_id: str,
+                                request_id: str) -> CommittedWardrobePlanV1:
+    """Read authority, not effect permission: valid before/after terminal or cancel.
+
+    Both exact routes share the applied Story/committed plan contract. Only the
+    historical batch-source caller additionally requires terminal/completed work.
+    """
+    from backend.story_start import load_test_story_start
+
+    _require_current_route(db, execution_id)
+    load_test_story_start(db, execution_id)
+    record = find_wardrobe_operation(db, execution_id, request_id)
+    if record is None or record["next_activation"] is None or record["candidate_kind"] != "plan":
+        raise ValueError("No committed Wardrobe plan for terminal outcome")
+    pins = record["pins"]
+    ref, plan = read_wardrobe_plan(db, execution_id)
+    cursor = db.execute("SELECT * FROM review_requests WHERE execution_id=? AND request_id=?", (execution_id, request_id))
+    row = cursor.fetchone()
+    if row is None:
+        raise ValueError("Missing Wardrobe approval")
+    review = dict(zip((column[0] for column in cursor.description), row))
+    start = db.execute("SELECT start_digest,owner_config FROM executions WHERE execution_id=?", (execution_id,)).fetchone()
+    if (pins.start_digest != start[0] or pins.story_owner_config_digest != sha256_digest(start[1].encode("utf-8"))
+            or review["action"] != "approve" or review["message"] is not None
+            or not all(review[key] for key in ("checkpoint_id", "task_id", "interrupt_id", "decision_key"))
+            or (review["request_digest"], review["decision_id"], review["applied_activation"]) !=
+               (pins.approval_request_digest, pins.decision_id, pins.activation_id)
+            or request_id != _digest("kinodel.story-review.v1", execution_id, review["trigger_activation"])
+            or review["request_digest"] != _digest("kinodel.story-review-body.v1", request_id, review["request_revision"],
+                review["subject_artifact_id"], review["subject_digest"], review["binding_revision"], review["previous_request_id"])
+            or review["decision_digest"] != _digest("kinodel.story-decision.v1", request_id, review["request_digest"],
+                review["binding_revision"], "approve", None)
+            or review["decision_id"] != _digest("kinodel.story-decision-id.v1", request_id, review["decision_key"])
+            or db.execute("SELECT request_id FROM review_requests WHERE execution_id=? ORDER BY request_revision DESC LIMIT 1",
+                          (execution_id,)).fetchone() != (request_id,)
+            or db.execute("SELECT work_id,payload_digest,resume_ref FROM execution_work WHERE execution_id=? AND kind='resume' AND source_id=?",
+                          (execution_id, request_id)).fetchall() !=
+               [(_digest("kinodel.story-resume-work.v1", pins.decision_id), review["decision_digest"], pins.decision_id)]
+            or (review["subject_artifact_id"], review["subject_digest"], review["binding_revision"]) !=
+               (pins.story_ref.artifact_id, pins.story_ref.digest, pins.story_binding_revision)
+            or db.execute("SELECT artifact_id,binding_revision FROM execution_bindings WHERE execution_id=? AND slot='story'",
+                          (execution_id,)).fetchone() != (pins.story_ref.artifact_id, pins.story_binding_revision)
+            or db.execute("SELECT artifact_id,binding_revision FROM execution_bindings WHERE execution_id=? AND slot='wardrobe_plan'",
+                          (execution_id,)).fetchone() != (record["artifact_id"], 1)
+            or ref.operation_id != record["operation_id"] or plan.narrative_ref != pins.story_ref
+            or read_story(db, execution_id)[0] != pins.story_ref):
+        raise ValueError("Wardrobe terminal plan/approval authority mismatch")
+    return CommittedWardrobePlanV1(ref, plan, pins, record["config"].wardrobe_input, record["next_activation"])
 
 
 def commit_wardrobe_operation(db: sqlite3.Connection, operation_id: str) -> tuple[ArtifactRef | OwnerResponseV1, str]:

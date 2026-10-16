@@ -13,9 +13,9 @@ from pydantic import AfterValidator, Field, model_validator
 from backend import batch_generation, wardrobe_store
 from backend.batch_generation import (BatchConnectionPinV1, BatchGenerationInputV1, BatchStoryApprovalV1,
                                       BatchWorkflowBindingV1)
-from backend.domain import (ArtifactRef, DomainModel, ExactProfilePin, MAX_LIST_ITEMS, MediaSize, _exact_artifact_ref)
-from backend.story_graph import validate_wardrobe_success
-from backend.story_store import _uuid
+from backend.domain import (ArtifactRef, DomainModel, ExactProfilePin, MAX_LIST_ITEMS, MediaSize, _exact_artifact_ref,
+                            canonical_json, sha256_digest)
+from backend.story_store import _assert_writable, _uuid
 from backend.wardrobe import AnchorBatchUnitV2, ExactDigest
 
 
@@ -90,6 +90,10 @@ def read_saved_batch_input(db: sqlite3.Connection, execution_id: str, *, source_
     _uuid(execution_id)
     if db.execute("SELECT 1 FROM executions WHERE execution_id=?", (execution_id,)).fetchone() is None:
         raise LookupError("Unknown saved batch source execution")
+    identity = db.execute('SELECT graph_id,graph_version,graph_digest FROM executions WHERE execution_id=?',
+                          (execution_id,)).fetchone()
+    if not wardrobe_store.is_current_wardrobe_graph(identity):
+        raise ValueError('Saved batch preparation requires the historical terminal Wardrobe route')
     expected = _exact_artifact_ref(ArtifactRef.model_validate(source_plan_ref))
     if expected.execution_id != execution_id:
         raise ValueError("Saved batch source execution mismatch")
@@ -104,7 +108,7 @@ def read_saved_batch_input(db: sqlite3.Connection, execution_id: str, *, source_
         raise ValueError("Saved batch source must match the entire exact plan ref")
     record = wardrobe_store.read_wardrobe_operation(db, ref.operation_id)
     pins = record["pins"]
-    if validate_wardrobe_success(db, execution_id, pins.approval_request_id) != ref:
+    if wardrobe_store.read_committed_wardrobe_plan(db, execution_id, pins.approval_request_id).ref != ref:
         raise ValueError("Saved batch source no longer has its applied Story authority")
     work = db.execute("SELECT status FROM execution_work WHERE execution_id=? AND kind='resume' AND source_id=?",
                       (execution_id, pins.approval_request_id)).fetchone()
@@ -118,3 +122,59 @@ def read_saved_batch_input(db: sqlite3.Connection, execution_id: str, *, source_
         image_size=image_size, image_profile=image_profile, connection=connection)
     return SavedBatchPreparationV1(schema_version="1", prepared_input=handoff,
         input_digest=batch_generation.batch_input_digest(handoff), readiness="preparation_only", can_submit=False)
+
+
+def read_story_anchor_plan(db: sqlite3.Connection, execution_id: str,
+                           approval_request_id: str) -> wardrobe_store.CommittedWardrobePlanV1:
+    """Exact new-route read authority, without a premature terminal/work-status gate."""
+    identity = db.execute('SELECT graph_id,graph_version,graph_digest FROM executions WHERE execution_id=?',
+                          (execution_id,)).fetchone()
+    if identity is None or not wardrobe_store.is_story_anchor_graph(identity):
+        raise ValueError('Active anchor batch requires the exact Story/anchor route')
+    return wardrobe_store.read_committed_wardrobe_plan(db, execution_id, approval_request_id)
+
+
+def _approval(source: wardrobe_store.CommittedWardrobePlanV1) -> BatchStoryApprovalV1:
+    pins = source.pins
+    return BatchStoryApprovalV1(story_ref=pins.story_ref, approval_request_id=pins.approval_request_id,
+        approval_request_digest=pins.approval_request_digest, decision_id=pins.decision_id,
+        applied_activation_id=pins.activation_id, story_binding_revision=pins.story_binding_revision)
+
+
+def _render_intent(db, execution_id):
+    from backend.openrouter import read_owner_config
+    from backend.story_anchor_start import StoryAnchorOwnerConfigV1
+    owner = read_owner_config(db.execute('SELECT owner_config FROM executions WHERE execution_id=?',
+                                        (execution_id,)).fetchone()[0])
+    if not isinstance(owner, StoryAnchorOwnerConfigV1):
+        raise ValueError('Story/anchor batch requires its exact frozen Start configuration')
+    return owner.render_intent
+
+
+def read_active_batch_input(db: sqlite3.Connection, execution_id: str,
+                           approval_request_id: str) -> SavedBatchPreparationV1:
+    """Fresh reservation only: freeze the accepted intent, never today's replacement."""
+    from backend.story_anchor_start import validate_anchor_render_intent
+    _assert_writable(db, execution_id)
+    source = read_story_anchor_plan(db, execution_id, approval_request_id)
+    intent = _render_intent(db, execution_id)
+    validate_anchor_render_intent(intent)
+    handoff = batch_generation.freeze_batch_input(source.plan, source_plan_ref=source.ref,
+        wardrobe_input=source.wardrobe_input, story_approval=_approval(source), activation_id=source.next_activation,
+        image_size=intent.image_size, image_profile=intent.image_profile, connection=intent.connection)
+    return SavedBatchPreparationV1(schema_version='1', prepared_input=handoff,
+        input_digest=batch_generation.batch_input_digest(handoff), readiness='preparation_only', can_submit=False)
+
+
+def validate_story_anchor_batch(db: sqlite3.Connection, handoff: BatchGenerationInputV1
+                                ) -> wardrobe_store.CommittedWardrobePlanV1:
+    """Offline history authority. Effect callers separately check cancellation/outcome."""
+    execution = handoff.source_plan_ref.execution_id
+    source = read_story_anchor_plan(db, execution, handoff.story_approval.approval_request_id)
+    intent = _render_intent(db, execution)
+    if ((handoff.source_plan_ref, handoff.activation_id, handoff.story_approval, handoff.ordered_units,
+         handoff.wardrobe_input_digest, handoff.image_size, handoff.image_profile, handoff.connection) !=
+            (source.ref, source.next_activation, _approval(source), source.plan.batch_prompt,
+             sha256_digest(canonical_json(source.wardrobe_input)), intent.image_size, intent.image_profile, intent.connection)):
+        raise ValueError('Story/anchor batch differs from its exact committed source and Start intent')
+    return source

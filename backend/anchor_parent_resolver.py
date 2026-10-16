@@ -12,11 +12,10 @@ from typing import Literal
 
 from pydantic import TypeAdapter
 
-from backend import batch_generation as generation, batch_store, portrait_candidate_store as candidates
+from backend import batch_generation as generation, batch_preparation, batch_store, portrait_candidate_store as candidates
 from backend import portrait_submission_store as submissions, render_job_store as jobs, wardrobe_store
 from backend.batch_generation import BatchConnectionPinV1, BatchStoryApprovalV1, ParentBindings
 from backend.domain import ArtifactRef, canonical_json, sha256_digest
-from backend.story_graph import validate_wardrobe_success
 from backend.story_store import _destination, _uuid
 from backend.wardrobe import AnchorKey, ExactDigest
 
@@ -49,22 +48,33 @@ def _source_authority(db: sqlite3.Connection, batch: batch_store.BatchInputPinV1
             or db.execute('SELECT project_id FROM executions WHERE execution_id=?',
                           (expected.execution_id,)).fetchone() != (project_id,)):
         raise ValueError('Batch source/project ownership mismatch')
-    if db.execute("SELECT 1 FROM execution_controls WHERE execution_id=? AND kind='cancel'",
-                  (expected.execution_id,)).fetchone():
-        raise ValueError('Cancelled source cannot resolve parents for new effects')
-    if db.execute('SELECT outcome,source_id,subject_artifact_id FROM execution_outcomes WHERE execution_id=?',
-                  (expected.execution_id,)).fetchone() != ('completed', expected.operation_id, expected.artifact_id):
-        raise ValueError('Batch source lacks its exact completed Wardrobe receipt')
+    identity = db.execute('SELECT graph_id,graph_version,graph_digest FROM executions WHERE execution_id=?',
+                          (expected.execution_id,)).fetchone()
+    active_route = wardrobe_store.is_story_anchor_graph(identity)
+    if not active_route:
+        if not wardrobe_store.is_current_wardrobe_graph(identity):
+            raise ValueError('Batch source requires its exact Wardrobe route')
+        if db.execute("SELECT 1 FROM execution_controls WHERE execution_id=? AND kind='cancel'",
+                      (expected.execution_id,)).fetchone():
+            raise ValueError('Cancelled source cannot resolve parents for new effects')
+        if db.execute('SELECT outcome,source_id,subject_artifact_id FROM execution_outcomes WHERE execution_id=?',
+                      (expected.execution_id,)).fetchone() != ('completed', expected.operation_id, expected.artifact_id):
+            raise ValueError('Batch source lacks its exact completed Wardrobe receipt')
     # Existing exact readers own source bodies and approval validation. Also reject
     # redirected artifact ancestors before they open either source under this DB root.
     for ref in (expected, story):
         batch_store._directories(_destination(db, ref.project_id, ref.artifact_id, ref.digest))
+    if active_route:
+        # History stays readable after cancel/join. Native mutations independently
+        # require their accepting execution/attempt's writable guard.
+        batch_preparation.validate_story_anchor_batch(db, handoff)
+        return
     ref, plan = wardrobe_store.read_wardrobe_plan(db, expected.execution_id, artifact_id=expected.artifact_id)
     if ref != expected or plan.batch_prompt != handoff.ordered_units or plan.narrative_ref != story:
         raise ValueError('Batch source plan/Story no longer matches its exact frozen pins')
     operation = wardrobe_store.read_wardrobe_operation(db, ref.operation_id)
     pins = operation['pins']
-    if validate_wardrobe_success(db, expected.execution_id, pins.approval_request_id) != expected:
+    if wardrobe_store.read_committed_wardrobe_plan(db, expected.execution_id, pins.approval_request_id).ref != expected:
         raise ValueError('Batch source lacks exact applied Story authority')
     if db.execute("SELECT status FROM execution_work WHERE execution_id=? AND kind='resume' AND source_id=?",
                   (expected.execution_id, pins.approval_request_id)).fetchone() != ('completed',):

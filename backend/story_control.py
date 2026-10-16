@@ -27,7 +27,7 @@ def cancel_requested(db: sqlite3.Connection, execution_id: str) -> bool:
 
 
 def cancel_story(db: sqlite3.Connection, execution_id: str, command_key: str) -> str:
-    """Accept exactly one cancellation, without waiting for an active invocation."""
+    """Converge cancellation deliveries on one work receipt, without awaiting invocation."""
     reject_retired_wardrobe(db, execution_id)
     _uuid(execution_id)
     _key(command_key)
@@ -35,14 +35,14 @@ def cancel_story(db: sqlite3.Connection, execution_id: str, command_key: str) ->
     try:
         old = db.execute("SELECT kind,work_id FROM execution_controls WHERE execution_id=? AND command_key=?",
                          (execution_id, command_key)).fetchone()
+        if old and old[0] != "cancel":
+            raise ValueError("Control command conflict")
+        if old is None:
+            old = db.execute("SELECT kind,work_id FROM execution_controls WHERE execution_id=? AND kind='cancel'",
+                             (execution_id,)).fetchone()
         if old:
-            if old[0] != "cancel":
-                raise ValueError("Control command conflict")
             result = old[1]
         else:
-            if db.execute("SELECT 1 FROM execution_controls WHERE execution_id=? AND kind='cancel'",
-                          (execution_id,)).fetchone():
-                raise ValueError("Execution already cancelling")
             if db.execute("SELECT 1 FROM execution_outcomes WHERE execution_id=?", (execution_id,)).fetchone():
                 raise ValueError("Execution is terminal")
             start = db.execute("SELECT start_digest FROM executions WHERE execution_id=? AND graph_id IS NOT NULL",
@@ -148,6 +148,12 @@ class StoryRuntime:
     async def start_wardrobe(self, *args, **kwargs):
         kwargs.setdefault("character_root", self.character_root)
         return await self._start(start_story_wardrobe, *args, **kwargs)
+
+    async def start_anchor_batch(self, *args, **kwargs):
+        from backend.story_anchor_start import start_story_anchor_batch
+
+        kwargs.setdefault("character_root", self.character_root)
+        return await self._start(start_story_anchor_batch, *args, **kwargs)
 
     async def start_images(self, *args, **kwargs):
         from backend.image_group_store import start_image_execution

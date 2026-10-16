@@ -539,9 +539,21 @@ class StoryAPITests(unittest.TestCase):
             response = client.post(f"/api/executions/{execution}/cancel", json={"command_key": "stop"},
                                    headers=headers)
             self.assertEqual(response.status_code, 202, response.text)
+            cancel_receipt = response.json()
         with self.client() as client:
-            self.session(client)
-            self.assertEqual(self.state(client, execution, "cancelled")["stories"][0]["current"], True)
+            headers = self.session(client)
+            cancelled = self.state(client, execution, "cancelled")
+            self.assertTrue(cancelled["stories"][0]["current"])
+            for key in ("stop", "stop-again", "stop-again"):
+                response = client.post(f"/api/executions/{execution}/cancel", json={"command_key": key},
+                                       headers=headers)
+                self.assertEqual(response.status_code, 202, response.text)
+                self.assertEqual(response.json(), cancel_receipt)
+            conflict = client.post(f"/api/executions/{execution}/cancel", json={"command_key": "retry"},
+                                   headers=headers)
+            self.assertEqual(conflict.status_code, 409, conflict.text)
+            self.assertEqual(conflict.json(), {"detail": "Control command conflict"})
+            self.assertEqual(self.state(client, execution, "cancelled"), cancelled)
 
     def test_integrity_block_remains_readable_and_cancellable_at_startup(self):
         async def prepare():

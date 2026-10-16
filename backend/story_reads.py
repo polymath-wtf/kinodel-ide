@@ -63,11 +63,14 @@ def _overview(db: sqlite3.Connection, execution_id: str) -> dict:
                       "revision": r["request_revision"], "binding_revision": r["binding_revision"],
                       "subject_artifact_id": r["subject_artifact_id"]}
     status = (outcome["outcome"] if outcome else "cancelling" if cancelling else "blocked" if any(
-        item["status"] == "blocked" for item in work) else "waiting_review" if review else "running")
+        item["status"] == "blocked" for item in work) else "waiting_review" if review else "waiting_job" if
+        not any(item['status'] in ('pending', 'claimed') for item in work) and db.execute(
+            'SELECT 1 FROM image_groups WHERE execution_id=? AND checkpoint_id IS NOT NULL', (execution_id,)).fetchone()
+        else "running")
     return {"outcome": outcome, "work": work, "binding": binding, "review": review, "status": status}
 
 
-def _wardrobe_projection(db: sqlite3.Connection, execution_id: str, project_id: str, overview: dict) -> dict:
+def _wardrobe_projection(db: sqlite3.Connection, execution_id: str, project_id: str, overview: dict, *, anchor=False) -> dict:
     """Public plan metadata and safe resolution, never frozen provider/image envelopes."""
     plans = _rows(db, "SELECT a.artifact_id,a.operation_id,a.digest,a.uri,a.schema_id,a.schema_version,a.produced_by_stage "
                   "FROM execution_bindings b LEFT JOIN artifacts a ON a.artifact_id=b.artifact_id "
@@ -79,7 +82,7 @@ def _wardrobe_projection(db: sqlite3.Connection, execution_id: str, project_id: 
             raise ValueError("Recorded Wardrobe plan schema/owner mismatch")
         ref = _ref(plan, project_id, execution_id)
     outcome = overview["outcome"]
-    if outcome and outcome["outcome"] == "completed" and (ref is None or
+    if not anchor and outcome and outcome["outcome"] == "completed" and (ref is None or
             (outcome["source_id"], outcome["subject_artifact_id"]) != (ref["operation_id"], ref["artifact_id"])):
         raise ValueError("Recorded Wardrobe completion does not match its plan")
     stop = None
@@ -117,11 +120,15 @@ def story_projection(db: sqlite3.Connection, execution_id: str, *, process=None)
     reject_retired_wardrobe(db, execution_id)
     executions = _rows(db, "SELECT project_id,input_message,shot_ids,client_key,start_digest,"
                        "graph_id,graph_version,graph_digest,owner_config FROM executions "
-                        "WHERE execution_id=? AND graph_id IN (?,?,?)", (execution_id, *STORY_GRAPH_IDS))
+                        "WHERE execution_id=? AND graph_id IN (" + ','.join('?' for _ in STORY_GRAPH_IDS) + ")", (execution_id, *STORY_GRAPH_IDS))
     if not executions:
         return None
     row = executions[0]
-    wardrobe = row["graph_id"] == wardrobe_store.GRAPH_ID
+    anchor = wardrobe_store.is_story_anchor_graph((row['graph_id'], row['graph_version'], row['graph_digest']))
+    if row['graph_id'] == 'kinodel.story-anchor-batch':
+        from backend.story_start import load_test_story_start
+        load_test_story_start(db, execution_id)  # Exact identity/config, never current environment.
+    wardrobe = anchor or row["graph_id"] == wardrobe_store.GRAPH_ID
     project_id = row["project_id"]
     overview = _overview(db, execution_id)
     outcome, binding = overview["outcome"], overview["binding"]
@@ -238,12 +245,12 @@ def story_projection(db: sqlite3.Connection, execution_id: str, *, process=None)
             "work": overview["work"], "stories": stories, "reviews": reviews, "review": overview["review"],
              "remaining_actions": remaining, "allowed_actions": allowed,
              **({"process": process.model_dump(mode="json")} if process is not None else {}),
-             **(_wardrobe_projection(db, execution_id, project_id, overview) if wardrobe else {})}
+             **(_wardrobe_projection(db, execution_id, project_id, overview, anchor=anchor) if wardrobe else {})}
 
 
 def recent_story_executions(db: sqlite3.Connection, limit: int) -> list[dict]:
     retired = (wardrobe_store.RETIRED_GRAPH_ID, wardrobe_store.RETIRED_GRAPH_VERSION, wardrobe_store.RETIRED_GRAPH_DIGEST)
-    ids = db.execute("SELECT execution_id,project_id,input_message FROM executions WHERE graph_id IN (?,?,?) "
+    ids = db.execute("SELECT execution_id,project_id,input_message FROM executions WHERE graph_id IN (" + ','.join('?' for _ in STORY_GRAPH_IDS) + ") "
                       "AND NOT (graph_id IS ? AND graph_version IS ? AND graph_digest IS ?) "
                       "ORDER BY rowid DESC LIMIT ?", (*STORY_GRAPH_IDS, *retired, limit)).fetchall()
     items = []
@@ -269,7 +276,7 @@ def story_activity(db: sqlite3.Connection, execution_id: str) -> dict | None:
         raise LookupError("Unknown Story execution")
     body = db.execute("SELECT owner_config FROM executions WHERE execution_id=?", (execution_id,)).fetchone()[0]
     if body is None:
-        if projection["graph"]["id"] in (LIVE_GRAPH_ID, wardrobe_store.GRAPH_ID):
+        if projection["graph"]["id"] in (LIVE_GRAPH_ID, wardrobe_store.GRAPH_ID, 'kinodel.story-anchor-batch'):
             raise ValueError("Missing frozen Story owner configuration")
         return None  # Historical fixture has no system prompt or provider call.
     config = read_owner_config(body)
@@ -304,8 +311,8 @@ def story_activity(db: sqlite3.Connection, execution_id: str) -> dict | None:
 def wardrobe_activity(db: sqlite3.Connection, execution_id: str, *, include_validation_diagnostic: bool = False) -> dict | None:
     """Allowlisted frozen inspection only; no provider, current environment or library reads."""
     projection = story_projection(db, execution_id)
-    if projection is None or projection["graph"] != {"id": wardrobe_store.GRAPH_ID,
-            "version": wardrobe_store.GRAPH_VERSION, "digest": wardrobe_store.GRAPH_DIGEST}:
+    if projection is None or not (wardrobe_store.is_current_wardrobe_graph(tuple(projection['graph'][k] for k in ('id', 'version', 'digest')))
+            or wardrobe_store.is_story_anchor_graph(tuple(projection['graph'][k] for k in ('id', 'version', 'digest')))):
         raise LookupError("Unknown Story-Wardrobe execution")
     rows = db.execute("SELECT operation_id FROM wardrobe_operations WHERE execution_id=?", (execution_id,)).fetchall()
     if not rows:

@@ -2,7 +2,8 @@
 
 Caller holds the root lock. No scheduler, retry allocator, guessed receipt or prompt
 authorization here. A new committed upload claim grants one multipart POST only;
-saved receipts resume GET verification. Local integrity/rights failures never heal.
+saved receipts resume GET verification. A receipt-invalid block may discover an
+actual native asset binding using GET only. Local integrity/rights never heal.
 """
 
 import asyncio
@@ -21,7 +22,7 @@ from backend import comfyui, portrait_candidate_store as candidates, portrait_su
 from backend import portrait_worker as native, render_job_store as jobs
 from backend.batch_generation import BatchConnectionPinV1
 from backend.config import ComfyUIConfigError, resolve_comfyui_connection
-from backend.domain import canonical_json, sha256_digest
+from backend.domain import CanonicalUUID, canonical_json, sha256_digest
 
 
 class AnchorReferenceWorkerError(ValueError):
@@ -142,10 +143,13 @@ async def _upload(db, client, record, index, stop=None):
         return _block(db, dispatched, upload.role, 'receipt_invalid')
     _fresh(db, dispatched, stop)
     try:
-        # Validate actual native fields/namespace, commit them BEFORE any GET.
+        # Native envelopes may also contain asset metadata. Only transport fields
+        # enter the strict store; missing/malformed fields still fail closed.
+        if type(receipt) is not dict:
+            raise ValueError('Native receipt object required')
         return store.record_anchor_reference_receipt(db, record.intent.job_id, role=upload.role,
-            receipt=receipt, **_args(dispatched))
-    except (ValueError, TypeError):
+            receipt={key: receipt[key] for key in ('name', 'subfolder', 'type')}, **_args(dispatched))
+    except (ValueError, TypeError, KeyError):
         return _block(db, dispatched, upload.role, 'receipt_invalid')
 
 
@@ -163,28 +167,127 @@ class _OriginalHash:
         return 'sha256:' + self.checksum.hexdigest()
 
 
-async def _remote_original(db, client, record, index, *, timeout=native.REQUEST_TIMEOUT, stop=None):
-    _active(db, record, stop)
-    _originals(db, record)  # Local rights/bytes are checked immediately before this GET.
-    item, receipt = record.intent.references[index], record.references[index].receipt
+async def _remote_original(db, client, record, index, *, timeout=native.REQUEST_TIMEOUT, stop=None,
+                           receipt=None, guard=None):
+    check = guard if guard is not None else lambda: _active(db, record, stop)
+    check()
+    if guard is None:
+        _originals(db, record)  # Recovery's full transfer read already checks local rights/bytes.
+    item = record.intent.references[index]
+    receipt = receipt if receipt is not None else record.references[index].receipt
     if receipt is None:
         raise AnchorReferenceWorkerError('saved_receipt_required')
     sink = _OriginalHash()
     async with asyncio.timeout(timeout), client.stream('GET', 'view', params={
         'filename': receipt.name, 'subfolder': receipt.native_subfolder, 'type': receipt.type,
      }, headers={'Accept': 'image/png'}) as response:
-        _active(db, record, stop)
+        check()
         if response.status_code != 200:
             raise native._ProtocolError('reference_view_status')
         length = native._headers(response, candidates.MAX_PNG_BYTES, 'image/png')
-        await native._stream_body(response, candidates.MAX_PNG_BYTES, length, sink,
-                                  lambda: _active(db, record, stop))
+        await native._stream_body(response, candidates.MAX_PNG_BYTES, length, sink, check)
+    check()
     _fresh(db, record, stop)
     if (sink.digest, sink.byte_length) != (item.parent.digest, item.parent.byte_length):
         raise native._ProtocolError('reference_original_mismatch')
     # Exact hash/length equality to the already decoded local PNG proves original
     # bytes; no remote re-encoding, arbitrary path or separate unbounded buffer.
     return sink.digest, sink.byte_length
+
+
+def _asset_receipt(data, upload):
+    """v0.41 asset paths are input-relative; name alone is only a mutable label.
+
+    Require one complete listing and agreement of current display path, persisted
+    loader path and name. Derive the binding from observation, never from intent.
+    """
+    try:
+        if (type(data) is not dict or type(data.get('total')) is not int or data['total'] != 1
+                or data.get('has_more') is not False or data.get('next_cursor') is not None
+                or type(data.get('assets')) is not list or len(data['assets']) != 1):
+            raise ValueError('Incomplete or nonunique asset listing')
+        asset = data['assets'][0]
+        if type(asset) is not dict:
+            raise ValueError('Asset object required')
+        TypeAdapter(CanonicalUUID).validate_python(asset['id'], strict=True)
+        tags = asset['tags']
+        if (type(tags) is not list or any(type(tag) is not str for tag in tags)
+                or not {'input', 'uploaded'} <= set(tags) or set(tags) & {'missing', 'output', 'temp', 'models'}
+                or asset['mime_type'] != 'image/png' or type(asset['size']) is not int
+                or asset['size'] != upload.parent.byte_length
+                or any(type(asset[key]) is not str for key in ('name', 'loader_path', 'display_name'))):
+            raise ValueError('Asset is not this live uploaded input')
+        path = asset['loader_path']
+        split = max(path.rfind('/'), path.rfind('\\'))
+        folder, name = (path[:split], path[split + 1:]) if split >= 0 else ('', path)
+        receipt = store.ReferenceReceiptV1(name=name, subfolder=store._folder(folder), native_subfolder=folder, type='input')
+        normalized = (receipt.subfolder + '/' if receipt.subfolder else '') + receipt.name
+        if (asset['name'] != receipt.name or path.replace('\\', '/') != normalized
+                or asset['display_name'].replace('\\', '/') != normalized):
+            raise ValueError('Asset name/current path/loader path disagree')
+        store._validate_owned_receipt(upload, receipt)
+        return receipt
+    except (ValueError, TypeError, KeyError):
+        raise native._ProtocolError('reference_asset_binding') from None
+
+
+async def _recover_receipt(db, client, record, index, stop=None):
+    """Discover an actual native binding; not replay or guessing of the lost POST.
+
+    No write until the unique observed binding's full bytes match exact parents.
+    This turn never uploads any role or dispatches a prompt.
+    """
+    upload = record.intent.references[index]
+    job = jobs.read_anchor_unit_job(db, record.intent.job_id, expected_unit_digest=record.intent.unit_input_digest,
+                                    attempt_id=record.intent.attempt_id)
+    row = store._row(db, record.intent.job_id, record.intent.attempt_id)
+    pins = store._snapshots(db, job, record.intent)
+
+    def guard():
+        # Compare existing exact SQL source/parent/attempt snapshots at every
+        # await. Full local original validation brackets requests, not each 64K
+        # chunk (which would consume the bounded GET budget on local decode).
+        _active(db, record, stop)
+        if store._row(db, record.intent.job_id, record.intent.attempt_id) != row:
+            raise AnchorReferenceWorkerError('reference_revision_conflict')
+        if store._snapshots(db, job, record.intent) != pins:
+            raise AnchorReferenceWorkerError('local_parent_integrity')
+
+    _fresh(db, record, stop)
+    guard()
+    try:
+        async with asyncio.timeout(native.REQUEST_TIMEOUT), client.stream('GET', 'api/assets', params={
+                'name_contains': upload.name[:-4], 'include_tags': 'input', 'limit': 2}) as response:
+            guard()
+            if response.status_code != 200:
+                raise native._ProtocolError('reference_assets_status')
+            length = native._headers(response, native.MAX_JSON_BYTES, 'application/json')
+            body = io.BytesIO()
+            await native._stream_body(response, native.MAX_JSON_BYTES, length, body, guard)
+        guard()
+        try:
+            data = body.getvalue()
+            data.decode('utf-8')
+            if b'\0' in data:
+                raise ValueError('Not native UTF8')
+            observation = comfyui._parse_json(data)
+            native._canonical(observation)
+        except (ValueError, UnicodeError, RecursionError):
+            raise native._ProtocolError('reference_assets_json') from None
+        receipt = _asset_receipt(observation, upload)
+        _fresh(db, record, stop)  # Validate local originals again between the two GETs.
+        guard()
+        digest, length = await _remote_original(db, client, record, index, receipt=receipt, guard=guard, stop=stop)
+    except (*native.HTTP_ERRORS, native._ProtocolError):
+        guard()
+        return record  # Unsupported/unavailable/ambiguous evidence never changes the block.
+    guard()
+    received = store.record_anchor_reference_receipt(db, record.intent.job_id, role=upload.role,
+        receipt=dict(name=receipt.name, subfolder=receipt.native_subfolder, type=receipt.type), **_args(record))
+    _active(db, received, stop)  # No await between the two CAS writes; verification revalidates fully.
+    return store.verify_anchor_reference_remote(db, record.intent.job_id, role=upload.role,
+        expected_receipt_digest=receipt.digest, remote_digest=digest, source_digest=upload.parent.digest,
+        byte_length=length, **_args(received))
 
 
 async def _verify(db, client, record, index, stop=None):
@@ -208,7 +311,9 @@ async def tick_anchor_references(db: sqlite3.Connection, job_id: str, *, expecte
     """One role/tick: at most one multipart POST + one original GET, then local finalize.
 
     Authorized reference intent is required. Unknown upload acceptance NEVER retries
-    or guesses a receipt. A known receipt retries only its exact GET. Finalized reads
+    or guesses a receipt. Receipt-invalid blocks may recover a unique native asset
+    binding plus full original proof using GET only, without touching another role.
+    A known receipt retries only its exact GET. Finalized reads
     return offline without current endpoint configuration or HTTP client creation.
     """
     record = _read(db, job_id, expected_project_id=expected_project_id, expected_unit_digest=expected_unit_digest,
@@ -225,13 +330,21 @@ async def tick_anchor_references(db: sqlite3.Connection, job_id: str, *, expecte
     facts, upload = record.references[index], record.intent.references[index]
     if facts.state == 'blocked_unsent':
         return record  # Explicit readiness correction belongs to the trusted caller.
-    if facts.dispatch_revision is not None and facts.receipt is None:
+    recover = facts.state == 'blocked_sent' and facts.reason == 'receipt_invalid' and facts.receipt is None
+    if facts.dispatch_revision is not None and facts.receipt is None and not recover:
         if facts.state == 'blocked_sent':
             return record  # Preserve the already committed reason and revision.
         return _block(db, record, upload.role, 'acceptance_unknown')
-    client = _client(record, transport)
+    try:
+        client = _client(record, transport)
+    except AnchorReferenceWorkerError:
+        if recover:
+            return record  # Never switch a pinned endpoint to repair native evidence.
+        raise
     try:
         async with asyncio.timeout(native.TICK_TIMEOUT), client:
+            if recover:
+                return await _recover_receipt(db, client, record, index, stop)
             if facts.state == 'ready':
                 record = await _upload(db, client, record, index, stop)
             if record.references[index].receipt is None:
@@ -242,7 +355,12 @@ async def tick_anchor_references(db: sqlite3.Connection, job_id: str, *, expecte
             return record
     except AnchorReferenceWorkerError:
         raise
-    except (ValueError, LookupError, *native.HTTP_ERRORS):
+    except native.HTTP_ERRORS:
+        if recover:
+            _fresh(db, record, stop)
+            return record
+        raise AnchorReferenceWorkerError('reference_tick_integrity_or_timeout') from None
+    except (ValueError, LookupError):
         raise AnchorReferenceWorkerError('reference_tick_integrity_or_timeout') from None
 
 

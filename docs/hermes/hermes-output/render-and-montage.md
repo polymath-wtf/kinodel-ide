@@ -45,7 +45,7 @@ approved anchors → frame каждого shot → clip каждого shot → 
 - Геометрия старого registry ограничена; новые размеры нельзя обещать по одному названию модели.
 - MiniMax timing/FPS/interpolation могут отличать измеренную длину от requested duration.
 - В старом video graph указан audio output; нельзя автоматически считать clip немым.
-- Самих workflow JSON и mappings в переданном каталоге нет; старые заявления о них требуют проверки файлами и запуском.
+- Уточнение исследования 2026-10-15: в `wiki/raw/comfyui-workflow/` найдены шесть API JSON. Проверено их содержимое, но versioned mappings и runtime capabilities ещё не проверены. Конкретные nodes/риски: [[kinodel-preproduction/hermes-mechanisms]].
 
 Несовместимые duration/size/refs выясняются до submit. Нельзя молча заменить 6 секунд на 5 или 10, отбросить ref, изменить provider или размер. Полные capabilities предоставляет backend, не фантазия агента.
 

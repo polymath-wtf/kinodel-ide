@@ -83,6 +83,44 @@ class DatabaseTests(unittest.TestCase):
     def snapshot(self):
         return {p.name: p.read_bytes() for p in self.root.iterdir() if p.is_file()}
 
+    def native_observation_v23(self):
+        self.populated_v20()
+        with closing(sqlite3.connect(self.path, isolation_level=None)) as db:
+            db.executescript(database.RENDER_RETRY_MIGRATION + database.IMAGE_GROUP_RESULT_SCHEMA +
+                             database.CONTINUE_SCHEMA + 'PRAGMA user_version=23;')
+            schema = database._schema(db)
+            return schema, {name: db.execute(f'SELECT rowid,* FROM {name} ORDER BY rowid').fetchall()
+                            for kind, name, _ in schema if kind == 'table'}
+
+    def test_v23_native_terminal_adds_one_table_preserving_all_old_rows_and_schema(self):
+        schema, rows = self.native_observation_v23()
+        for _ in range(2):
+            with open_database(self.root) as db:
+                self.assertEqual(db.execute('PRAGMA user_version').fetchone(), (24,))
+                self.assertEqual([r for r in database._schema(db) if r[1] != 'native_terminal_observations'], schema)
+                self.assertEqual({name: db.execute(f'SELECT rowid,* FROM {name} ORDER BY rowid').fetchall()
+                                  for name in rows}, rows)
+                self.assertEqual(db.execute('SELECT COUNT(*) FROM native_terminal_observations').fetchone(), (0,))
+                self.assertEqual(db.execute('PRAGMA foreign_key_check').fetchall(), [])
+
+    def test_v23_native_terminal_ddl_and_validation_fault_roll_back_exactly(self):
+        schema, rows = self.native_observation_v23()
+        validate = database._validate
+        def fail(db):
+            validate(db)
+            if db.execute('PRAGMA user_version').fetchone() == (24,):
+                raise ValueError('native observation validation fault')
+        for fault in (patch.object(database, 'NATIVE_TERMINAL_SCHEMA', database.NATIVE_TERMINAL_SCHEMA +
+                                  'SELECT * FROM missing;'), patch.object(database, '_validate', side_effect=fail)):
+            with fault, self.assertRaises((ValueError, sqlite3.DatabaseError)):
+                with open_database(self.root):
+                    self.fail('Partial native observation migration accepted')
+            with closing(sqlite3.connect(self.path)) as db:
+                self.assertEqual(db.execute('PRAGMA user_version').fetchone(), (23,))
+                self.assertEqual(database._schema(db), schema)
+                self.assertEqual({name: db.execute(f'SELECT rowid,* FROM {name} ORDER BY rowid').fetchall()
+                                  for name in rows}, rows)
+
     def test_v21_group_results_additive_migration_preserves_all_old_schema_rows_and_rowids(self):
         self.assertEqual(database.SCHEMA_VERSION, 22, 'Group results require additive DB22')
         self.populated_v20()

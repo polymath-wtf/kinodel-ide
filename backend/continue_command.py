@@ -128,6 +128,11 @@ def _resolve(db, selected):
         raise LookupError('Unknown selected execution')
     if row[1] not in (*STORY_GRAPH_IDS, images.GRAPH_ID):
         raise ValueError('Unsupported selected process')
+    if row[1] == 'kinodel.story-anchor-batch':
+        load_test_story_start(db, selected)
+        if _handoff(db, selected) or db.execute('SELECT 1 FROM image_group_retry_requests WHERE predecessor_execution_id=?', (selected,)).fetchone():
+            raise ValueError('Story/anchor cannot have a separate consumer or image-only Retry')
+        return selected, selected, row[0]
     effective, source = selected, selected
     link = _handoff(db, selected)
     if link and link[8] == 'accepted':
@@ -165,6 +170,8 @@ def _policy(db, selected, checkpoint_id=None, runnable=None, *, active_work_ids=
     """One concrete allowed-action policy used by projection AND command admission."""
     from backend.story_reads import _overview, _ref, _rows
     source, effective, project = _resolve(db, selected)
+    anchor = wardrobe_store.is_story_anchor_graph(db.execute(
+        'SELECT graph_id,graph_version,graph_digest FROM executions WHERE execution_id=?', (effective,)).fetchone())
     overview = _overview(db, effective)
     outcome, work, review = overview['outcome'], overview['work'], overview['review']
     live = [w for w in work if w['status'] in ('pending', 'claimed')]
@@ -176,6 +183,15 @@ def _policy(db, selected, checkpoint_id=None, runnable=None, *, active_work_ids=
                        (effective,)).fetchone()
     group_id, progress, ref, production = None, None, None, None
     image_facts = []
+    if anchor:
+        from backend.openrouter import read_owner_config
+        intent = read_owner_config(db.execute('SELECT owner_config FROM executions WHERE execution_id=?', (effective,)).fetchone()[0]).render_intent
+        production = ContinueProductionSettings(image_size=intent.image_size, image_profile=intent.image_profile,
+                                                connection=intent.connection.connection)
+        plans = _rows(db, "SELECT a.* FROM execution_bindings b JOIN artifacts a ON a.artifact_id=b.artifact_id "
+                      "AND a.execution_id=b.execution_id WHERE b.execution_id=? AND b.slot='wardrobe_plan'", (effective,))
+        if plans:
+            ref = _ref(plans[0], project, effective)
     if image:
         group_id = image[0]
         batch = db.execute('SELECT body FROM batch_input_pins WHERE batch_id=?', (image[1],)).fetchone()
@@ -213,7 +229,7 @@ def _policy(db, selected, checkpoint_id=None, runnable=None, *, active_work_ids=
                         'visual_anchor_plan', '2', 'wardrobe'):
                     ref = _ref(plans[0], project, source)
                     action, reason, allowed = 'start_images', 'production_intent_required', ['continue']
-        if reason == 'failed' and image and db.execute("SELECT 1 FROM image_group_results WHERE group_id=? "
+        if not anchor and reason == 'failed' and image and db.execute("SELECT 1 FROM image_group_results WHERE group_id=? "
                 "AND status='failed' AND publication_state='published'", (group_id,)).fetchone():
             allowed = ['retry', 'new_run']
     elif status == 'cancelling':
@@ -270,6 +286,8 @@ def _policy(db, selected, checkpoint_id=None, runnable=None, *, active_work_ids=
 async def _inspect(db, saver, selected, *, refreshed=False):
     """Read checkpoints only. Runner retains all resume/delivery/validation ownership."""
     _, effective, _ = _resolve(db, selected)
+    anchor = wardrobe_store.is_story_anchor_graph(db.execute(
+        'SELECT graph_id,graph_version,graph_digest FROM executions WHERE execution_id=?', (effective,)).fetchone())
     if db.execute('SELECT 1 FROM image_groups WHERE execution_id=?', (effective,)).fetchone():
         group = images.read_image_group(db, effective)
     else:
@@ -286,7 +304,11 @@ async def _inspect(db, saver, selected, *, refreshed=False):
                                    (effective,)).fetchone()[0] == wardrobe_store.GRAPH_ID
             def read_only_owner(*args, **kwargs):
                 raise AssertionError('Continue inspection cannot invoke an owner')
-            graph = build_story_graph(db, saver, read_only_owner, wardrobe=wardrobe)
+            if anchor:
+                from backend.story_anchor_graph import build_story_anchor_graph
+                graph = build_story_anchor_graph(db, saver, read_only_owner)
+            else:
+                graph = build_story_graph(db, saver, read_only_owner, wardrobe=wardrobe)
             snapshot = await graph.aget_state(saved.config)
             runnable = bool(snapshot.next or saved.pending_writes)
             review = db.execute('SELECT request_id,checkpoint_id,task_id,interrupt_id FROM review_requests '
@@ -301,9 +323,19 @@ async def _inspect(db, saver, selected, *, refreshed=False):
                 "SELECT 1 FROM execution_controls WHERE execution_id=? AND kind='cancel'", (effective,)).fetchone():
             from backend.image_graph import build_image_graph
             from backend.image_runner import inspect_image_checkpoint
-            saved, _ = await inspect_image_checkpoint(saver, build_image_graph(db, saver, group), group, db=db)
+            if anchor:
+                from backend.story_anchor_graph import build_story_anchor_graph
+                graph = build_story_anchor_graph(db, saver, lambda *args: None)
+            else:
+                graph = build_image_graph(db, saver, group)
+            saved, binding = await inspect_image_checkpoint(saver, graph, group, db=db, anchor=anchor)
             checkpoint = saved.config['configurable']['checkpoint_id'] if saved else None
-            runnable = bool(saved and (group.checkpoint_id is None or saved.metadata['step'] >= 2))
+            runnable = bool(saved and (group.checkpoint_id is None or (
+                saved.config['configurable']['checkpoint_id'] != group.checkpoint_id
+                or any(c == '__resume__' for _, c, _ in saved.pending_writes)
+                or db.execute("SELECT 1 FROM image_group_results WHERE group_id=? AND publication_state='published'",
+                              (group.receipt.group_id,)).fetchone()
+                if anchor else saved.metadata['step'] >= 2)))
     if _resolve(db, selected)[1] != effective:
         if not refreshed:
             return await _inspect(db, saver, selected, refreshed=True)

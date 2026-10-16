@@ -65,6 +65,32 @@ authorize and validate opening request + frozen pipeline snapshot
 
 Start idempotency is scoped to project and client key. Store a normalized payload digest: same key/same digest returns the existing execution, changed digest conflicts. An orphan file before the transaction is not an execution. A committed start without a checkpoint is ordinary recoverable work. An empty project is not a started execution.
 
+### Story/anchor Start admission (bug 5, assignment 1)
+
+**Admission and [same-execution storage](artifacts.md#same-execution-storyanchor-storage-bug-5-assignment-2) implemented;
+authored graph/runner/delivery/read integration remains NEXT.** The new frozen identity is
+`kinodel.story-anchor-batch` v1 with its own authored-route digest; it does not alter existing graph triples.
+Guarded offline `GET /api/executions/story-anchor-batch/v1/options` returns
+`{schema_version:"1",graph:{id,version,digest},image_profile:{profile_id,version,digest},supported_sizes,connections:[{connection,endpoint_digest}]}`.
+These are local declarations/configured identities, not provider readiness or submit capability.
+Guarded `POST /api/executions/story-anchor-batch/v1` accepts existing `LiveStart` fields plus required
+`render_intent:{image_size,image_profile:{profile_id,version,digest},connection:{connection,endpoint_digest}}`.
+Its strict 202 receipt is `{execution_id,work_id,graph:{id,version,digest},render_intent}`.
+
+One atomic execution/start-work acceptance stores strict `StoryAnchorOwnerConfigV1`
+(`schema_id:"story_anchor_start",schema_version:"1"`) in existing immutable `executions.owner_config`;
+the subtype retains frozen Story/Wardrobe settings and adds render intent. No new table or checkpoint write.
+Fresh admission validates exact size/profile/connection before Story owner I/O. Same project/key/submission
+replays stored settings offline; different route or render intent conflicts, including concurrent acceptance.
+The shared batch profile resolver must match the exact frozen declaration/mapping; changed current profiles
+block later preparation rather than substituting latest. Installed schemas, payloads and seeds remain job-time.
+Historical config schemas/bytes, starts and outcomes retain their contracts. Admission itself accepts no group;
+the separately implemented storage helper registers one on that same active execution after the committed
+Wardrobe transition. Neither slice registers a graph factory with the runner or exposes same-execution
+projections; do not activate working runs until those next scopes are complete.
+[Admission evidence](../../test-results/README.md#bug-5-frozen-startconfig-admission--16-october-2026),
+[storage evidence](../../test-results/README.md#bug-5-same-execution-storage--16-october-2026).
+
 ## Single-Writer Ownership
 
 Local SQLite: one application holds exclusive OS-backed ownership before DB open/migrations and for its entire lifetime, including saver tasks. A second application refuses startup; heartbeat expiry never evicts a live owner. One active graph runner consumes durable work. Short serialized write transactions enforce OCC, current fence/activation and cancel checks; no write transaction spans model/network calls. API handlers enqueue work, never invoke the graph. Stop effects on ownership/DB failure; shutdown drains or stops tasks and flushes saver writes before releasing ownership. Recovery first reacquires directory ownership, then uses the common decision table. Network-share data directories and concurrent writable restored copies are unsupported. [Local startup](local-startup.md) defines permanent-file stdlib OS locks, alias/child-process rules and bounded busy handling; Windows internal Story crash/saver evidence is recorded in [Local MVP](../roadmap-mvp.md#step-2).
@@ -288,7 +314,8 @@ The worker follows declared N/order/dependencies, prepares inputs/seed just in t
 unit only after verified import. One global native slot follows unresolved dispatched attempts independently
 of blocked graph work/cancel/terminal outcomes; unclaimed blocked groups occupy none. Consumer/turn SQL guards
 and after-await checks fence native effects and publication. Cancelled sent/unknown work conservatively
-retains the slot; addressed provider-terminal observation/release is deferred step 8. Local cancellation
+  retains the slot until [exact GET-only terminal observation](artifacts.md#sequential-image-execution-result-wake-and-exact-retry)
+  durably releases physical occupancy (DB24, step-7 bugfix), without promotion or rerun authority. Local cancellation
 blocks scheduling/promotion, but does not prove external termination. [Contract and evidence](artifacts.md#sequential-image-execution-result-wake-and-exact-retry).
 
 ## Context, Events And Deployment

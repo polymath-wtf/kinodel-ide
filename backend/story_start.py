@@ -28,7 +28,7 @@ LIVE_GRAPH_DIGESTS = {
     "1": sha256_digest(b"kinodel.live-story.v1:OpenRouter+frozen-storytell+text-input>storytell>story_prepare_review>story_wait>story_apply>END|clarify+revise>storytell"),
     "2": LIVE_GRAPH_DIGEST,
 }
-STORY_GRAPH_IDS = (GRAPH_ID, LIVE_GRAPH_ID, "kinodel.story-wardrobe")
+STORY_GRAPH_IDS = (GRAPH_ID, LIVE_GRAPH_ID, "kinodel.story-wardrobe", "kinodel.story-anchor-batch")
 DEFAULT_CHARACTER_ROOT = Path(__file__).resolve().parent.parent / "wiki" / "characters"
 
 
@@ -91,14 +91,18 @@ def load_test_story_start(db: sqlite3.Connection, execution_id: str) -> tuple[St
     if row is None or work is None or row[3] is None:
         raise ValueError("Unknown or unsupported internal Story start")
     from backend import wardrobe_store
+    from backend import story_anchor_start as anchor
     wardrobe = wardrobe_store.is_current_wardrobe_graph(row[5:8])
-    live = wardrobe or (row[5] == LIVE_GRAPH_ID and row[6] in LIVE_GRAPH_DIGESTS and row[7] == LIVE_GRAPH_DIGESTS[row[6]])
+    anchor_batch = row[5:8] == (anchor.GRAPH_ID, anchor.GRAPH_VERSION, anchor.GRAPH_DIGEST)
+    live = wardrobe or anchor_batch or (row[5] == LIVE_GRAPH_ID and row[6] in LIVE_GRAPH_DIGESTS and row[7] == LIVE_GRAPH_DIGESTS[row[6]])
     if not live and (row[5:8] != (GRAPH_ID, GRAPH_VERSION, GRAPH_DIGEST) or row[8] is not None):
         raise ValueError("Unknown or unsupported internal Story start")
     if live:
         from backend.openrouter import read_owner_config
         config = read_owner_config(row[8])
-        if config.adapter_version != ("2" if wardrobe else row[6]) or config.brief.user_vibe != row[1] or not 1 <= len(json.loads(row[2])) <= 8:
+        if (isinstance(config, anchor.StoryAnchorOwnerConfigV1) != anchor_batch
+                or config.adapter_version != ("2" if wardrobe or anchor_batch else row[6])
+                or config.brief.user_vibe != row[1] or not 1 <= len(json.loads(row[2])) <= 8):
             raise ValueError("Frozen live Story input mismatch")
     project, message, shots_json, key, digest, *_ = row
     if type(key) is not str or not 0 < len(key) <= 256:
@@ -139,9 +143,11 @@ async def start_story_wardrobe(db: sqlite3.Connection, saver: AsyncSqliteSaver, 
 
 
 async def _start_live_story(db, saver, project_id, client_key, shot_ids, brief, *,
-                           character_refs=None, character_root=DEFAULT_CHARACTER_ROOT, wardrobe=False):
+                           character_refs=None, character_root=DEFAULT_CHARACTER_ROOT, wardrobe=False,
+                           render_intent=None):
     from backend.openrouter import SelectedCharacter, pin_story_owner
     from backend import wardrobe_store
+    from backend import story_anchor_start as anchor
 
     brief = StoryTextInputV1.model_validate(brief)
     refs = [] if character_refs is None else character_refs
@@ -157,12 +163,19 @@ async def _start_live_story(db, saver, project_id, client_key, shot_ids, brief, 
     _reject_retired_start_key(db, project_id, client_key)
     await validate_story_storage(db, saver)
     _reject_image_start_key(db, project_id, client_key)
-    route = wardrobe_store.GRAPH_ID if wardrobe else LIVE_GRAPH_ID
+    route = anchor.GRAPH_ID if render_intent is not None else wardrobe_store.GRAPH_ID if wardrobe else LIVE_GRAPH_ID
     old = db.execute("SELECT execution_id,shot_ids,owner_config,graph_id FROM executions WHERE project_id=? AND client_key=?", (project_id, client_key)).fetchone()
     if old:
         if old[3] != route or old[2] is None or json.loads(old[1]) != shot_ids or _live_submission(old[2]) != (brief, refs):
             raise ValueError("Start client key conflicts with another payload")
+        if render_intent is not None:
+            from backend.openrouter import read_owner_config
+            frozen = read_owner_config(old[2])
+            if not isinstance(frozen, anchor.StoryAnchorOwnerConfigV1) or frozen.render_intent != render_intent:
+                raise ValueError("Start client key conflicts with another render intent")
         return load_test_story_start(db, old[0])[0]  # Replay works even with missing credentials/new env settings.
+    if render_intent is not None:
+        anchor.validate_anchor_render_intent(render_intent)  # Must precede pin_story_owner I/O.
     def resolve():
         repo = CharacterRepository(character_root)
         return [SelectedCharacter(ref=ref, character=repo.read_exact(ref)) for ref in refs]
@@ -181,7 +194,12 @@ async def _start_live_story(db, saver, project_id, client_key, shot_ids, brief, 
         owner_config = canonical_json(StoryWardrobeOwnerConfigV2(
             **story_config.model_dump(mode="python"),
             wardrobe_settings=pin_wardrobe_settings(story_config.model))).decode("utf-8")
-    return await _start_story(db, saver, project_id, client_key, brief.user_vibe, shot_ids, owner_config, wardrobe=wardrobe)
+        if render_intent is not None:
+            owner_config = canonical_json(anchor.StoryAnchorOwnerConfigV1(
+                **read_owner_config(owner_config).model_dump(mode="python"), schema_id="story_anchor_start",
+                schema_version="1", render_intent=render_intent)).decode("utf-8")
+    return await _start_story(db, saver, project_id, client_key, brief.user_vibe, shot_ids, owner_config,
+                              wardrobe=wardrobe, anchor_batch=render_intent is not None)
 
 
 def _live_submission(body: str) -> tuple[StoryTextInputV1, list[CharacterRef]]:
@@ -194,7 +212,8 @@ def _live_submission(body: str) -> tuple[StoryTextInputV1, list[CharacterRef]]:
                              shot_duration_ms=config.brief.shot_duration_ms), [item.ref for item in selected])
 
 
-async def _start_story(db, saver, project_id, client_key, input_message, shot_ids, owner_config, *, wardrobe=False):
+async def _start_story(db, saver, project_id, client_key, input_message, shot_ids, owner_config, *, wardrobe=False,
+                      anchor_batch=False):
     """Caller owns open_database(root) and open_saver(root, db) for this whole call."""
     _validated_test_inputs(project_id, input_message, shot_ids)
     if type(client_key) is not str or not 0 < len(client_key) <= 256:
@@ -205,8 +224,14 @@ async def _start_story(db, saver, project_id, client_key, input_message, shot_id
     _reject_image_start_key(db, project_id, client_key)
     if owner_config is not None:
         from backend.openrouter import read_owner_config
-        version = read_owner_config(owner_config).adapter_version
-        if wardrobe:
+        from backend import story_anchor_start as anchor
+        frozen = read_owner_config(owner_config)
+        if isinstance(frozen, anchor.StoryAnchorOwnerConfigV1) != anchor_batch:
+            raise ValueError("Start configuration does not match its frozen route")
+        version = frozen.adapter_version
+        if anchor_batch:
+            graph_identity = (anchor.GRAPH_ID, anchor.GRAPH_VERSION, anchor.GRAPH_DIGEST)
+        elif wardrobe:
             from backend import wardrobe_store
             if version != "2":
                 raise ValueError("Wardrobe requires frozen Story owner configuration v2")
@@ -214,7 +239,7 @@ async def _start_story(db, saver, project_id, client_key, input_message, shot_id
         else:
             graph_identity = (LIVE_GRAPH_ID, version, LIVE_GRAPH_DIGESTS[version])
     else:
-        if wardrobe:
+        if wardrobe or anchor_batch:
             raise ValueError("Wardrobe requires frozen Story owner configuration v2")
         graph_identity = (GRAPH_ID, GRAPH_VERSION, GRAPH_DIGEST)
     digest = _payload_digest(input_message, shot_ids, owner_config)
@@ -233,6 +258,15 @@ async def _start_story(db, saver, project_id, client_key, input_message, shot_id
                 old = db.execute("SELECT input_message,shot_ids,owner_config FROM executions WHERE execution_id=?", (row[0],)).fetchone()
                 if owner_config is None or old[2] is None or old[:2] != (input_message, json.dumps(shot_ids, ensure_ascii=False, separators=(",", ":"))) or _live_submission(old[2]) != _live_submission(owner_config):
                     raise ValueError("Start client key conflicts with another payload")
+                if anchor_batch:
+                    from backend.openrouter import read_owner_config
+                    from backend.story_anchor_start import StoryAnchorOwnerConfigV1
+                    accepted = read_owner_config(old[2])
+                    submitted = read_owner_config(owner_config)
+                    if (not isinstance(accepted, StoryAnchorOwnerConfigV1)
+                            or not isinstance(submitted, StoryAnchorOwnerConfigV1)
+                            or accepted.render_intent != submitted.render_intent):
+                        raise ValueError("Start client key conflicts with another render intent")
         else:
             execution_id, work_id = str(uuid4()), str(uuid4())
             db.execute(

@@ -141,12 +141,12 @@ def _finish_cancel(db, execution_id):
         raise
 
 
-async def _run_one(db, saver, graph, work, stop, *, wardrobe=False):
+async def _run_one(db, saver, graph, work, stop, *, wardrobe=False, anchor=False):
     work_id, execution_id, kind, source_id, payload_digest, resume_ref = work
     receipt, initial = load_test_story_start(db, execution_id)
     outcome = db.execute("SELECT outcome,source_id FROM execution_outcomes WHERE execution_id=?",
                          (execution_id,)).fetchone()
-    if outcome:
+    if outcome and not anchor:
         approved_request = None
         if wardrobe and outcome[0] == "completed":
             record = db.execute("SELECT approval_request_id FROM wardrobe_operations WHERE execution_id=? AND operation_id=?",
@@ -166,6 +166,16 @@ async def _run_one(db, saver, graph, work, stop, *, wardrobe=False):
                     else "obsolete", work_id))
         return
     config = {"configurable": {"thread_id": execution_id}}
+    from backend.image_group_store import read_image_group, bind_image_wait
+    from backend.image_group_results import read_image_group_result, read_image_group_wake
+    from backend.image_graph import image_result_ref
+    from backend.image_runner import inspect_image_checkpoint
+    group = read_image_group(db, execution_id) if anchor and db.execute(
+        'SELECT 1 FROM image_groups WHERE execution_id=?', (execution_id,)).fetchone() else None
+    if anchor and outcome and group is None:
+        raise ValueError('Story/anchor terminal outcome lacks its batch group/join')
+    batch_resume = group is not None and kind == 'resume' and source_id == group.receipt.wait_id
+    wake = result = None
     saved = await saver.aget_tuple(config)
     snapshot = await graph.aget_state(config) if saved is not None else None
     if snapshot is not None and (snapshot.values.get("execution_id") != execution_id
@@ -177,6 +187,13 @@ async def _run_one(db, saver, graph, work, stop, *, wardrobe=False):
             "SELECT start_digest FROM executions WHERE execution_id=?", (execution_id,)
         ).fetchone()[0] or resume_ref is not None:
             raise ValueError("Start work identity mismatch")
+    elif batch_resume:
+        result = read_image_group_result(db, execution_id)
+        if (payload_digest, resume_ref) != (result.digest, result.result_id) or db.execute(
+                "SELECT work_id FROM execution_work WHERE execution_id=? AND kind='resume' AND source_id=?",
+                (execution_id, source_id)).fetchall() != [(work_id,)]:
+            raise ValueError('Story/anchor batch resume identity mismatch')
+        wake = read_image_group_wake(db, execution_id)
     elif kind == "resume":
         decision = db.execute(
             "SELECT decision_id,decision_digest,checkpoint_id,task_id,interrupt_id,applied_activation,"
@@ -208,11 +225,35 @@ async def _run_one(db, saver, graph, work, stop, *, wardrobe=False):
     else:
         raise ValueError("Unsupported Story work kind")
 
+    if group is not None:
+        saved, binding = await inspect_image_checkpoint(saver, graph, group, db=db, stop=stop, anchor=True)
+        if outcome:
+            # Exact immutable join wins even if its final checkpoint was lost.
+            db.execute("UPDATE execution_work SET status='completed',work_version=work_version+1 WHERE work_id=?", (work_id,))
+            return
+        if batch_resume and wake is None:
+            db.execute("UPDATE execution_work SET status='pending',work_version=work_version+1 WHERE work_id=?", (work_id,))
+            return  # The existing approval/start/reconcile segment owns opening/binding.
+        if kind == 'reconcile':
+            wake = read_image_group_wake(db, execution_id)
+            if wake is not None:
+                result = read_image_group_result(db, execution_id)
+    batch_delivery = batch_resume or (anchor and kind == 'reconcile' and wake is not None)
+
     persisted_resume = False
     if saved is None:
         if kind != "start":
             raise ValueError("Cannot resume without a checkpoint")
         invocation = initial
+    elif batch_delivery:
+        assert wake is not None and result is not None
+        if saved.config['configurable']['checkpoint_id'] == wake.checkpoint_id:
+            written = [value for task, channel, value in saved.pending_writes
+                       if task == wake.task_id and channel == '__resume__']
+            persisted_resume = bool(written)
+            invocation = None if written else Command(resume={wake.interrupt_id: image_result_ref(result)})
+        else:
+            invocation = None  # Inspector proved the consumed source in this exact lineage.
     elif kind in ("start", "reconcile"):
         # Never re-submit initial state after any checkpoint was persisted.
         invocation = None
@@ -236,9 +277,11 @@ async def _run_one(db, saver, graph, work, stop, *, wardrobe=False):
             invocation = None
 
     # Pending task writes can empty snapshot.next before the resumed step is checkpointed.
-    if (snapshot is None or invocation is not None or persisted_resume or (snapshot.next and
+    if (snapshot is None or invocation is not None or persisted_resume or
+            (anchor and saved is not None and any(channel not in ('__interrupt__', '__error__')
+                                                  for _, channel, _ in saved.pending_writes)) or (snapshot.next and
             (not snapshot.interrupts or (kind == "resume" and
-             snapshot.interrupts[0].value["request_id"] == source_id)))):
+              snapshot.interrupts[0].value.get("request_id", snapshot.interrupts[0].value.get('wait_id')) == source_id)))):
         if not await _invoke(db, graph, invocation, config, execution_id, stop):
             return
     if cancel_requested(db, execution_id):
@@ -250,7 +293,18 @@ async def _run_one(db, saver, graph, work, stop, *, wardrobe=False):
             or snapshot.values.get("project_id") != initial["project_id"]):
         raise ValueError("Checkpoint changed during Story work")
     checkpoint_id = snapshot.config["configurable"]["checkpoint_id"]
-    if snapshot.interrupts:
+    if anchor and db.execute('SELECT 1 FROM image_groups WHERE execution_id=?', (execution_id,)).fetchone():
+        group = read_image_group(db, execution_id)
+        saved, binding = await inspect_image_checkpoint(saver, graph, group, db=db, stop=stop, anchor=True)
+        if binding is None:
+            raise ValueError('Story/anchor segment has no durable batch wait')
+        if group.checkpoint_id is None:
+            bind_image_wait(db, execution_id, group.receipt.wait_id,
+                expected_request_digest=group.receipt.request_digest,
+                checkpoint_id=binding[0], task_id=binding[1], interrupt_id=binding[2])
+        if batch_resume and not db.execute('SELECT 1 FROM execution_outcomes WHERE execution_id=?', (execution_id,)).fetchone():
+            raise ValueError('Story/anchor resumed batch has no exact terminal join')
+    elif snapshot.interrupts:
         if snapshot.next != ("story_wait",) or len(snapshot.tasks) != 1 or len(snapshot.interrupts) != 1:
             raise ValueError("Unexpected Story interrupt")
         task, interrupt = snapshot.tasks[0], snapshot.interrupts[0]
@@ -343,11 +397,21 @@ async def run_story_work(db: sqlite3.Connection, saver: AsyncSqliteSaver,
 
     def is_image(execution_id):
         # Membership also identifies a corrupt image envelope: never fall back to Story.
+        if is_anchor(execution_id):
+            return False
         return db.execute("SELECT 1 FROM executions e WHERE e.execution_id=? AND (e.graph_id=? OR EXISTS "
                           "(SELECT 1 FROM image_groups g WHERE g.execution_id=e.execution_id))",
-                          (execution_id, image_group_store.GRAPH_ID)).fetchone() is not None
+                           (execution_id, image_group_store.GRAPH_ID)).fetchone() is not None
+
+    def is_anchor(execution_id):
+        return wardrobe_store.is_story_anchor_graph(db.execute(
+            'SELECT graph_id,graph_version,graph_digest FROM executions WHERE execution_id=?', (execution_id,)).fetchone())
 
     def select_graph(execution_id):
+        if is_anchor(execution_id):
+            from backend.story_anchor_graph import build_story_anchor_graph
+            load_test_story_start(db, execution_id)
+            return build_story_anchor_graph(db, _InvocationSaver(saver), produce_story, character_root=character_root), True
         if is_image(execution_id):
             group = image_group_store.read_image_group(db, execution_id)
             return build_image_graph(db, _InvocationSaver(saver), group), False
@@ -372,6 +436,32 @@ async def run_story_work(db: sqlite3.Connection, saver: AsyncSqliteSaver,
     ).fetchall():
         if stop is not None and stop.is_set():
             return 0
+        if is_anchor(execution_id) and db.execute('SELECT 1 FROM image_groups WHERE execution_id=?', (execution_id,)).fetchone():
+            graph, _ = select_graph(execution_id)
+            group = image_group_store.read_image_group(db, execution_id)
+            try:
+                saved, binding = await inspect_image_checkpoint(saver, graph, group, db=db, stop=stop, anchor=True)
+            except _WorkerStopped:
+                return 0
+            except ValueError:
+                if cancel_requested(db, execution_id):
+                    _finish_cancel(db, execution_id)
+                    continue
+                raise
+            if db.execute('SELECT 1 FROM execution_outcomes WHERE execution_id=?', (execution_id,)).fetchone():
+                continue
+            from backend.image_group_results import read_image_group_wake
+            if binding is not None and group.checkpoint_id is not None and read_image_group_wake(db, execution_id) is None:
+                continue
+            checkpoint_id = saved.config['configurable']['checkpoint_id']
+            if db.execute("SELECT 1 FROM execution_work WHERE execution_id=? AND status IN ('pending','claimed','blocked')", (execution_id,)).fetchone():
+                continue
+            work_id = sha256_digest(f'kinodel.reconcile.v1:{execution_id}:{checkpoint_id}'.encode())
+            inserted = db.execute("INSERT OR IGNORE INTO execution_work (work_id,execution_id,kind,source_id,payload_digest,status) "
+                "VALUES (?,?, 'reconcile', ?, ?, 'pending')", (work_id, execution_id, checkpoint_id, digest))
+            if inserted.rowcount != 1:
+                raise ValueError('Unfinished Story/anchor checkpoint already reconciled')
+            continue
         if is_image(execution_id):
             # A settled unanswered wait is read-only. Invalid retained checkpoints need
             # a durable diagnostic even when no pending work survived the previous run.
@@ -478,7 +568,7 @@ async def run_story_work(db: sqlite3.Connection, saver: AsyncSqliteSaver,
             if is_image(work[1]):
                 await run_image_work(db, saver, graph, work, stop, _invoke)
             else:
-                await _run_one(db, saver, graph, work, stop, wardrobe=wardrobe)
+                await _run_one(db, saver, graph, work, stop, wardrobe=wardrobe, anchor=is_anchor(work[1]))
             if cancel_requested(db, work[1]):
                 _finish_cancel(db, work[1])
         except _WorkerStopped:

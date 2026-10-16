@@ -1,8 +1,9 @@
-"""Private image-only admission. Caller owns the data-root lock and open saver.
+"""Exact image-only admission and same-execution Story/anchor group registration.
 
-The source execution still owns the immutable batch input; the new consumer owns
-only its accepted group/wait and unique start work. Membership/dependencies live
-in that input, never in a second mutable unit list. No graph/provider work here.
+Caller owns the data-root lock (and open saver for admission). Historical sources
+retain separate consumer/start semantics; the explicit Story/anchor route reuses
+its own execution/start. Membership/dependencies live only in immutable inputs.
+No graph invocation or provider work belongs here.
 """
 
 from dataclasses import dataclass
@@ -12,7 +13,7 @@ from uuid import NAMESPACE_URL, uuid5
 
 from pydantic import TypeAdapter
 
-from backend import batch_store
+from backend import batch_preparation, batch_store, wardrobe_store
 from backend.batch_generation import BatchConnectionPinV1
 from backend.domain import (ArtifactRef, CanonicalUUID, DomainModel, ExactProfilePin, MediaSize,
                             _exact_artifact_ref, canonical_json, sha256_digest)
@@ -99,11 +100,74 @@ def _binding(values) -> None:
         value.encode('utf-8')
 
 
+def _story_anchor_receipt(db: sqlite3.Connection, execution_id: str,
+                          batch: batch_store.BatchInputPinV1) -> ImageStartReceiptV1:
+    """Group receipt reuses the EXISTING Story start work, never image-only identity."""
+    from backend.story_start import load_test_story_start
+    from backend import story_anchor_start as anchor
+    start, _ = load_test_story_start(db, execution_id)
+    handoff = batch.prepared_input
+    if handoff.source_plan_ref.execution_id != execution_id:
+        raise ValueError('Story/anchor group must own its source in the same execution')
+    batch_preparation.validate_story_anchor_batch(db, handoff)
+    project, client_key, start_digest = db.execute('SELECT project_id,client_key,start_digest FROM executions '
+                                                  'WHERE execution_id=?', (execution_id,)).fetchone()
+    activation = handoff.activation_id
+    group = batch_store._identity('kinodel.image-group.v1', execution_id, STAGE_ID, activation)
+    wait = batch_store._identity('kinodel.image-wait.v1', group)
+    digest = batch_store._identity('kinodel.story-anchor-group-request.v1', project, client_key, start_digest,
+        execution_id, anchor.GRAPH_ID, anchor.GRAPH_VERSION, anchor.GRAPH_DIGEST, group, wait, STAGE_ID,
+        activation, batch.batch_id, batch.input_digest)
+    return ImageStartReceiptV1(execution_id, start.work_id, group, wait, STAGE_ID, activation, digest,
+                               batch.batch_id, batch.input_digest)
+
+
+def _check_other_resumes(db, receipt, *, anchor):
+    from backend.review_store import validate_applied_story_resume
+    rows = db.execute("SELECT work_id,execution_id,source_id,resume_ref,payload_digest FROM execution_work "
+                      "WHERE execution_id=? AND kind='resume' AND source_id<>?",
+                      (receipt.execution_id, receipt.wait_id)).fetchall()
+    for work in rows:
+        if not anchor:
+            raise ValueError('Image-only result has an unrelated resume source')
+        validate_applied_story_resume(db, receipt.execution_id, work)
+
+
+def register_story_anchor_group(db: sqlite3.Connection, execution_id: str,
+                                approval_request_id: str) -> ImageStartReceiptV1:
+    """Graph-callable idempotent registration ONLY; no new execution/start/provider work.
+
+    Exact source pins publish first. A cancel/OCC race may retain immutable input
+    facts, but cannot register an authorized group or allow new native effects.
+    """
+    batch_store._committed(db)
+    _assert_writable(db, execution_id)
+    old = _row(db, execution_id)
+    if old is not None:
+        group = read_image_group(db, execution_id)
+        if group.batch.prepared_input.story_approval.approval_request_id != approval_request_id:
+            raise ValueError('Story/anchor group approval conflicts with original pins')
+        batch_preparation.read_story_anchor_plan(db, execution_id, approval_request_id)
+        return group.receipt
+    batch = batch_store.pin_active_anchor_batch_input(db, execution_id, approval_request_id)
+    receipt = _story_anchor_receipt(db, execution_id, batch)
+    with batch_store._transaction(db):
+        _assert_writable(db, execution_id)
+        if _story_anchor_receipt(db, execution_id, batch) != receipt:
+            raise ValueError('Story/anchor source changed before group registration')
+        _check_other_resumes(db, receipt, anchor=True)
+        db.execute('INSERT INTO image_groups (group_id,execution_id,batch_id,wait_id,stage_id,activation_id,request_digest) '
+                   'VALUES (?,?,?,?,?,?,?)', (receipt.group_id, execution_id, receipt.batch_id,
+                    receipt.wait_id, STAGE_ID, receipt.activation_id, receipt.request_digest))
+    return read_image_group(db, execution_id).receipt
+
+
 def read_image_group(db: sqlite3.Connection, execution_id: str) -> ImageGroupV1:
     """Exact offline read, including frozen start envelope/work and published files.
 
-    May read cancelled/terminal history. Does not re-resolve source authority or
-    current catalogs, and never repairs missing/corrupt accepted input bytes.
+    May read cancelled/terminal history. Image-only keeps its frozen envelope;
+    Story/anchor additionally validates its current exact committed source. Never
+    consult current catalogs or repair missing/corrupt accepted input bytes.
     """
     batch_store._committed(db)
     _uuid(execution_id)
@@ -114,20 +178,25 @@ def read_image_group(db: sqlite3.Connection, execution_id: str) -> ImageGroupV1:
     if row is None or execution is None:
         raise ValueError('Unknown image-only start')
     batch = batch_store.read_batch_input(db, row[2])
-    receipt = _receipt(execution[0], execution[1], batch)
+    anchor = wardrobe_store.is_story_anchor_graph(execution[6:])
+    receipt = (_story_anchor_receipt(db, execution_id, batch) if anchor else
+               _receipt(execution[0], execution[1], batch))
     if (row[:7] != (receipt.group_id, receipt.execution_id, receipt.batch_id, receipt.wait_id,
                    STAGE_ID, receipt.activation_id, receipt.request_digest)
             or execution_id != receipt.execution_id
-            or execution[2:] != (IMAGE_INPUT_MARKER, '[]', None, receipt.request_digest,
-                                 GRAPH_ID, GRAPH_VERSION, GRAPH_DIGEST)):
+            or (not anchor and execution[2:] != (IMAGE_INPUT_MARKER, '[]', None, receipt.request_digest,
+                                                GRAPH_ID, GRAPH_VERSION, GRAPH_DIGEST))):
         raise ValueError('Image group/start integrity mismatch')
     work = db.execute("SELECT work_id,source_id,payload_digest,resume_ref FROM execution_work "
                        "WHERE execution_id=? AND kind='start'", (execution_id,)).fetchall()
-    if work != [(receipt.work_id, execution_id, receipt.request_digest, None)]:
+    if work != [(receipt.work_id, execution_id, execution[5] if anchor else receipt.request_digest, None)]:
         raise ValueError('Image start work integrity mismatch')
     if row[7:] != (None, None, None):
         _binding(row[7:])
     retry = _read_retry_request(db, execution_id)
+    if anchor and retry is not None:
+        raise ValueError('Story/anchor Retry is not supported')
+    _check_other_resumes(db, receipt, anchor=anchor)
     if retry is not None:
         if _retry_row(db, execution_id)[8] != 'accepted':
             raise ValueError('Image Retry acceptance/provenance is incomplete')
@@ -262,6 +331,10 @@ def _read_retry_request(db, execution_id, seen=None):
         raise ValueError('Image Retry request identity/body mismatch')
     _assert_retry_owner(db, request)
     parent = _row(db, request.predecessor_execution_id)
+    identity = db.execute('SELECT graph_id,graph_version,graph_digest FROM executions WHERE execution_id=?',
+                          (request.predecessor_execution_id,)).fetchone()
+    if identity != (GRAPH_ID, GRAPH_VERSION, GRAPH_DIGEST):
+        raise ValueError('Image Retry supports only the exact image-only predecessor route')
     result = db.execute('SELECT group_id,result_digest,status,publication_state FROM image_group_results WHERE result_id=?',
                         (request.predecessor_result_id,)).fetchone()
     if parent is None or result != (parent[0], request.predecessor_result_digest, 'failed', 'published'):
@@ -325,6 +398,10 @@ async def retry_image_execution(db: sqlite3.Connection, saver, project_id: str, 
     activation, execution_id, _, _, _ = _identities(project_id, client_key)
     _uuid(predecessor_execution_id)
     TypeAdapter(ExactDigest).validate_python(expected_result_digest, strict=True)
+    identity = db.execute('SELECT graph_id,graph_version,graph_digest FROM executions WHERE execution_id=?',
+                          (predecessor_execution_id,)).fetchone()
+    if identity != (GRAPH_ID, GRAPH_VERSION, GRAPH_DIGEST):
+        raise ValueError('Image Retry is not supported for this route')
     await validate_story_storage(db, saver)
     predecessor = read_image_group(db, predecessor_execution_id)
     result = results.read_image_group_result(db, predecessor_execution_id)

@@ -165,6 +165,9 @@ def read_owner_config(body: str) -> StoryOwnerConfig | StoryOwnerConfigV2:
     model_type = StoryOwnerConfigV2 if body.startswith('{"adapter_version":"2",') else StoryOwnerConfig
     if model_type is StoryOwnerConfigV2 and "wardrobe_settings" in json.loads(body):
         model_type = StoryWardrobeOwnerConfigV2
+    if model_type is StoryWardrobeOwnerConfigV2 and json.loads(body).get("schema_id") == "story_anchor_start":
+        from backend.story_anchor_start import StoryAnchorOwnerConfigV1
+        model_type = StoryAnchorOwnerConfigV1
     config = parse_json_model(body.encode("utf-8"), model_type)
     if canonical_json(config).decode("utf-8") != body or sha256_digest(config.system_prompt.encode("utf-8")) != config.prompt_digest:
         raise ValueError("Frozen Story owner configuration mismatch")

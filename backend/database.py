@@ -15,7 +15,7 @@ from backend.ownership import own_data_root
 
 DATABASE_NAME = "application.sqlite3"
 APPLICATION_ID = 0x4B494E4F  # KINO; SQLite header identity, not a business record.
-SCHEMA_VERSION = 23
+SCHEMA_VERSION = 24
 BUSY_TIMEOUT_MS = 1000
 INITIALIZING = ".kinodel-initializing-v1"
 READY = ".kinodel-ready-v1"
@@ -383,6 +383,15 @@ CREATE TABLE continue_commands (
 );
 """
 
+NATIVE_TERMINAL_SCHEMA = """
+CREATE TABLE native_terminal_observations (
+    attempt_id TEXT PRIMARY KEY NOT NULL REFERENCES portrait_submissions(attempt_id),
+    job_id TEXT NOT NULL REFERENCES render_jobs(job_id),
+    observation_digest TEXT NOT NULL,
+    observation_body TEXT NOT NULL CHECK(length(CAST(observation_body AS BLOB)) BETWEEN 1 AND 8192)
+);
+"""
+
 
 def _schema(db: sqlite3.Connection) -> list[tuple[str, str, str]]:
     return db.execute(
@@ -431,6 +440,8 @@ def _expected_schema(version: int) -> list[tuple[str, str, str]]:
             candidate.executescript(IMAGE_GROUP_RESULT_SCHEMA)
         if version >= 23:
             candidate.executescript(CONTINUE_SCHEMA)
+        if version >= 24:
+            candidate.executescript(NATIVE_TERMINAL_SCHEMA)
         return _schema(candidate)
 
 
@@ -820,6 +831,16 @@ def open_database(root: Path) -> Iterator[sqlite3.Connection]:
                 db.execute('PRAGMA synchronous=FULL')
                 try:
                     db.executescript(f'BEGIN IMMEDIATE; {CONTINUE_SCHEMA} PRAGMA user_version=23;')
+                    _validate(db)
+                    db.execute('COMMIT')
+                except BaseException:
+                    if db.in_transaction:
+                        db.execute('ROLLBACK')
+                    raise
+            if db.execute('PRAGMA user_version').fetchone()[0] == 23:
+                db.execute('PRAGMA synchronous=FULL')
+                try:
+                    db.executescript(f'BEGIN IMMEDIATE; {NATIVE_TERMINAL_SCHEMA} PRAGMA user_version=24;')
                     _validate(db)
                     db.execute('COMMIT')
                 except BaseException:

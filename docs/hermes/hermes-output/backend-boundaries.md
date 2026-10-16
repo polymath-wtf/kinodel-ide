@@ -1,7 +1,7 @@
 ---
 title: "Backend — минимальные границы интеграции"
 created: 2026-10-15
-updated: 2026-10-15
+updated: 2026-10-16
 type: concept
 tags: [kinodel, preproduction, backend, architecture]
 sources: [raw/kinodel-plugin-raw/hermes-kinodel-architecture.md, raw/kinodel-plugin-raw/hermes-questions.md, raw/kinodel-plugin-raw/hermes-goal.md]
@@ -60,7 +60,9 @@ Producer не ждёт `delegate_task` и не становится диспет
 
 UI получает сохранённые факты и разрешённые действия. Событие — повод перечитать состояние; реконструировать производство только из SSE нельзя. Approval и submit не подтверждаются оптимистически. Config Kinodel не должен менять чужие profiles/boards; область отключения host-автоматики требует отдельной проверки. ^[raw/kinodel-plugin-raw/hermes-kinodel-architecture.md]
 
-## Что намеренно не выбрано
-Фреймворк сервера, конкретная plugin surface, порт/запуск, storage schema, HTTP routes, event envelope, механизм публикации/permissions, host mapping render-wait и восстановление worker sessions. Очередь проверки: [[kinodel-preproduction/decisions-and-questions]].
+## Уточнение механизмов — 2026-10-16
+Рабочее предложение: standalone browser bundle через существующий plugin asset handler, plugin REST для domain commands, native session WS для Producer. Это не Desktop plugin. Domain SQLite через штатный plugin storage хранит revisions/decisions/operations, не tasks/claims/transcripts. Подробности: [[kinodel-preproduction/hermes-mechanisms]] и [[kinodel-preproduction/localhost-webui]].
+
+Открыты browser bootstrap и deployment ownership, физические schemas, fail-closed worker restrictions, synchronized Stop admission, cross-profile delivery и runtime mapping media wait. Recovery включает publish→review и approval→complete→create. Наличие review_dispatch:false уточняет human hold, но отдельная board не изолирует настройку dispatcher. Очередь: [[kinodel-preproduction/decisions-and-questions]].
 
 Связи: [[kinodel-preproduction/artifacts-and-revisions]], [[kinodel-preproduction/implementation-readiness]].

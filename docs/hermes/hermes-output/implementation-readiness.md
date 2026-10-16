@@ -1,7 +1,7 @@
 ---
 title: "Готовность к реализации и будущая приёмка"
 created: 2026-10-15
-updated: 2026-10-15
+updated: 2026-10-16
 type: concept
 tags: [kinodel, preproduction, backend, frontend, workflow]
 sources: [raw/kinodel-plugin-raw/hermes-kinodel-roadmap.md, raw/kinodel-plugin-raw/hermes-mvp.md, raw/kinodel-plugin-raw/hermes-questions.md]
@@ -12,6 +12,11 @@ status: preproduction
 # Готовность к реализации и будущая приёмка
 
 **План следующих работ, не отчёт о выполнении.** Сейчас подготовлена документация, но не исполняемые schemas, profiles или plugin. Календарные сроки и стоимость не назначаем.
+
+## Актуальная оценка готовности — 2026-10-16
+[[kinodel-preproduction/readiness-audit]] отделяет документальную готовность от runtime-приёмки. Текущая стадия: готовы к ограниченным spikes, но не к реализации всего MVP по замороженной спецификации. Старый список ниже — порядок развития продукта, не требование подготовить все media workflows до первого кода.
+
+Первый срез текстовый: browser bootstrap → Producer → Brief → Storytell → human review → approval → одна Wardrobe task без запуска render. До него нужны schemas Brief/Story/refs, инструкции Producer/Storytell, human hold в правильном dispatcher scope, enforceable worker policy, Stop admission и recovery. Video/MP4/Canvas проверяются отдельным media gate.
 
 ## Последовательные срезы
 | Шаг | Подготовить/реализовать позднее | Свидетельство готовности |
@@ -57,7 +62,7 @@ Canvas делаем отдельным срезом до Storyboard/Filmmaker, �
 Эти критерии разворачивают требования сохранности и управления из MVP, а не доказывают наличие соответствующих тестов. ^[raw/kinodel-plugin-raw/hermes-mvp.md]
 
 ## Definition of ready для первого кода
-Есть согласованные границы первого среза, доступные исходные инструкции, host mapping с доказательствами, логические contracts превращены в проверяемые schemas, определены ошибки и приёмка. Не нужно заранее закрывать все вопросы будущего video/render/UI, но нельзя начинать worker без границы публикации и проверки inputs.
+Для **чистого domain-кода** нужны согласованные contracts текущего среза и validator tests; для **feasibility probe** достаточно ограниченного вопроса, безопасного test scope и критерия успеха — завершённость всего MVP не prerequisite. Для **интегрированного specialist** дополнительно нужны доказанные publication/permissions/admission, exact input delivery и recovery. Нельзя объявить каркас работающим plugin. Общие release gates и очередность решений B01–B10: [[kinodel-preproduction/readiness-audit]].
 
 Будущее исследование host должно выдавать таблицу **потребность → существующий механизм → source path:line → выполненная проверка → пробел** с version/commit. Различать docs, чтение source, пользовательское свидетельство и runtime test. Не менять установку или вызывать генерацию в рамках такого исследования без отдельного поручения. ^[raw/kinodel-plugin-raw/hermes-questions.md]
 

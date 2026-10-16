@@ -87,6 +87,17 @@ class SubmissionDiagnosticV1(DomainModel):
     digest: ExactDigest
 
 
+class NativeTerminalObservationV1(DomainModel):
+    """Physical occupancy evidence only, never acceptance, import or Retry authority."""
+
+    schema_version: Literal['1']
+    job_id: ExactDigest
+    attempt_id: ExactDigest
+    unit_input_digest: ExactDigest
+    outcome: Literal['success', 'error', 'interrupted']
+    evidence: PortraitSubmissionEvidenceV1
+
+
 class PortraitSubmissionV1(DomainModel):
     schema_version: Literal['1']
     preview: PortraitSubmissionPreviewV1
@@ -318,6 +329,65 @@ def read_anchor_unit_submission(db: sqlite3.Connection, job_id: str, *, expected
 def _assert_pins(db, bindings, pins):
     if _binding_rows(db, *bindings) != pins:
         raise ValueError('Portrait binding changed before submission commit')
+
+
+def _terminal_values(observation):
+    body = canonical_json(observation)
+    return observation.attempt_id, observation.job_id, sha256_digest(body), body.decode('utf-8')
+
+
+def _assert_terminal_identity(observation, record):
+    proof = observation.evidence
+    if (record.dispatched_at_ms is None or proof.kind != 'history'
+            or (observation.job_id, observation.attempt_id, observation.unit_input_digest,
+                proof.wire_digest, proof.endpoint_digest) !=
+               (record.preview.job_id, record.preview.attempt_id, record.preview.unit_input_digest,
+                record.preview.wire_digest, record.preview.endpoint_digest)
+            or (record.prompt_id is not None and proof.prompt_id != record.prompt_id)):
+        raise ValueError('Native terminal observation conflicts with dispatched identity')
+
+
+def read_native_terminal_observation(db, record: PortraitSubmissionV1) -> NativeTerminalObservationV1 | None:
+    """Caller supplies a fully restored submission; evicted provider history cannot erase this fact."""
+    row = db.execute('SELECT attempt_id,job_id,observation_digest,observation_body FROM native_terminal_observations '
+                     'WHERE attempt_id=?', (record.preview.attempt_id,)).fetchone()
+    if row is None:
+        return None
+    if type(row[3]) is not str or not 0 < len(row[3].encode('utf-8')) <= 8192:
+        raise ValueError('Invalid native terminal observation body')
+    observation = NativeTerminalObservationV1.model_validate_json(row[3])
+    _assert_terminal_identity(observation, record)
+    if row != _terminal_values(observation):
+        raise ValueError('Native terminal observation SQL/body mismatch')
+    return observation
+
+
+def record_native_terminal_observation(db, job_id: str, *, expected_unit_digest: str, expected_wire_digest: str,
+        expected_revision: int, attempt_id: str, outcome: Literal['success', 'error', 'interrupted'],
+        evidence: PortraitSubmissionEvidenceV1) -> NativeTerminalObservationV1:
+    """Trusted adapter's exact terminal history; sole write allowed even after consumer cancellation.
+
+    No submission transition or writable-consumer check: acceptance/wire/first evidence,
+    controls, candidates, bindings, result and wake remain untouched. No rerun grant.
+    """
+    record, row, bindings, pins = _load(db, job_id, expected_unit_digest, expected_wire_digest, attempt_id=attempt_id)
+    TypeAdapter(Revision).validate_python(expected_revision, strict=True)
+    if record.revision != expected_revision:
+        raise ValueError('Native terminal observation revision conflict')
+    observation = NativeTerminalObservationV1(schema_version='1', job_id=job_id, attempt_id=attempt_id,
+        unit_input_digest=expected_unit_digest, outcome=outcome, evidence=evidence)
+    _assert_terminal_identity(observation, record)
+    existing = read_native_terminal_observation(db, record)
+    if existing is not None:
+        if existing != observation:
+            raise ValueError('Native terminal observation is immutable')
+        return existing
+    with _transaction(db):
+        _assert_pins(db, bindings, pins)
+        if _row(db, job_id, attempt_id) != row:
+            raise ValueError('Submission changed before native terminal observation commit')
+        db.execute('INSERT INTO native_terminal_observations VALUES (?,?,?,?)', _terminal_values(observation))
+    return observation
 
 
 def authorize_anchor_unit_submission(db: sqlite3.Connection, job_id: str, *, expected_unit_digest: str,

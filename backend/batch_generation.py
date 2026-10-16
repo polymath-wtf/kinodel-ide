@@ -146,6 +146,34 @@ class BatchGenerationInputV1(DomainModel):
         return self
 
 
+def resolve_batch_image_profile(image_profile: ExactProfilePin | dict, image_size: MediaSize | dict
+                                ) -> tuple[dict[str, Any], BatchStageMappingV1]:
+    """Resolve the exact declaration only; changed profiles block, never follow latest.
+
+    Start may validate these secret-free pins before owner I/O. Installed schemas,
+    model inventory, payloads and seeds are still prepared only at each job's turn.
+    """
+    profile = TypeAdapter(ExactProfilePin).validate_python(image_profile, strict=True)
+    size = MediaSize.model_validate(image_size)
+    matches = [p for p in production.production_catalog()["image_only"]["profiles"] if p["pin"] == profile.model_dump()]
+    if len(matches) != 1:
+        raise ValueError("Unknown or stale batch image profile")
+    public = {key: value for key, value in matches[0].items() if key != "pin"}
+    ids = sorted({role["workflow_id"] for role in public["roles"]})
+    specs = {identity: registry.workflow_snapshot(identity) for identity in ids}
+    snapshot = {"schema_version": "1", "profile_id": profile.profile_id, "version": profile.version,
+                **public, "workflows": [specs[identity] for identity in ids]}
+    if (profile.digest != "sha256:" + registry.canonical_digest(snapshot)
+            or size.model_dump(mode="json") not in snapshot["supported_sizes"]):
+        raise ValueError("Batch image profile or size mismatch")
+    mapping = BatchStageMappingV1(schema_version="1", stage_id="anchor-batch", bindings=[
+        BatchWorkflowBindingV1(use_case=use_case, workflow=mode, reference_roles=roles,
+                               workflow_id=identity, kind=kind,
+                               registry_digest="sha256:" + registry.canonical_digest(specs[identity]))
+        for use_case, mode, roles, identity, kind in _SIGNATURES])
+    return snapshot, mapping
+
+
 def freeze_batch_input(plan: VisualAnchorPlanV2 | dict, *, source_plan_ref: ArtifactRef | dict,
                        wardrobe_input: WardrobeInputV2 | dict, story_approval: BatchStoryApprovalV1 | dict,
                        activation_id: str, image_size: MediaSize | dict, image_profile: ExactProfilePin | dict,
@@ -162,19 +190,7 @@ def freeze_batch_input(plan: VisualAnchorPlanV2 | dict, *, source_plan_ref: Arti
     if approval.story_ref != supplied.narrative_ref:
         raise ValueError("Batch approval must pin the exact Wardrobe authority Story")
     profile = TypeAdapter(ExactProfilePin).validate_python(image_profile, strict=True)
-    matches = [p for p in production.production_catalog()["image_only"]["profiles"] if p["pin"] == profile.model_dump()]
-    if len(matches) != 1:
-        raise ValueError("Unknown or stale batch image profile")
-    public = {key: value for key, value in matches[0].items() if key != "pin"}
-    ids = sorted({role["workflow_id"] for role in public["roles"]})
-    specs = {identity: registry.workflow_snapshot(identity) for identity in ids}
-    snapshot = {"schema_version": "1", "profile_id": profile.profile_id, "version": profile.version,
-                **public, "workflows": [specs[identity] for identity in ids]}
-    mapping = BatchStageMappingV1(schema_version="1", stage_id="anchor-batch", bindings=[
-        BatchWorkflowBindingV1(use_case=use_case, workflow=mode, reference_roles=roles,
-                               workflow_id=identity, kind=kind,
-                               registry_digest="sha256:" + registry.canonical_digest(specs[identity]))
-        for use_case, mode, roles, identity, kind in _SIGNATURES])
+    snapshot, mapping = resolve_batch_image_profile(profile, image_size)
     batch = BatchGenerationInputV1(schema_id="batch_generation_input", schema_version="1", stage_id="anchor-batch",
         activation_id=activation_id, source_plan_ref=source_plan_ref, story_approval=approval,
         wardrobe_input_digest=sha256_digest(canonical_json(supplied)), image_size=image_size,

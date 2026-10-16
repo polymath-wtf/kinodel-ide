@@ -42,7 +42,8 @@ Additive DB19 добавляет только `anchor_reference_transfers`; iden
 После аудита шага 6 исправлены recovery/isolation границы: owned-ID response contract error остаётся
 восстановимым block; malformed provably foreign records сохраняются как `broken_job` diagnostics;
 explicit GET-only revalidation принимает единственную exact успешную completed history и при неизвестном ID;
-reference sent-block сохраняет причину/revision при reopen. [Evidence](../test-results/README.md#comfyui-step-6--recovery-and-isolation-corrections--9-october-2026).
+reference sent-block сохраняет причину/revision при reopen; отдельное ограниченное исключение —
+receipt-invalid native binding recovery ниже. [Evidence](../test-results/README.md#comfyui-step-6--recovery-and-isolation-corrections--9-october-2026).
 Повторное синхронное чтение/проверка родителей остаётся локальной возможностью упрощения, не блокером 7.1.
 
 **7.1 реализован:** новый private image-only execution в том же project, accepted group/wait из exact saved V2.
@@ -109,8 +110,9 @@ Result reservation → immutable bytes → atomic publish + exact wake отде�
 Explicit failed-only `StoryRuntime.retry_images` создаёт новый consumer/group/wait, сохраняет successes
 и конфликтует с competing key для того же failed predecessor уже на reservation и acceptance.
 Sent local timeout/contract/deadline и unknown acceptance остаются blocked same-attempt, без group failure/Retry.
-Unresolved dispatched occupancy переживает graph block/cancel/terminal consumer; cancelled sent/unknown slot
-не освобождается автоматически (addressed provider-terminal observation/release — шаг 8).
+Unresolved dispatched occupancy переживает graph block/cancel/terminal consumer. Исправление liveness от 16 октября
+добавляет DB24 exact GET-only terminal observation/release без promotion/rerun; absence/eviction удерживают slot.
+Это зависимость шага 7, не отложенный шаг 8 ([incident/fix evidence](../test-results/README.md#live-working-root-audit--16-october-2026)).
 [Контракт](backend/artifacts.md#sequential-image-execution-result-wake-and-exact-retry),
 [evidence](../test-results/README.md#comfyui-step-72--sequential-worker-result-wake-and-exact-retry--9-october-2026).
 
@@ -543,7 +545,7 @@ diagnostic `/prepare` и preparation-only профиль сами по себе 
 - [x] Response ID сохраняется до проверки `node_errors`/contract failure. Lost response/restart использует только exact queue/history evidence; пустая history не доказывает unsent. Ambiguous acceptance остаётся blocked; на шаге 6А second attempts/retry allocator отсутствовали. Private 7.2 добавляет только explicit failed-only Retry.
 - [x] Owned-ID response contract error остаётся `blocked/contract_error`; malformed provably foreign queue/history не блокирует хорошую job и сохраняется как bounded private `broken_job` diagnostic. Own/ambiguous records и конфликт exact matches продолжают блокировать.
 - [x] Explicit `revalidate_contract=True` разрешает исправить known/unknown-ID contract block только после одной uniquely matched exact успешной completed history и safe declared output. Первый ID/evidence коммитятся до import; известные ID/first evidence сохраняются. One explicit durable output-only grant ≤5 min разрешает GET/import того же accepted prompt после original expiry; original deadline/acceptance сохраняются, renewal/new POST запрещены.
-- [x] Receipt-less reference `blocked_sent` при reopen сохраняет прежние reason/revision без HTTP/повторной загрузки; known receipt сохраняет GET-only recovery.
+- [x] Receipt-less reference `blocked_sent` не разрешает reupload/guessed receipt; unknown acceptance остаётся offline. Для `receipt_invalid` adapter восстанавливает actual binding только из unique complete native asset observation + verified original bytes; иначе reason/revision неизменны. Native upload envelope project-ится в strict `name/subfolder/type`, known receipt сохраняет GET-only recovery. [Контракт](tools/comfyui-tool.md#upload--конкретный-loadimage), [evidence / live recovery pending](../test-results/README.md#reference-envelope-and-native-binding-recovery--16-october-2026).
 - [x] 6Б: verified parent bytes/lineage/rights → ordered multipart `/upload/image` без overwrite → фактические `name/subfolder/type` receipts и verified remote original → exact role→LoadImage binding → final graph pin/recovery. Offline/mock acceptance; live role delivery — шаг 7. [Upload contract](tools/comfyui-tool.md#upload--конкретный-loadimage).
 
 **6Б — bounded-срезы до batch activation (реализованы и приняты offline/mock):**
@@ -576,6 +578,19 @@ diagnostic `/prepare` и preparation-only профиль сами по себе 
 7.3A Continue/shared status/UI и 7.3B guarded originals приняты offline/mock и browser checks; NEXT — live рабочая приёмка шага 7.
 
 ### 7. Batch-generation: последовательные jobs и один graph wait
+
+- [x] **Bug 5 · Backend assignment 1 — только frozen Start/config admission.** Новый
+  `kinodel.story-anchor-batch` v1 принимает exact render intent до Story owner I/O в прежний
+  `executions.owner_config`, без новой таблицы; guarded offline options и strict Start receipt реализованы.
+  [Контракт](backend/runtime.md#storyanchor-start-admission-bug-5-assignment-1),
+  [evidence](../test-results/README.md#bug-5-frozen-startconfig-admission--16-october-2026).
+- [x] **Bug 5 · Backend assignment 2 — same-execution storage.** Typed committed-plan authority,
+  frozen batch/group registration и source-scoped result wake реализованы без новой таблицы/execution/start work.
+  [Контракт](backend/artifacts.md#same-execution-storyanchor-storage-bug-5-assignment-2),
+  [evidence](../test-results/README.md#bug-5-same-execution-storage--16-october-2026).
+- [ ] **Bug 5 NEXT:** authored graph/runner/wake/read integration →
+  отдельный frontend. Новый Start/storage ещё не готовый рабочий маршрут; обязательный Continue
+  после Wardrobe убирается только этим новым маршрутом, не переписыванием старых terminal runs.
 
 **Что означает ▶ «Продолжить».** Это одно общее действие выбранного процесса в workspace,
 доступное из Pipeline/Chat, чтобы идти дальше из сохранённой точки; подключено в 7.3A.
@@ -617,6 +632,7 @@ consumer, а не изменением старого outcome. Правила в
   - [x] Атомарно опубликовать terminal group result и unique wake work после reservation/bytes; ранний результат ждёт exact graph wait.
   - [x] Exact graph-owned join выдаёт `batch_outputs` ref на immutable complete-set manifest с plan/parent/origin lineage; failed join сохраняет причину без complete output. Receipt и terminal outcome коммитятся до END; public показ — 7.3.
   - [x] Проверить failure первого unit и sheet после обоих parents, crash result/wake до checkpoint, [explicit Retry](tools/batch-generation.md#retry-identity) с сохранением successes и competing-key fence. Старый wake не отвечает новому wait/review; sent local failure остаётся blocked без Retry.
+  - [x] **Liveness bugfix:** GET-only observation cancelled/graph-blocked native holder; exact terminal history durably releases occupancy (DB24) без import/result/wake/Retry authority. Absent/mismatched/nonterminal history удерживает slot; следующий group — только в следующем sweep. [Evidence](../test-results/README.md#live-working-root-audit--16-october-2026).
   [Контракт](backend/artifacts.md#sequential-image-execution-result-wake-and-exact-retry),
   [evidence](../test-results/README.md#comfyui-step-72--sequential-worker-result-wake-and-exact-retry--9-october-2026).
 
@@ -649,8 +665,8 @@ consumer, а не изменением старого outcome. Правила в
 - [ ] Media review предъявляет полный manifest: approve выбирает один candidate на каждый required unit; apply атомарно сохраняет `RenderResult`/assets/binding, receipt и следующий transition с OCC и cancel checks.
 - [ ] Разделить technical Retry (прежние inputs/seed), Regenerate (те же prompts, новые frozen seeds/identity) и Revise (Wardrobe создаёт новый план). New portrait **или background** → new dependent sheet; неизменные parents сохраняют исходную lineage. Новый полный набор требует нового review.
 - [ ] Cancel прекращает локальное scheduling/promotion. Pending removal — только owned prompt ID; running cancel — только проверенная адресная capability сервера. Без неё сообщаем, что внешняя работа может продолжиться; глобальные clear/interrupt не используем на общем endpoint.
-  Private 7.2 уже ограждает local effects; cancelled sent/unknown attempt консервативно удерживает native
-  occupancy. Addressed provider-terminal observation/release ещё pending и не обещает automatic release.
+  Private worker ограждает local effects; step-7 liveness bugfix уже наблюдает exact terminal history
+  и сохраняет только native-terminal fact/release (DB24). Provider cancellation/removal остаются отдельной pending capability.
 
 **Приёмка:** face B + sheet A и background B + sheet A отклоняются, если sheet использовал parents A; duplicate/stale decision и restart после selection commit не меняют выбранный результат. Старое review не утверждает новый набор. Late/cancelled results остаются audit/history и не продвигают execution.
 

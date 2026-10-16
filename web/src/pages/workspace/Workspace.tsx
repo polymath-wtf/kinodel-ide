@@ -16,7 +16,7 @@ import { ContextPanel } from '../../shared/ui/ContextPanel';
 import { DeliveryStatus, useCommands, useFresh, type Commands } from '../../features/commands/useCommands';
 import { RunControls } from '../../features/commands/RunControls';
 import { ContinueControls } from '../../features/commands/ContinueControls';
-import { processStatusLabel } from '../../entities/execution/process';
+import { processStatusLabel, type Process } from '../../entities/execution/process';
 import type { ProductionDraft } from './model/productionDraft';
 import { Characters } from '../../widgets/characters/Characters';
 import { cacheKey, cacheSchema, initialUI, readCache, uiStorageError, type Cache, type UI, type View } from './model/cache';
@@ -41,22 +41,22 @@ function Connection({ fetching, error, updated }: { fetching: boolean; error: Er
     {!online ? 'Нет связи · отправка недоступна' : error ? 'Не удалось обновить данные' : fetching ? 'Обновляем…' : updated ? 'На связи' : 'Подключаемся…'}
   </div>;
 }
-function Execution({ id, view, ui, update, commands, runSlot, runExtras, setTitle, storageError, panel, inspect, read, closePanel, choices, changeChoices }: { id: string; view: View; ui: UI; update: (ui: Partial<UI>) => void; commands: Commands; runSlot: HTMLElement | null; runExtras: ReactNode; setTitle: (title: ExecutionTitle) => void; storageError: string;
+function Execution({ id, view, ui, update, commands, runSlot, runExtras, setTitle, storageError, panel, inspect, read, closePanel, choices, changeChoices, onNewRun }: { id: string; view: View; ui: UI; update: (ui: Partial<UI>) => void; commands: Commands; runSlot: HTMLElement | null; runExtras: ReactNode; setTitle: (title: ExecutionTitle) => void; storageError: string;
   choices: ProductionDraft; changeChoices: (change: Partial<ProductionDraft>) => void;
-  panel: Panel; inspect: Inspect; read: (opener?: HTMLElement) => void; closePanel: () => void }) {
+  panel: Panel; inspect: Inspect; read: (opener?: HTMLElement) => void; closePanel: () => void; onNewRun: () => void }) {
   const process = useProcess(id);
   // Image consumers have no Story projection. Always resolve the source through backend policy.
   const projection = useProjection(process.data?.source_execution_id ?? id, !!process.data, process.data?.project_id);
   const input = projection.data?.submitted.input_message;
   const model = projection.data?.model ?? null;
   useEffect(() => { if (input) setTitle({ id, text: input, model }); }, [id, input, model, setTitle]);
-  if (!projection.data) return <>{runSlot && createPortal(<details className="run-controls"><summary><span className="status">{projection.error || process.error ? 'Ошибка чтения' : 'Открываем запуск…'}</span><ChevronDown aria-hidden="true" /></summary><div><DeliveryStatus commands={commands} execution={id} placement="menu" />{runExtras}</div></details>, runSlot)}<DeliveryStatus commands={commands} execution={id} /><ContinueControls query={process} commands={commands} choices={choices} change={changeChoices} /><section className="empty-state card"><h2>{projection.error ? 'Не удалось открыть запуск' : 'Загружаем запуск…'}</h2>
+  if (!projection.data) return <>{runSlot && createPortal(<details className="run-controls"><summary><span className="status">{projection.error || process.error ? 'Ошибка чтения' : 'Открываем запуск…'}</span><ChevronDown aria-hidden="true" /></summary><div><DeliveryStatus commands={commands} execution={id} placement="menu" />{runExtras}</div></details>, runSlot)}<DeliveryStatus commands={commands} execution={id} /><ContinueControls query={process} commands={commands} choices={choices} change={changeChoices} onNewRun={onNewRun} /><section className="empty-state card"><h2>{projection.error ? 'Не удалось открыть запуск' : 'Загружаем запуск…'}</h2>
     {projection.error && <p className="error" role="alert">{projection.error.message}</p>}<button onClick={() => void (process.data ? projection.refetch() : process.refetch())}>Перечитать</button></section></>;
-  return <LoadedExecution projection={projection} process={process} choices={choices} changeChoices={changeChoices} view={view} ui={ui} update={update} panel={panel} inspect={inspect} read={read} closePanel={closePanel} commands={commands} runSlot={runSlot} runExtras={runExtras} storageError={storageError} />;
+  return <LoadedExecution projection={projection} process={process} choices={choices} changeChoices={changeChoices} view={view} ui={ui} update={update} panel={panel} inspect={inspect} read={read} closePanel={closePanel} commands={commands} runSlot={runSlot} runExtras={runExtras} storageError={storageError} onNewRun={onNewRun} />;
 }
-function LoadedExecution({ projection: query, process, choices, changeChoices, view, ui, update, panel, inspect, read, closePanel, commands, runSlot, runExtras, storageError }: {
+function LoadedExecution({ projection: query, process, choices, changeChoices, view, ui, update, panel, inspect, read, closePanel, commands, runSlot, runExtras, storageError, onNewRun }: {
   process: ReturnType<typeof useProcess>; choices: ProductionDraft; changeChoices: (change: Partial<ProductionDraft>) => void;
-  projection: ReturnType<typeof useProjection>; view: View; ui: UI; update: (ui: Partial<UI>) => void; panel: Panel; inspect: Inspect; read: (opener?: HTMLElement) => void; closePanel: () => void; commands: Commands; runSlot: HTMLElement | null; runExtras: ReactNode; storageError: string;
+  projection: ReturnType<typeof useProjection>; view: View; ui: UI; update: (ui: Partial<UI>) => void; panel: Panel; inspect: Inspect; read: (opener?: HTMLElement) => void; closePanel: () => void; commands: Commands; runSlot: HTMLElement | null; runExtras: ReactNode; storageError: string; onNewRun: () => void;
 }) {
   const p = query.data!;
   const selected = process.data!.selected_execution_id;
@@ -87,6 +87,10 @@ function LoadedExecution({ projection: query, process, choices, changeChoices, v
     focusReader(); // Navigation only; explicit StoryReview remains the sole approval owner.
   }, [accepted, selected, p.review, p.execution_id]);
   const fromHistory = (ref: ArtifactRef, opener?: HTMLElement) => { select(ref.artifact_id); focusReader(opener); };
+  const review = process.data?.review;
+  const exactReview = process.data?.effective_execution_id === p.execution_id && review && p.review
+    && Object.entries(review).every(([key, value]) => p.review![key as keyof typeof review] === value)
+    && p.stories.some(s => s.ref.artifact_id === review.subject_artifact_id);
   const respond = (target: ReviewTarget, action: ReviewAction, message: string | null) => {
     commands.submit('respond', target.base_ref.project_id, target.execution_id, { request_id: target.request_id, base_ref: target.base_ref }, {
       command_key: crypto.randomUUID(), request_digest: target.request_digest, expected_revision: target.expected_revision, action, message,
@@ -118,7 +122,8 @@ function LoadedExecution({ projection: query, process, choices, changeChoices, v
     </RunControls></>, runSlot)}
     {!storyVisible && readErrors}
     <div className="context-layout"><div className="context-main">
-    <ContinueControls query={process} commands={commands} choices={choices} change={changeChoices} />
+    <ContinueControls query={process} commands={commands} choices={choices} change={changeChoices} onNewRun={onNewRun}
+      onReview={exactReview ? opener => { select(review.subject_artifact_id); focusReader(opener); } : undefined} />
     {process.data?.group_id && <ImageCandidates key={`${process.data.effective_execution_id}:${process.data.group_id}`} process={process.data} />}
     {view === 'pipeline' && !process.data?.image_progress && !(panel?.kind === 'details' && (panel.stage?.id === 'wardrobe' || panel.stage?.id.startsWith('wardrobe:'))) && p.graph.id === 'kinodel.story-wardrobe' && (p.wardrobe_stop || p.stories.some(s => p.reviews.some(r => r.applied && r.result?.kind === 'approved_subject' && r.base_ref.artifact_id === s.ref.artifact_id))) && <WardrobeStatus projection={p} />}
     {view === 'pipeline' ? <Pipeline projection={p} process={process.data} scope={ui.scope} setScope={scope => update({ scope })} inspect={inspect} inspecting={!!panel}
@@ -213,6 +218,10 @@ export function Workspace() {
     }
     await client.invalidateQueries({ queryKey: ['executions'] });
     if (c.execution_id) await client.invalidateQueries({ queryKey: ['execution', c.execution_id] });
+    if (c.kind === 'cancel' && selection && selection !== c.execution_id
+      && client.getQueryData<Process>(['execution', selection, 'process'])?.effective_execution_id === c.execution_id) {
+      await client.invalidateQueries({ queryKey: ['execution', selection, 'process'] });
+    }
     if (c.kind === 'continue' && c.receipt && 'source_execution_id' in c.receipt && c.receipt.source_execution_id !== c.execution_id) await client.invalidateQueries({ queryKey: ['execution', c.receipt.source_execution_id] });
   });
   const commands = { ...delivery, ready: delivery.ready && !stored.error };
@@ -292,7 +301,7 @@ export function Workspace() {
         cinematic={stored.cache.cinematic} changeCinematic={change => persist({ cinematic: { ...cacheRef.current.cinematic, ...change } })}
         availability={availability} fresh={fresh} ready={commands.ready} busy={commands.blocked('start', null)} onStart={start} />
       {!startOpen && (valid ? <Execution key={selection} id={selection!} view={view} ui={ui} commands={commands} runSlot={runSlot} runExtras={runExtras} setTitle={setExecutionTitle} storageError={stored.error} update={updateUI} panel={panel} inspect={inspect} read={opener => setPanel({ kind: 'story', opener: panelOpener(opener) })} closePanel={closePanel}
-        choices={stored.cache.cinematic} changeChoices={change => persist({ cinematic: { ...cacheRef.current.cinematic, ...change } })} />
+        choices={stored.cache.cinematic} changeChoices={change => persist({ cinematic: { ...cacheRef.current.cinematic, ...change } })} onNewRun={openLive} />
         : selection === null ? <div className={`overview ${view}`}>
           {view === 'pipeline' ? <div className="context-layout"><Pipeline scope={overview.scope} setScope={scope => updateOverview({ scope })} viewports={overview.viewports} inspect={inspect} inspecting={panel?.kind === 'details'}
             setViewport={viewport => updateOverview({ viewports: { ...cacheRef.current.overview.viewports, [overview.scope]: viewport } })}

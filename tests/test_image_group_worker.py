@@ -295,18 +295,13 @@ class ImageGroupWorkerTests(fixtures.WardrobeFixtures, unittest.IsolatedAsyncioT
                                             (first.execution_id,)).fetchone(), ('blocked',))
                 requests = len(self.requests)
                 processed = await runtime.run()
-                self.assertEqual(len(self.wires), 1, 'Graph blocking cannot release a possibly running native prompt')
-                self.assertEqual(processed, 0)
-                self.assertEqual(len(self.requests), requests, 'Do not tick the provider for a graph-integrity blocked holder')
+                self.assertEqual(len(self.wires), 1, 'Observation consumes this sweep, without a second native turn')
+                self.assertEqual(processed, 1)
+                self.assertEqual([r.method for r in self.requests[requests:]], ['GET', 'GET'])
                 self.assertEqual(self.worker._submission(db, selected), record)
-                self.assertIsNone(batch_store._unit_row(db, second.batch_id, 'location'))
-                # Explicit fixture-only integrity repair; the sweep must service the
-                # same exact holder, not dispatch its waiting sibling first.
-                await runtime.saver.aput(saved.parent_config, saved.checkpoint, saved.metadata, {})
-                db.execute("UPDATE execution_work SET status='pending',blocked_reason=NULL,work_version=work_version+1 "
-                           "WHERE execution_id=? AND kind='reconcile'", (first.execution_id,))
-                await runtime.run()
-                self.assertEqual(results.read_image_group_result(db, first.execution_id).status, 'complete')
+                self.assertIsNone(self.worker._native_slot(db))
+                self.assertEqual(db.execute('SELECT COUNT(*) FROM portrait_candidates').fetchone(), (0,))
+                self.assertEqual(db.execute('SELECT COUNT(*) FROM image_group_results').fetchone(), (0,))
                 self.assertIsNone(batch_store._unit_row(db, second.batch_id, 'location'))
             with self.preparation(db, second.execution_id):
                 await runtime.run()
@@ -332,10 +327,15 @@ class ImageGroupWorkerTests(fixtures.WardrobeFixtures, unittest.IsolatedAsyncioT
                 await self.worker.tick_image_groups(db, transport=self.server(db), clock_ms=lambda: NOW)
             self.assertEqual(len(self.wires), 2)
 
-    async def test_cancelled_consumer_known_prompt_retains_native_slot_without_late_effects(self):
+    def inventory(self, db):
+        return {name: db.execute(f'SELECT rowid,* FROM {name} ORDER BY rowid').fetchall()
+                for (name,) in db.execute("SELECT name FROM sqlite_schema WHERE type='table'").fetchall()
+                if name != 'native_terminal_observations'}
+
+    async def test_cancelled_consumer_known_prompt_releases_native_slot_without_late_effects(self):
         await self.cancelled_slot(unknown=False)
 
-    async def test_cancelled_consumer_unknown_prompt_retains_native_slot_without_late_effects(self):
+    async def test_cancelled_consumer_unknown_prompt_releases_native_slot_without_late_effects(self):
         await self.cancelled_slot(unknown=True)
 
     async def cancelled_slot(self, *, unknown):
@@ -357,17 +357,57 @@ class ImageGroupWorkerTests(fixtures.WardrobeFixtures, unittest.IsolatedAsyncioT
                 assert record is not None
                 self.assertEqual(record.state, 'blocked' if unknown else 'accepted')
                 self.assertEqual(record.prompt_id is None, unknown)
+                record = submissions.block_anchor_unit_submission(db, selected.job_id, **self.worker.native._args(record),
+                    reason='contract_error')
                 runtime.cancel(first.execution_id, 'cancel')
-                requests = len(self.requests)
-                await runtime.run()
+                from backend.story_runner import _finish_cancel
+                _finish_cancel(db, first.execution_id)
+                inventory, requests, changes = self.inventory(db), len(self.requests), db.total_changes
+                # Terminal execution does not depend on valid/available media output.
+                async def terminal(request):
+                    value = handle(request)
+                    if '/history' in request.url.path:
+                        body = json.loads(await value.aread())
+                        for item in body.values():
+                            item['outputs'] = {'malformed': 'not importable'}
+                        return response(body)
+                    return value
+                self.assertEqual(await self.worker.tick_image_groups(db, transport=httpx.MockTransport(terminal),
+                    clock_ms=lambda: NOW), 1)
                 self.assertEqual(db.execute('SELECT outcome FROM execution_outcomes WHERE execution_id=?',
                                             (first.execution_id,)).fetchone(), ('cancelled',))
-                self.assertEqual(len(self.wires), 1, 'Consumer cancellation is not proof that the provider job stopped')
-                self.assertEqual(len(self.requests), requests, 'Cancelled occupancy is retained without provider/graph effects')
+                self.assertEqual(len(self.wires), 1)
+                self.assertEqual([r.method for r in self.requests[requests:]], ['GET', 'GET'])
+                self.assertEqual(self.inventory(db), inventory, 'Only the independent native-terminal fact may commit')
+                self.assertEqual(db.total_changes, changes + 1)
                 self.assertEqual(self.worker._submission(db, selected), record)
+                self.assertIsNone(self.worker._native_slot(db))
+                fact = submissions.read_native_terminal_observation(db, record)
+                assert fact is not None
+                self.assertEqual((fact.outcome, fact.evidence.prompt_id), ('success', selected.attempt_id[7:]))
+                self.assertEqual(submissions.record_native_terminal_observation(db, selected.job_id,
+                    **self.worker.native._args(record), outcome=fact.outcome, evidence=fact.evidence), fact)
+                with self.assertRaises(ValueError):
+                    submissions.record_native_terminal_observation(db, selected.job_id,
+                        **self.worker.native._args(record), outcome='error', evidence=fact.evidence)
+                self.assertEqual(db.total_changes, changes + 1, 'Terminal fact replay must not mutate anything')
                 self.assertIsNone(batch_store._unit_row(db, second.batch_id, 'location'))
                 self.assertEqual(db.execute('SELECT COUNT(*) FROM image_group_results').fetchone(), (0,))
                 self.assertEqual(retained_inventory(db, ref.execution_id), before)
+        # Reopen after provider history eviction: no observation is needed again.
+        with database.open_database(self.root) as db:
+            self.wires.clear()
+            self.assertIsNone(self.worker._native_slot(db))
+            self.assertEqual(self.worker._submission(db, selected), record)
+            with self.preparation(db, second.execution_id):
+                self.assertEqual(await self.worker.tick_image_groups(db, transport=self.server(db), clock_ms=lambda: NOW), 1)
+            self.assertEqual(len(self.wires), 1)
+            self.assertNotIn(selected.attempt_id, self.wires)
+            self.wires.clear()  # The second accepted prompt's history is absent too.
+            await self.worker.tick_image_groups(db, transport=self.server(db), clock_ms=lambda: NOW)
+            self.assertEqual(sum(r.method == 'POST' and r.url.path == '/native/prompt' for r in self.requests), 2)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM portrait_candidates').fetchone(), (0,))
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM image_group_results').fetchone(), (0,))
 
     async def test_unsent_cancel_and_verified_terminal_attempt_do_not_hold_native_slot(self):
         from backend import portrait_worker as native
@@ -405,6 +445,165 @@ class ImageGroupWorkerTests(fixtures.WardrobeFixtures, unittest.IsolatedAsyncioT
             self.assertEqual(len(self.wires), 2, 'Verified native completion, not graph status, releases occupancy')
             self.assertEqual(db.execute('SELECT COUNT(*) FROM image_group_results').fetchone(), (0,), 'No graph-blocked group promotion')
 
+    async def test_cancelled_known_observer_requires_exact_terminal_evidence(self):
+        await self.observer_evidence(unknown=False)
+
+    async def test_cancelled_unknown_observer_requires_exact_terminal_evidence(self):
+        await self.observer_evidence(unknown=True)
+
+    async def observer_evidence(self, *, unknown):
+        async with self.source(()) as (runtime, ref, _):
+            db = runtime.db
+            first, second = await self.start(runtime, ref), await self.start(runtime, ref, key='second')
+            server = self.server(db)
+            def initial(request):
+                value = server.handler(request)
+                if unknown and request.method == 'POST':
+                    raise httpx.ReadError('lost response')
+                return value
+            with self.preparation(db, first.execution_id):
+                await self.worker.tick_image_group(db, first.execution_id, expected_request_digest=first.request_digest,
+                    transport=httpx.MockTransport(initial), clock_ms=lambda: NOW)
+            selected = results.read_image_unit_attempt(db, first.execution_id, 'location')
+            record = self.worker._submission(db, selected)
+            assert record is not None
+            wire = json.loads(record.preview.wire_body)
+            item = [1, selected.attempt_id[7:], wire['prompt'], {**wire['extra_data'], 'client_id': wire['client_id']}, ['865']]
+            runtime.cancel(first.execution_id, 'cancel')
+            inventory, changes = self.inventory(db), db.total_changes
+            for case in ('absent', 'foreign', 'prompt_id', 'correlation', 'graph', 'client', 'nodes', 'history_key',
+                         'queue_only', 'queued_terminal', 'incomplete', 'error_without_terminal_event',
+                         'success_with_error', 'contradictory_error', 'multiple_ids', 'malformed', 'unavailable', 'oversized'):
+                async def evidence(request):
+                    value = server.handler(request)
+                    if request.url.path.endswith('/queue'):
+                        if case in ('queue_only', 'queued_terminal'):
+                            return response(dict(queue_running=[item], queue_pending=[]))
+                        return value
+                    body = json.loads(await value.aread())
+                    key, native = next(iter(body.items()))
+                    if case in ('absent', 'queue_only'):
+                        body = {}
+                    elif case == 'foreign':
+                        correlation = next(v for k, v in native['prompt'][3].items() if k != 'client_id')
+                        correlation.update(job_id='sha256:' + '0' * 64, attempt_id='sha256:' + '1' * 64)
+                        native['prompt'][3]['client_id'] = 'foreign'
+                        native['prompt'][1] = 'foreign'
+                        body = {'foreign': native}
+                    elif case == 'prompt_id':
+                        native['prompt'][1] = 'other-prompt'
+                    elif case == 'correlation':
+                        next(v for k, v in native['prompt'][3].items() if k != 'client_id')['input_digest'] = 'sha256:' + '0' * 64
+                    elif case == 'graph':
+                        native['prompt'][2]['unexpected'] = {}
+                    elif case == 'client':
+                        native['prompt'][3]['client_id'] = 'foreign'
+                    elif case == 'nodes':
+                        native['prompt'][4] = ['other']
+                    elif case == 'history_key':
+                        body = {'wrong-key': native}
+                    elif case == 'incomplete':
+                        native['status']['completed'] = False
+                    elif case == 'error_without_terminal_event':
+                        native['status'].update(status_str='error', completed=False, messages=[['execution_start', {}]])
+                    elif case == 'success_with_error':
+                        native['status']['messages'] = [['execution_error', {}]]
+                    elif case == 'contradictory_error':
+                        native['status'].update(status_str='error', completed=True, messages=[['execution_error', {}]])
+                    elif case == 'multiple_ids':
+                        other = json.loads(json.dumps(native))
+                        other['prompt'][1] = 'other-prompt'
+                        body['other-prompt'] = other
+                    elif case == 'malformed':
+                        return httpx.Response(200, content=b'{broken', headers={'Content-Type': 'application/json'})
+                    elif case == 'unavailable':
+                        raise httpx.ReadError('offline')
+                    elif case == 'oversized':
+                        return httpx.Response(200, content=b'{}', headers={'Content-Type': 'application/json',
+                            'Content-Length': str(self.worker.native.MAX_JSON_BYTES + 1)})
+                    return response(body)
+                with self.subTest(case=case, unknown=unknown):
+                    requests = len(self.requests)
+                    self.assertEqual(await self.worker.tick_image_groups(db, transport=httpx.MockTransport(evidence),
+                        clock_ms=lambda: record.deadline_ms + 1), 1)
+                    self.assertEqual([r.method for r in self.requests[requests:]], ['GET', 'GET'])
+                    self.assertIsNotNone(self.worker._native_slot(db))
+                    self.assertEqual(self.inventory(db), inventory)
+                    self.assertEqual(db.total_changes, changes)
+                    self.assertEqual(db.execute('SELECT COUNT(*) FROM native_terminal_observations').fetchone(), (0,))
+                    self.assertIsNone(batch_store._unit_row(db, second.batch_id, 'location'))
+
+    async def test_cancelled_observer_native_error_releases_without_failed_group_or_retry(self):
+        await self.observer_error('execution_error')
+
+    async def test_cancelled_observer_native_interruption_releases_without_failed_group_or_retry(self):
+        await self.observer_error('execution_interrupted')
+
+    async def observer_error(self, event):
+        async with self.source(()) as (runtime, ref, _):
+            db = runtime.db
+            receipt = await self.start(runtime, ref)
+            with self.preparation(db, receipt.execution_id):
+                await self.tick(db, receipt)
+            selected = results.read_image_unit_attempt(db, receipt.execution_id, 'location')
+            record = self.worker._submission(db, selected)
+            runtime.cancel(receipt.execution_id, 'cancel')
+            inventory = self.inventory(db)
+            server = self.server(db)
+            async def error(request):
+                value = server.handler(request)
+                if '/history' in request.url.path:
+                    body = json.loads(await value.aread())
+                    for native in body.values():
+                        native['status'] = dict(status_str='error', completed=False, messages=[[event, {}]])
+                        native.pop('outputs')
+                    return response(body)
+                return value
+            await self.worker.tick_image_groups(db, transport=httpx.MockTransport(error), clock_ms=lambda: NOW)
+            self.assertIsNone(self.worker._native_slot(db))
+            self.assertEqual(self.worker._submission(db, selected), record)
+            self.assertEqual(self.inventory(db), inventory)
+            self.assertEqual(len(self.wires), 1)
+            with self.assertRaises((ValueError, LookupError)):
+                await groups.retry_image_execution(db, runtime.saver, self.project, 'no-retry',
+                    predecessor_execution_id=receipt.execution_id, expected_result_digest='sha256:' + '0' * 64)
+
+    async def test_observer_rechecks_submission_pins_stop_and_revision_across_await(self):
+        async with self.source(()) as (runtime, ref, _):
+            db = runtime.db
+            receipt = await self.start(runtime, ref)
+            with self.preparation(db, receipt.execution_id):
+                await self.tick(db, receipt)
+            selected = results.read_image_unit_attempt(db, receipt.execution_id, 'location')
+            record = self.worker._submission(db, selected)
+            assert record is not None
+            runtime.cancel(receipt.execution_id, 'cancel')
+            server = self.server(db)
+            for case in ('revision', 'wire', 'pins', 'stop'):
+                for point in ('queue', 'history'):
+                    stop = asyncio.Event()
+                    async def drift(request):
+                        value = server.handler(request)
+                        await asyncio.sleep(0)
+                        if point in request.url.path:
+                            if case == 'stop':
+                                stop.set()
+                            elif case == 'pins':
+                                db.execute("UPDATE render_submission_attempts SET intent_digest='changed' WHERE attempt_id=?", (selected.attempt_id,))
+                            else:
+                                db.execute('UPDATE portrait_submissions SET ' +
+                                    ('revision=revision+1' if case == 'revision' else "wire_digest='changed'") +
+                                    ' WHERE attempt_id=?', (selected.attempt_id,))
+                        return value
+                    attempt_row = db.execute('SELECT * FROM render_submission_attempts WHERE attempt_id=?', (selected.attempt_id,)).fetchone()
+                    with self.subTest(case=case, point=point), self.assertRaises(ValueError):
+                        await self.worker.tick_image_groups(db, transport=httpx.MockTransport(drift), clock_ms=lambda: NOW, stop=stop)
+                    self.assertEqual(db.execute('SELECT COUNT(*) FROM native_terminal_observations').fetchone(), (0,))
+                    db.execute('UPDATE render_submission_attempts SET intent_digest=? WHERE attempt_id=?', (attempt_row[2], selected.attempt_id))
+                    db.execute('UPDATE portrait_submissions SET revision=?,wire_digest=? WHERE attempt_id=?',
+                               (record.revision, record.preview.wire_digest, selected.attempt_id))
+            self.assertEqual(self.worker._submission(db, selected), record)
+
     async def test_sent_local_failure_retains_slot_and_multiple_legacy_holders_fail_closed(self):
         async with self.source(()) as (runtime, ref, _):
             db = runtime.db
@@ -420,8 +619,12 @@ class ImageGroupWorkerTests(fixtures.WardrobeFixtures, unittest.IsolatedAsyncioT
             db.execute("UPDATE execution_work SET status='blocked',blocked_reason='fixture_integrity_block' WHERE work_id=?",
                        (first.work_id,))
             requests = len(self.requests)
-            self.assertEqual(await self.worker.tick_image_groups(db, transport=self.server(db), clock_ms=lambda: NOW), 0)
-            self.assertEqual(len(self.requests), requests)
+            server = self.server(db)
+            def absent(request):
+                value = server.handler(request)
+                return response({}) if '/history' in request.url.path else value
+            self.assertEqual(await self.worker.tick_image_groups(db, transport=httpx.MockTransport(absent), clock_ms=lambda: NOW), 1)
+            self.assertEqual([r.method for r in self.requests[requests:]], ['GET', 'GET'])
             self.assertIsNone(batch_store._unit_row(db, second.batch_id, 'location'))
             # Seed the historical pre-fix two-holder condition through the trusted
             # single-group fixture, not through the corrected scheduling entrypoint.

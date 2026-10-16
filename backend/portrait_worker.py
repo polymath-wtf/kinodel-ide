@@ -402,11 +402,83 @@ def _outcome(native, output):
         image = images[0]
         # Native Windows separators are transport spelling, not managed paths.
         subfolder = image.get('subfolder')
-        normalized = {**image, 'subfolder': subfolder.replace('\\', '/') if type(subfolder) is str else subfolder}
+        # Project transport selectors only; provider extensions are not candidate metadata.
         return candidates.PortraitOutputDescriptorV1(node_id=output['node_id'], history_key=output['history_key'],
-            index=0, mime_type=output['media_type'], **normalized)
+            index=0, mime_type=output['media_type'], filename=image.get('filename'), type=image.get('type'),
+            subfolder=subfolder.replace('\\', '/') if type(subfolder) is str else subfolder)
     except (ValueError, TypeError):
         raise _ProtocolError('output_descriptor') from None
+
+
+def _terminal_outcome(native):
+    """History success needs completion; native errors/interruption normally completed=False.
+
+    A pending/partial status or inconsistent success/error flags prove nothing. Media
+    descriptors/availability are deliberately irrelevant to physical termination.
+    """
+    status = _history_status(native)
+    failures = {message[0] for message in status['messages']} & {'execution_error', 'execution_interrupted'}
+    if status['status_str'] == 'success' and status['completed'] and not failures:
+        return 'success'
+    if status['status_str'] == 'error' and not status['completed'] and failures:
+        return 'interrupted' if failures == {'execution_interrupted'} else 'error'
+    return None
+
+
+async def observe_anchor_unit_terminal(db: sqlite3.Connection, job_id: str, *, expected_unit_digest: str,
+        expected_wire_digest: str, expected_revision: int, attempt_id: str,
+        transport: httpx.AsyncBaseTransport | None = None, clock_ms: Callable[[], int] = _clock,
+        stop: asyncio.Event | None = None) -> bool:
+    """One bounded GET-only turn, independent of creative promotion and consumer writability.
+
+    Reuse exact owned queue/history matching and pinned client bounds. No /view, POST,
+    diagnostics, acceptance correction, import, lifecycle transition or budget renewal.
+    """
+    record, row, bindings, pins = store._load(db, job_id, expected_unit_digest, expected_wire_digest, attempt_id=attempt_id)
+    TypeAdapter(store.Revision).validate_python(expected_revision, strict=True)
+    if record.revision != expected_revision:
+        raise PortraitWorkerError('revision_conflict')
+    if store.read_native_terminal_observation(db, record) is not None:
+        return True
+    if record.dispatched_at_ms is None:
+        return False
+
+    def guard():
+        if stop is not None and stop.is_set():
+            raise PortraitWorkerError('worker_stopped')
+        store._committed(db)
+        store._assert_pins(db, bindings, pins)
+        if store._row(db, job_id, attempt_id) != row:
+            raise PortraitWorkerError('revision_conflict')
+
+    guard()
+    job = render_job_store.read_anchor_unit_job(db, job_id, expected_unit_digest=expected_unit_digest, attempt_id=attempt_id)
+    image = json.loads(job.prepared_input.image_pin_json)
+    client = _native_client(record, transport)
+    try:
+        async with asyncio.timeout(TICK_TIMEOUT), client:
+            _, queue = await _json(client, 'queue', record, clock_ms, guard=guard)
+            guard()
+            route = 'history/' + quote(record.prompt_id, safe='') if record.prompt_id else 'history'
+            _, history = await _json(client, route, record, clock_ms, guard=guard)
+            guard()
+            matched = _matches(queue, history, record, image['expected_output'], image['schemas'], diagnostics=[], db=db)
+            if matched is None:
+                return False
+            prompt_id, (_, _, terminal_history) = matched
+            if terminal_history is None or any(prompt_id in _native_ids(item)
+                    for item in [*queue['queue_running'], *queue['queue_pending']]):
+                return False  # Contradictory live queue evidence cannot release occupancy.
+            outcome = _terminal_outcome(terminal_history)
+            if outcome is None:
+                return False
+            guard()
+            store.record_native_terminal_observation(db, job_id, **_args(record), outcome=outcome,
+                evidence=_evidence(record, 'history', prompt_id, terminal_history))
+            return True
+    except (*HTTP_ERRORS, _ProtocolError):
+        guard()
+        return False  # Unavailable, absent, ambiguous or malformed evidence retains occupancy.
 
 
 async def _submit(db, client, record, clock, stop=None):
@@ -610,19 +682,7 @@ async def tick_anchor_unit_job(db: sqlite3.Connection, job_id: str, *, expected_
                                               attempt_id=record.preview.attempt_id)
     image = json.loads(job.prepared_input.image_pin_json)
     output = image['expected_output']
-    try:
-        settings = resolve_comfyui_connection(record.preview.connection)
-        connection = BatchConnectionPinV1(connection=settings.connection, endpoint_digest='sha256:' + settings.endpoint_digest)
-        if (connection.connection != record.preview.connection or connection.endpoint_digest != record.preview.endpoint_digest
-                or sha256_digest(canonical_json(connection)) != record.preview.connection_digest or settings.verify is False):
-            raise PortraitWorkerError('connection_pin_mismatch')
-        headers = {'Accept': 'application/json', 'Accept-Encoding': 'identity'}
-        if settings.auth_token:
-            headers['Authorization'] = 'Bearer ' + settings.auth_token
-        client = httpx.AsyncClient(base_url=settings.endpoint, headers=headers, verify=settings.verify,
-            trust_env=False, follow_redirects=False, timeout=httpx.Timeout(15.0, connect=5.0), transport=transport)
-    except (ComfyUIConfigError, ValueError, TypeError, OSError, ssl.SSLError):
-        raise PortraitWorkerError('client_configuration') from None
+    client = _native_client(record, transport)
     try:
         async with asyncio.timeout(TICK_TIMEOUT), client:
             if record.state == 'authorized':
@@ -633,6 +693,22 @@ async def tick_anchor_unit_job(db: sqlite3.Connection, job_id: str, *, expected_
         raise
     except (ValueError, *HTTP_ERRORS):
         raise PortraitWorkerError('client_or_durable_integrity') from None
+
+
+def _native_client(record, transport):
+    try:
+        settings = resolve_comfyui_connection(record.preview.connection)
+        connection = BatchConnectionPinV1(connection=settings.connection, endpoint_digest='sha256:' + settings.endpoint_digest)
+        if (connection.connection != record.preview.connection or connection.endpoint_digest != record.preview.endpoint_digest
+                or sha256_digest(canonical_json(connection)) != record.preview.connection_digest or settings.verify is False):
+            raise PortraitWorkerError('connection_pin_mismatch')
+        headers = {'Accept': 'application/json', 'Accept-Encoding': 'identity'}
+        if settings.auth_token:
+            headers['Authorization'] = 'Bearer ' + settings.auth_token
+        return httpx.AsyncClient(base_url=settings.endpoint, headers=headers, verify=settings.verify,
+            trust_env=False, follow_redirects=False, timeout=httpx.Timeout(15.0, connect=5.0), transport=transport)
+    except (ComfyUIConfigError, ValueError, TypeError, OSError, ssl.SSLError):
+        raise PortraitWorkerError('client_configuration') from None
 
 
 async def tick_portrait_job(db: sqlite3.Connection, job_id: str, *, expected_unit_digest: str,

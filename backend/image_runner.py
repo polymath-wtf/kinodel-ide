@@ -30,12 +30,14 @@ def _joined_result(db, group, result):
         expected_request_digest=group.receipt.request_digest)
 
 
-async def inspect_image_checkpoint(saver, graph, group, *, db=None, stop=None):
+async def inspect_image_checkpoint(saver, graph, group, *, db=None, stop=None, anchor=False):
     """Validate every raw ancestor/task/write, including a consumed exact resume.
 
     Explicit snapshot configs avoid projected pending writes concealing raw state.
     Opening checkpoints keep their frozen shape; result refs appear only after wait.
     """
+    if anchor:
+        return await inspect_anchor_checkpoint(db, saver, graph, group, stop=stop)
     execution_id = group.receipt.execution_id
     expected = initial_image_state(group)
     def check_control():
@@ -155,6 +157,124 @@ async def inspect_image_checkpoint(saver, graph, group, *, db=None, stop=None):
         step -= 1
     if bound != (None, None, None) and binding != bound:
         raise ValueError('Image wait binding differs from checkpoint')
+    return saved, binding
+
+
+async def inspect_anchor_checkpoint(db, saver, graph, group, *, stop=None):
+    """Validate the concrete three-node tail and its exact applied Story ancestor.
+
+    Story loops have variable length, so use authored node positions, not the
+    historical image-only route's absolute superstep numbers.
+    """
+    from backend.story_anchor_graph import anchor_group_state
+    from backend.wardrobe_store import read_committed_wardrobe_plan
+    from backend.story_runner import _source_wait
+    execution = group.receipt.execution_id
+    request = group.batch.prepared_input.story_approval.approval_request_id
+    committed = read_committed_wardrobe_plan(db, execution, request)
+    review = db.execute('SELECT trigger_activation,request_revision,previous_request_id,checkpoint_id,task_id,interrupt_id '
+                        'FROM review_requests WHERE execution_id=? AND request_id=?', (execution, request)).fetchone()
+    base = dict(project_id=committed.ref.project_id, execution_id=execution,
+        story_activation=review[0], story_ref=committed.pins.story_ref.model_dump(mode='json'),
+        binding_revision=committed.pins.story_binding_revision,
+        review_ref=dict(request_id=request, revision=review[1], digest=committed.pins.approval_request_digest,
+                        binding_revision=committed.pins.story_binding_revision),
+        decision_id='', approved_story=committed.pins.story_ref.model_dump(mode='json'),
+        wardrobe_activation=committed.pins.activation_id, wardrobe_plan=committed.ref.model_dump(mode='json'),
+        wardrobe_transition=committed.next_activation)
+    if review[2] is not None:
+        base['previous_request_id'] = review[2]
+    saved = await saver.aget_tuple({'configurable': {'thread_id': execution}})
+    check_image_control(db, execution, stop)
+    if saved is None:
+        raise ValueError('Registered Story/anchor group has no checkpoint')
+    published = db.execute('SELECT publication_state FROM image_group_results WHERE group_id=?',
+                           (group.receipt.group_id,)).fetchone() == ('published',)
+    result = read_image_group_result(db, execution) if published else None
+    wake = read_image_group_wake(db, execution) if published else None
+    joined = _joined_result(db, group, result)
+    ref = image_result_ref(result) if result is not None else None
+    nodes = ('prepare_anchor_batch', 'batch_wait', 'exact_join', None)
+    values = saved.checkpoint['channel_values']
+    branches = [n for n in nodes[:-1] if 'branch:to:' + n in values]
+    if len(branches) > 1:
+        raise ValueError('Story/anchor checkpoint has competing tail tasks')
+    phase = nodes.index(branches[0]) if branches else 3
+    if phase >= 2 and (result is None or wake is None):
+        raise ValueError('Story/anchor postwait lacks exact result/wake')
+    if joined is not None and phase < 2:
+        raise ValueError('Story/anchor join precedes consumed wait')
+    cursor, binding = saved, None
+    step = saved.metadata.get('step')
+    if type(step) is not int:
+        raise ValueError('Story/anchor checkpoint step missing')
+    latest_phase = phase
+    while phase >= 0:
+        identity = cursor.config['configurable']
+        if (identity.get('thread_id') != execution or identity.get('checkpoint_ns') != ''
+                or cursor.checkpoint['id'] != identity.get('checkpoint_id')
+                or cursor.metadata.get('step') != step or cursor.metadata.get('source') != 'loop'
+                or cursor.metadata.get('parents') != {}):
+            raise ValueError('Story/anchor tail checkpoint lineage mismatch')
+        node = nodes[phase]
+        state = {**base, **(anchor_group_state(group) if phase >= 1 else {}),
+                 **({'result_ref': ref} if phase >= 2 else {}),
+                 **({'batch_outputs': joined.batch_outputs} if phase == 3 and joined else {})}
+        expected = {**state, **({'branch:to:' + node: None} if node else {})}
+        if cursor.checkpoint['channel_values'] != expected or (phase == 3 and joined is None):
+            raise ValueError('Story/anchor tail state/token mismatch')
+        snapshot = await graph.aget_state(cursor.config)
+        check_image_control(db, execution, stop)
+        if snapshot.values != state or snapshot.next != ((node,) if node else ()) or len(snapshot.tasks) != bool(node):
+            raise ValueError('Story/anchor tail task mismatch')
+        allowed = ({**anchor_group_state(group), 'branch:to:batch_wait': None} if phase == 0 else
+                   {'result_ref': ref, 'branch:to:exact_join': None} if phase == 1 else
+                   {'batch_outputs': joined.batch_outputs} if joined is not None else {})
+        outputs, resumed, interrupted = set(), False, False
+        for task_id, channel, value in cursor.pending_writes:
+            if not node or task_id != snapshot.tasks[0].id:
+                raise ValueError('Story/anchor pending task mismatch')
+            if channel == '__interrupt__' and phase == 1:
+                if (not isinstance(value, (list, tuple)) or len(value) != 1 or not isinstance(value[0], Interrupt)
+                        or value[0].value != group.wait_token or not value[0].id
+                        or snapshot.interrupts != tuple(value) or snapshot.tasks[0].interrupts != tuple(value)):
+                    raise ValueError('Story/anchor batch interrupt mismatch')
+                binding = (identity['checkpoint_id'], task_id, value[0].id)
+                interrupted = True
+            elif channel == '__resume__' and phase == 1:
+                if wake is None or value != [ref]:
+                    raise ValueError('Conflicting Story/anchor persisted resume')
+                resumed = True
+            elif channel == '__error__' and isinstance(value, str):
+                pass
+            elif channel not in allowed or value != allowed[channel]:
+                raise ValueError('Unexpected Story/anchor pending output')
+            else:
+                outputs.add(channel)
+        if (outputs and outputs != set(allowed)) or (phase < latest_phase and outputs != set(allowed)):
+            raise ValueError('Incomplete Story/anchor pending output')
+        if phase == 1:
+            if (resumed or outputs or latest_phase >= 2) and not (resumed and interrupted):
+                raise ValueError('Story/anchor wait lacks exact interrupt/resume')
+            if resumed and binding != (wake.checkpoint_id, wake.task_id, wake.interrupt_id):
+                raise ValueError('Story/anchor resume belongs to another wait')
+        if phase == 0:
+            break
+        cursor = await saver.aget_tuple(cursor.parent_config) if cursor.parent_config else None
+        check_image_control(db, execution, stop)
+        if cursor is None:
+            raise ValueError('Story/anchor tail ancestor missing')
+        phase, step = phase - 1, step - 1
+    # A valid tail cannot borrow an approval from a different checkpoint fork.
+    while cursor is not None and cursor.config['configurable']['checkpoint_id'] != review[3]:
+        cursor = await saver.aget_tuple(cursor.parent_config) if cursor.parent_config else None
+        check_image_control(db, execution, stop)
+    _source_wait(cursor, review[3], review[4], review[5], request)
+    if [v for t, c, v in cursor.pending_writes if t == review[4] and c == '__resume__'] != [[committed.pins.decision_id]]:
+        raise ValueError('Story/anchor approval lacks persisted exact resume')
+    bound = (group.checkpoint_id, group.task_id, group.interrupt_id)
+    if bound != (None, None, None) and binding != bound:
+        raise ValueError('Story/anchor wait binding differs from checkpoint')
     return saved, binding
 
 

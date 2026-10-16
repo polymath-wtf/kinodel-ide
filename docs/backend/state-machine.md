@@ -66,7 +66,8 @@ unsent deadline or owned exact-history provider failure permits a failed result;
 Retry creates a new consumer/group/wait with original root pins and retained-success ownership.
 Native occupancy is independent of the execution view: blocked/cancelled/terminal consumers can
 still own unresolved dispatched work. Unclaimed blocked groups occupy no slot; cancelled sent/unknown
-work is not automatically released (addressed provider-terminal observation/release remains step 8).
+work releases occupancy only on [durable exact terminal observation](artifacts.md#sequential-image-execution-result-wake-and-exact-retry)
+(DB24 step-7 bugfix), never on absence/eviction or cancellation alone; creative promotion remains forbidden.
 
 Implement `ExecutionStateV1` as a Python `TypedDict`; boundary DTO use Pydantic. The table is the full cinematic target, not yet implemented; the internal Story graph already uses compact `StoryState` from `backend/story_graph.py` and persisted application records:
 

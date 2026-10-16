@@ -59,7 +59,8 @@ Retry сохраняет job/prepared input/seed, но отделяет attempt 
 uploads/final graph/candidate. Unknown acceptance и sent local timeout/contract/deadline failure остаются
 blocked на той же попытке, без failed group/Retry; terminal authority — только unsent deadline или owned
 exact-history provider failure. Unresolved sent work удерживает global native slot при block/cancel/terminal
-consumer; cancelled sent/unknown slot не освобождается автоматически (addressed observation/release — шаг 8).
+consumer до [durable exact terminal history observation](../backend/artifacts.md#sequential-image-execution-result-wake-and-exact-retry)
+(DB24 step-7 bugfix). GET-only fact освобождает slot без import/promotion/rerun; absence/eviction не являются proof.
 SQL consumer/turn и after-await checks ограждают effects; result/wake publication отдельно от graph join
 и не создаёт approval/assets. [Контракт и evidence](../backend/artifacts.md#sequential-image-execution-result-wake-and-exact-retry).
 
@@ -68,6 +69,17 @@ SQL consumer/turn и after-await checks ограждают effects; result/wake 
 Worker разрешает exact selected `AssetRef` либо разрешённую внутреннюю parent candidate dependency в managed файл, проверяет digest и отправляет **его bytes**, не URL. Для библиотечного Character сначала сохраняется execution-owned snapshot в `stuff/projects/<project_id>/inputs/`; generated parent уже находится в managed storage и не требует повторного рендера или копирования в библиотеку.
 
 Multipart `/upload/image`: file field `image` с назначенным Kinodel именем, например `kinodel-<job_id>-<digest>.png`; form fields `type=input`, `overwrite=false`. Для первого adapter достаточно пустого `subfolder`; при использовании подпапки её поддержка проверяется на сервере. Имя имеет проверенное расширение исходного файла; upload не меняет canonical bytes. Ответ сервера обязателен и валидируется: `name`, безопасный относительный `subfolder`, `type=input`. При конфликте сервер может переименовать файл — сохраняем **фактический** ответ, не угадываем requested name.
+
+Adapter извлекает из native upload envelope только обязательные `name/subfolder/type`; optional `asset`
+не передаётся в strict store. Для receipt-less `blocked_sent/receipt_invalid` обычный worker tick может
+восстановить actual native binding через bounded pinned-provider `GET /api/assets`, filtered по owned
+namespace. Нужен единственный полный результат: input/uploaded tags, PNG MIME/size, согласованные
+фактические `name`, `display_name` и input-relative `loader_path`, затем owned-name/folder validation
+и полный `/view` digest/length против exact local parent **до** записи receipt/proof. Имя/папка берутся
+из observation, не из intent; это не replay потерянного POST. Unsupported/ambiguous/truncated/foreign
+или изменённые bytes оставляют block без записи/POST. Recovery turn не трогает другую роль;
+следующий tick может загрузить never-sent background по прежней authorization. Unknown acceptance
+и reopened dispatch marker без receipt не получают этот recovery или reupload.
 
 Для native `LoadImage` строка равна `subfolder + "/" + name`, если подпапка непустая, иначе только `name`: это путь относительно **ComfyUI input directory**, с `/`, не Windows-путь. Default root этой ноды — input; suffix ` [input]` не требуется. Абсолютные пути, `..` и неподдержанные path annotations в upload response отклоняются. Эта форма сверена с upstream; installed server остаётся проверяемой границей.
 
@@ -122,3 +134,10 @@ verified original import и fresh-process network-forbidden reopen после us
 Источники transport: [локальный REST-гайд](../../skills/comfyui-skill/references/rest-api.md), [официальные routes](https://docs.comfy.org/development/comfyui-server/comms_routes) и [API examples](https://docs.comfy.org/development/comfyui-server/api-examples). Skill — toolkit, не владелец jobs Kinodel.
 
 Upload/path/original download сверены по upstream commit `b87fe48b0491425f682f7ffdaed56d0387cb6c5d`: [`server.py`](https://github.com/Comfy-Org/ComfyUI/blob/b87fe48b0491425f682f7ffdaed56d0387cb6c5d/server.py) (`/upload/image`, `/view`), [`nodes.py`](https://github.com/Comfy-Org/ComfyUI/blob/b87fe48b0491425f682f7ffdaed56d0387cb6c5d/nodes.py) (`LoadImage`), [`folder_paths.py`](https://github.com/Comfy-Org/ComfyUI/blob/b87fe48b0491425f682f7ffdaed56d0387cb6c5d/folder_paths.py) (`get_annotated_filepath`). Это source evidence, не испытание installed server.
+
+Optional upload `asset` и binding discovery сверены с ComfyUI v0.41.0:
+[`server.py`](https://github.com/Comfy-Org/ComfyUI/blob/v0.41.0/server.py),
+[`asset routes`](https://github.com/Comfy-Org/ComfyUI/blob/v0.41.0/app/assets/api/routes.py),
+[`path semantics`](https://github.com/Comfy-Org/ComfyUI/blob/v0.41.0/app/assets/services/path_utils.py).
+`name` — изменяемая label; независимое согласие actual current path и loader path обязательно.
+[Evidence и незавершённая live recovery](../../test-results/README.md#reference-envelope-and-native-binding-recovery--16-october-2026).

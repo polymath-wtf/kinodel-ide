@@ -395,12 +395,21 @@ nonportrait identity/schema namespaces and the same initial-attempt/import/one-P
   actual receipts and remote-original verification facts. Only a fresh committed claim permits one
   upload POST; unknown acceptance never grants reupload or a guessed receipt. Saved receipts recover
   through GET only. Background upload follows verified portrait. Existing rows/rowids/files remain intact.
-  Reopened receipt-less `blocked_sent` returns its existing reason/revision without HTTP or another
-  mutation; a fresh dispatch marker without receipt becomes `acceptance_unknown` once.
+  A fresh dispatch marker without receipt becomes `acceptance_unknown` once and remains offline,
+  without guessed receipts or reupload. Only receipt-less `blocked_sent/receipt_invalid` may discover
+  an actual binding through pinned native `GET /api/assets`: one complete unique observation with
+  matching input/uploaded tags, PNG MIME/size and agreeing actual name/current display/loader paths
+  must pass owned-namespace validation and a full original GET digest/length check before receipt/proof
+  CAS writes. This is native binding recovery, not replay of a lost POST response. Unsupported,
+  unavailable, ambiguous, truncated or mismatched evidence preserves the block without writes.
 - `anchor_reference_worker.tick_anchor_references` sends verified original bytes with `type=input`,
   `overwrite=false`, saves actual collision-renamed receipt before GET and checks full original digest
   and length. Native subfolder spelling is retained for `/view`, safe normalized paths for LoadImage.
-  TLS/time/stream bounds reuse 6A; no transaction crosses HTTP or decode.
+  The adapter projects native upload envelopes to strict `name/subfolder/type`; optional asset metadata
+  does not enter store facts. TLS/time/stream bounds reuse 6A; no transaction crosses HTTP or decode.
+  Recovery checks stop/attempt rights, exact revision and source/parent SQL pins across awaits and
+  revalidates local originals around GETs. Its turn is GET-only for one role; a later ordinary turn may
+  upload a never-sent remaining role under existing authorization. No dispatch reset or duplicate prompt.
 - Final graph changes only `470.image` and `496.image`; seed/topology/schema/settings remain frozen.
   Sheet preview/authorization requires this finalized durable record and pins its digest and ordered
   receipts in the native wire/correlation. Before the first child dispatch, both remote originals and
@@ -444,6 +453,41 @@ public continuation/status/UI (**7.3A**) and guarded originals reads/UI (**7.3B*
 profile or constitute candidate selection/approval.
 [Evidence](../../test-results/README.md#comfyui-step-71--accepted-image-execution-and-durable-wait--9-october-2026).
 
+## Same-execution Story/anchor storage (bug 5, assignment 2)
+
+**Storage implemented offline; authored graph/runner/wake delivery and public read/UI integration are NEXT.**
+Only the exact `kinodel.story-anchor-batch` v1 triple and strict frozen
+`StoryAnchorOwnerConfigV1` use this path. No migration, new execution or extra start work is required.
+Existing terminal Story/Wardrobe sources and image-only consumers retain their frozen contracts.
+
+- `wardrobe_store.read_committed_wardrobe_plan(db, execution_id, request_id)` returns typed
+  `CommittedWardrobePlanV1`: exact ref/plan, prepared authority pins, Wardrobe input and committed
+  `next_activation`. It validates the applied Story approval, current Story/plan bindings, original
+  Start/work/config and operation/artifact/transition without requiring a terminal outcome. It is
+  history authority, not write permission. Historical saved-batch preparation still additionally
+  requires its exact completed Wardrobe outcome and completed approval-resume work.
+- `image_group_store.register_story_anchor_group(db, execution_id, approval_request_id)` is a synchronous,
+  root-lock-owned, committed-caller-state helper for the next graph node. Its activation is the committed
+  Wardrobe `next_activation`; batch/group/wait/request identities are deterministic. It freezes only the
+  accepted Start render intent: exact size/profile/connection; changed current declarations or connection
+  refuse first reservation rather than following latest. Reserved/published replay uses original bytes.
+  It inserts only source-owned batch pins and a same-execution `image_groups` row, without jobs/seeds,
+  provider calls or scheduling. Its `ImageStartReceiptV1.work_id` refers to the existing **Story** start
+  work; it neither creates nor claims an image-only start work item.
+- Registration/publication require a writable execution and recheck exact source authority across file
+  publication. Cancellation/source OCC races can retain immutable reserved facts, not new authorization.
+  `read_image_group` validates the explicit new envelope, same-execution source and frozen intent offline,
+  including after cancel/complete; native mutations still require the accepting execution/attempt guard.
+  Parent/reference history reads no longer require this execution to have completed before rendering.
+- Result publication/join retain exact native job/attempt/unit/order/parent/candidate membership. New-route
+  source SQL facts participate in existing result OCC snapshots. Image wake validation is scoped to the
+  exact `wait_id` source, while every other resume must match its bound/applied Story review decision.
+  Arbitrary resumes, foreign waits and corrupted decisions still reject. Explicit new-route Retry is
+  unsupported and refuses before a second consumer admission; image-only Retry semantics remain unchanged.
+
+This is not executable end-to-end or live-generation acceptance.
+[Evidence](../../test-results/README.md#bug-5-same-execution-storage--16-october-2026).
+
 ## Sequential image execution, result wake and exact Retry
 
 **Private 7.2 is implemented and accepted offline/mock.** `image_group_worker.py` executes the
@@ -476,8 +520,18 @@ and in browser checks. NEXT is separate live three-unit working `stuff` acceptan
   contract or deadline failure remains operationally blocked on that same attempt: it cannot publish
   a failed group or authorize Retry. Only an **unsent deadline failure** or **verified provider failure
   from owned exact history** qualifies. A label, elapsed deadline or empty queue/history is not proof.
-  Cancelled sent/unknown work conservatively retains occupancy; addressed provider-terminal observation
-  and release are deferred step-8 capabilities, not automatic cancellation recovery.
+  Cancelled/terminal/graph-blocked holders get one bounded GET-only queue/history observation turn.
+  Exact owned tuple/graph/correlation/client/output-node identity is required for known and unknown IDs;
+  absence, eviction, mismatch, queue-only and nonterminal/inconsistent status retain occupancy.
+  Successful completed history, or native `error/completed=false` with `execution_error`/`execution_interrupted`,
+  releases physical occupancy independently of media validity/import. A contradictory live queue retains it.
+  Additive DB23→24 stores one immutable `native_terminal_observations` fact per attempt (identity,
+  outcome and restricted history evidence/digest); it never changes first acceptance/wire, submission,
+  controls, artifacts, candidates, bindings, group result or wake, and never authorizes Retry/rerun.
+  Exact pins and submission OCC are rechecked across awaits and at commit; no SQL write spans HTTP.
+  Reopen/history eviction preserve release; the next eligible group waits for a later sweep. This is a
+  step-7 liveness bugfix, not deferred step-8 cancellation or creative recovery.
+  [Incident/fix evidence](../../test-results/README.md#live-working-root-audit--16-october-2026).
 - Terminal result publication is SQL reservation → immutable managed bytes → atomic published marker
   plus one unique exact wake work. A complete result covers every required unit in order, with exact
   candidate/job/attempt/parent/origin/root-plan lineage; a failed result carries only verified successes

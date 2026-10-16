@@ -1,5 +1,6 @@
 """Native reference + sheet boundary checks; HTTP always MockTransport, isolated roots."""
 
+import asyncio
 import copy
 from email.parser import BytesParser
 from email.policy import default
@@ -59,6 +60,7 @@ class AnchorReferenceWorkerTests(sources.WardrobeFixtures, unittest.IsolatedAsyn
         self.receipt_change = None
         self.input_response = None
         self.input_hook = None
+        self.asset_response = None
         self.native_floats = False
 
     def batch(self, db, ref, **changes):
@@ -84,6 +86,12 @@ class AnchorReferenceWorkerTests(sources.WardrobeFixtures, unittest.IsolatedAsyn
             self.assertFalse(db.in_transaction, 'SQL transaction crossed native I/O')
             self.calls.append(request)
             route = request.url.path.removeprefix('/native/')
+            if route == 'api/assets':
+                self.assertEqual(request.method, 'GET')
+                self.assertEqual(request.url.params['include_tags'], 'input')
+                self.assertEqual(request.url.params['limit'], '2')
+                return self.asset_response(request) if self.asset_response else response(
+                    dict(assets=[], total=0, has_more=False))
             if request.method == 'POST' and route == 'upload/image':
                 message = BytesParser(policy=default).parsebytes(
                     ('Content-Type: ' + request.headers['content-type'] + '\r\nMIME-Version: 1.0\r\n\r\n').encode() + request.content)
@@ -152,6 +160,143 @@ class AnchorReferenceWorkerTests(sources.WardrobeFixtures, unittest.IsolatedAsyn
         first = await self.tick(db, record)
         self.assertEqual([item.state for item in first.references], ['verified', 'ready'])
         return await self.tick(db, first)
+
+    def blocked_receipt(self, db, unit, job):
+        record = self.authorize(db, unit, job, subfolder='kinodel/parents')
+        record = refs.claim_anchor_reference_upload(db, job.job_id, role='portrait', **self.args(record))
+        record = refs.block_anchor_reference(db, job.job_id, role='portrait', reason='receipt_invalid', **self.args(record))
+        upload = record.intent.references[0]
+        name = upload.name[:-4] + ' (1).png'
+        folder = upload.subfolder.replace('/', '\\')
+        asset: dict[str, Any] = dict(id=str(uuid4()), name=name, loader_path=folder + '\\' + name,
+                     display_name=upload.subfolder + '/' + name, size=upload.parent.byte_length,
+                     mime_type='image/png', tags=['input', 'uploaded'])
+        self.remotes[name, folder] = png(color='purple')
+        return record, asset
+
+    async def test_enriched_native_upload_projects_fields_without_relaxing_store(self):
+        async with self.source() as (db, ref):
+            _, unit, job, _ = self.sheet(db, ref)
+            self.receipt_change = lambda actual: response({**actual, 'asset': {'id': str(uuid4()), 'size': 123}})
+            final = await self.finalized(db, unit, job)
+            self.assertEqual(final.state, 'finalized')
+            self.assertEqual([item[0] for item in self.uploads], ['portrait', 'background'])
+            receipt = final.references[0].receipt
+            assert receipt is not None
+            self.assertEqual((receipt.subfolder, receipt.native_subfolder), ('kinodel/parents', 'kinodel\\parents'))
+            before = db.total_changes
+            with self.assertRaisesRegex(ValueError, 'exact native'):
+                refs.record_anchor_reference_receipt(db, job.job_id, role='portrait',
+                    receipt=dict(name=receipt.name, subfolder=receipt.native_subfolder, type='input', asset={}),
+                    **self.args(final))
+            self.assertEqual(db.total_changes, before)
+
+    async def test_receipt_invalid_reopen_recovers_observed_binding_get_only_then_remaining_role(self):
+        async with self.source() as (db, ref):
+            _, unit, job, _ = self.sheet(db, ref)
+            blocked, asset = self.blocked_receipt(db, unit, job)
+            self.assertEqual(blocked.revision, 2)
+            self.assertIsNone(blocked.references[0].receipt)
+        with database.open_database(self.root) as db:
+            def listing(request):
+                self.assertEqual(request.url.params['name_contains'], blocked.intent.references[0].name[:-4])
+                return response(dict(assets=[asset], total=1, has_more=False))
+            self.asset_response = listing
+            recovered = await self.tick(db, blocked)
+            self.assertEqual([r.method for r in self.calls], ['GET', 'GET'])
+            self.assertEqual([r.url.path for r in self.calls], ['/native/api/assets', '/native/view'])
+            self.assertEqual(self.calls[-1].url.params['filename'], asset['name'])
+            self.assertEqual(self.calls[-1].url.params['subfolder'], 'kinodel\\parents')
+            self.assertEqual([r.state for r in recovered.references], ['verified', 'ready'])
+            self.assertEqual(recovered.references[0].dispatch_revision, 1)
+            self.assertEqual((recovered.revision, recovered.intent_digest), (4, blocked.intent_digest))
+            self.assertIsNone(submissions._row(db, job.job_id))
+            final = await self.tick(db, recovered)
+            self.assertEqual(final.state, 'finalized')
+            self.assertEqual([item[0] for item in self.uploads], ['background'])
+            submitted = await self.sheet_tick(db, self.authorize_sheet(db, unit, job))
+            self.assertEqual(submitted.state, 'accepted')
+            self.assertEqual(sum(r.url.path.endswith('/prompt') and r.method == 'POST' for r in self.calls), 1)
+
+    async def test_recovery_rejects_incomplete_foreign_or_changed_native_evidence_without_writes(self):
+        async with self.source() as (db, ref):
+            _, unit, job, _ = self.sheet(db, ref)
+            blocked, asset = self.blocked_receipt(db, unit, job)
+            valid = dict(assets=[asset], total=1, has_more=False)
+            variants = [response({}, status=503), response(dict(assets=[], total=0, has_more=False)),
+                response({**valid, 'assets': [asset, asset], 'total': 2}),
+                response({**valid, 'total': 2}), response({**valid, 'has_more': True}),
+                response({**valid, 'next_cursor': 'more'}),
+                *[response({**valid, 'assets': [{**asset, **change}]}) for change in (
+                    dict(name='foreign.png'), dict(loader_path='foreign/' + asset['name']),
+                    dict(loader_path='../' + asset['name']), dict(display_name=asset['name']),
+                    dict(tags=['output', 'uploaded']), dict(tags=['input']),
+                    dict(mime_type='image/jpeg'), dict(size=asset['size'] + 1))]]
+            for invalid in variants:
+                with self.subTest(response=invalid):
+                    self.calls.clear()
+                    self.asset_response = lambda _, invalid=invalid: invalid
+                    before = db.total_changes
+                    self.assertEqual(await self.tick(db, blocked), blocked)
+                    self.assertEqual(db.total_changes, before)
+                    self.assertEqual([r.url.path for r in self.calls], ['/native/api/assets'])
+            self.asset_response = lambda _: response(valid)
+            for invalid in (lambda: response(b'', raw=True, status=404),
+                            lambda: response(png(color='red'), raw=True),
+                            lambda: response(png(color='purple'), raw=True, headers={'content-type': 'text/plain'})):
+                self.calls.clear()
+                self.input_response = lambda _, invalid=invalid: invalid()
+                before = db.total_changes
+                self.assertEqual(await self.tick(db, blocked), blocked)
+                self.assertEqual(db.total_changes, before)
+                self.assertEqual([r.method for r in self.calls], ['GET', 'GET'])
+
+    async def test_recovery_rechecks_revision_cancel_stop_and_parent_after_await(self):
+        outer = self.root
+        for stage, change in (('listing', 'revision'), ('listing', 'cancel'), ('view', 'stop'), ('view', 'parent')):
+            with self.subTest(stage=stage, change=change):
+                self.root = outer / change
+                async with self.source() as (db, ref):
+                    _, unit, job, parents = self.sheet(db, ref)
+                    blocked, asset = self.blocked_receipt(db, unit, job)
+                    stop = asyncio.Event()
+                    def mutate():
+                        if change == 'revision':
+                            refs.record_anchor_reference_receipt(db, job.job_id, role='portrait',
+                                receipt=dict(name=asset['name'], subfolder='kinodel\\parents', type='input'),
+                                **self.args(blocked))
+                        elif change == 'cancel':
+                            work = str(uuid4())
+                            db.execute("INSERT INTO execution_work (work_id,execution_id,kind,source_id,payload_digest,status) "
+                                "VALUES (?,?,'cancel','recovery-cancel',?,'pending')", (work, ref.execution_id, ZERO))
+                            db.execute("INSERT INTO execution_controls VALUES (?,'recovery-cancel','cancel',?,NULL)",
+                                       (ref.execution_id, work))
+                        elif change == 'stop':
+                            stop.set()
+                        else:
+                            self.path(parents[0][2]).write_bytes(b'corrupt')
+                    class ChangedBody(httpx.AsyncByteStream):
+                        async def __aiter__(self):
+                            await asyncio.sleep(0)
+                            mutate()
+                            yield (json.dumps(dict(assets=[asset], total=1, has_more=False)).encode()
+                                   if stage == 'listing' else png(color='purple'))
+                    changed = lambda: httpx.Response(200, headers={'content-type':
+                        'application/json' if stage == 'listing' else 'image/png'}, stream=ChangedBody())
+                    self.asset_response = lambda _: changed() if stage == 'listing' else response(
+                        dict(assets=[asset], total=1, has_more=False))
+                    self.input_response = lambda _: changed()
+                    self.calls.clear()
+                    with self.assertRaises((OSError, ValueError)):
+                        await self.worker.tick_anchor_references(db, job.job_id, **self.args(blocked),
+                            transport=httpx.MockTransport(self.handler(db)), stop=stop)
+                    current = refs._stored(refs._row(db, job.job_id))
+                    self.assertIsNone(current.references[0].verification)
+                    self.assertIsNone(current.final)
+                    self.assertEqual(current.revision, 3 if change == 'revision' else 2)
+                    self.assertTrue(self.calls)
+                    self.assertTrue(all(r.method == 'GET' for r in self.calls))
+        self.root = outer
 
     def authorize_sheet(self, db, unit, job):
         preview = submissions.preview_anchor_unit_submission(db, job.job_id, expected_unit_digest=unit.input_digest)
@@ -276,7 +421,10 @@ class AnchorReferenceWorkerTests(sources.WardrobeFixtures, unittest.IsolatedAsyn
                 self.assertEqual(len(self.calls), 1)
                 self.assertEqual(await self.tick(db, blocked), refs.read_anchor_reference_transfer(db, job.job_id,
                     **self.args(blocked, revision=False)))
-                self.assertEqual(len(self.calls), 1)
+                expected = [('POST', '/native/upload/image')]
+                if self.role(blocked, 'portrait').reason == 'receipt_invalid':
+                    expected.append(('GET', '/native/api/assets'))
+                self.assertEqual([(r.method, r.url.path) for r in self.calls], expected)
                 self.assertIsNone(submissions._row(db, job.job_id))
 
     async def test_lost_upload_response_reopen_never_second_post_or_synthetic_receipt(self):

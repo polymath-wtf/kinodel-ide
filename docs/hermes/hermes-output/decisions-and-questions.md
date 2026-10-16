@@ -1,7 +1,7 @@
 ---
 title: "Решения и открытые вопросы"
 created: 2026-10-15
-updated: 2026-10-15
+updated: 2026-10-16
 type: concept
 tags: [kinodel, preproduction, decisions, architecture]
 sources: [raw/kinodel-plugin-raw/hermes-questions.md, raw/kinodel-plugin-raw/hermes-artifact.md, raw/kinodel-plugin-raw/hermes-nodes.md, raw/kinodel-plugin-raw/hermes-kinodel-roadmap.md]
@@ -44,7 +44,33 @@ P02 прямо помечен предложением в исходных но�
 | H10 | Stop/restart/unknown/partial/late result | Таблица error → allowed action с проверками | Paid renders |
 | H11 | Typed wiki picker и доступ к text/media | Область доступа, snapshot refs и проверка доставки | Context UI |
 
-H01–H10 переупаковывают очередь исходника; H11 выделен из прямого пользовательского запроса и контекстного документа. В этом проходе они **не решались**. ^[raw/kinodel-plugin-raw/hermes-questions.md]
+H01–H10 переупаковывают очередь исходника; H11 выделен из прямого пользовательского запроса и контекстного документа. Ниже — отдельный source-inspection проход, не runtime-приёмка. ^[raw/kinodel-plugin-raw/hermes-questions.md]
+
+## Ответы по текущему Hermes — уточнение 2026-10-16
+Checkout `dfa79389773271ee78c41a7af340848948d461ee`. Детальные механизмы и source path:line: [[kinodel-preproduction/hermes-mechanisms]]. Недостающая реализация и spikes: [[kinodel-preproduction/kinodel-features]]. Задачи/render не запускались; продуктовые P02/P03 не утверждены за автора.
+
+| ID | Что известно | Что остаётся открытым |
+|---|---|---|
+| H01 / P04 | Host умеет plugin static HTML и REST; отдельный React browser app может использовать их и native /api/ws. Предпочтение: один origin, REST/polling для domain и WS для chat, без Desktop | Browser auth/bootstrap особенно на gateway-owned listener, manifest/bundle, actual port/owner и canonical contract требуют smoke. Упаковка известна по source; запуск не закрыт. См. [[kinodel-preproduction/localhost-webui]] |
+| H02 | Native create key не строгая идемпотентность. Описаны durable steps для publish→review и approval→complete→create; native review CAS-ит run, повтор может вернуть false после успеха | Cross-DB recovery каждого шага, duplicate/archive lookup и сериализация требуют проверки; exactly-once не обещаем |
+| H03 / P01 | Найден review_dispatch:false для автоматического human hold; request_review завершает attempt. no_agent cron выполняет scripts без LLM | Toggle относится к dispatcher/home, не board/task; изоляция, direct claims, media wait и executor latency не проверены. Одна task на stage остаётся предложением |
+| H04 | Native done не валидирует Kinodel; hooks observers post-commit без veto. Защита — domain publish/approve и повторный guard exact inputs; downstream task не создавать заранее | Реальный тест manual complete/archive и direct worker mutations |
+| H05 | plugin_db/plugin_data_dir уже дают profile-aware SQLite/WAL; caller owns transactions. Доменные revisions/decisions/operations можно хранить там без второй task DB | Schema/migrations и cross-DB recovery; ctx.state get/set не заменяет transaction |
+| H06 | Native complete/reopen/review/attachments существуют; показываем native status отдельно от creative status | Manual native action не означает approval. Контракт model change и синхронизацию каждого UI action нужно проверить отдельно |
+| H07 | Worker принудительно получает kanban; owning worker может create/link. auto_decompose и notify+wake имеют отдельные настройки; link может наследовать subscriptions | Нужны enforceable capability restriction, trusted identity и cross-profile delivery; одного prompt/profile недостаточно. Middleware skip-on-error нельзя выдавать за fail-closed guard |
+| H08 | Повтор одного run восстанавливает ту же session. Новый claim/rework создаёт новый run и session; tasks.session_id — originating session | Прежняя worker session не обещается. Согласовать новую попытку с полным контекстом или исследовать generic resume; question-only путь ещё не выбран |
+| H09 | Найдены 6 API graphs в raw/comfyui-workflow; есть Qwen 3-image и MiniMax img2vid с audio/RIFE | Graph mapping, nodes/models на server и measured render не проверены; двухref sheet и немой video требуют отдельного решения |
+| H10 | Domain Stop защищает только domain actions. Native ready/retry claim/spawn не читает production Stop; emergency pause не production fence | Проверить synchronized admission/re-admission до LLM плюс unknown/partial/late/restart. Строгий Stop — незакрытый integration blocker |
+| H11 | Wiki доступна как локальные документы; exact snapshot/digest и разрешённый resource-id resolver подходят для неизменяемых inputs | Typed picker и реальная text/vision delivery ещё не реализованы |
+
+**Ответ на U02 частичный:** показывать prepared role instructions/version и назначенные skills можно; наблюдаемо loaded отмечать отдельно. Нельзя обещать весь system prompt из одного SKILL.md. U01 и S01–S04 остаются решениями UX/schema автора, не фактами host.
+
+### Что теперь можно считать отвеченным
+- Наличие storage, plugin static/API и native session transport подтверждено по исходникам, но не работа новой интеграции.
+- H03: механизм автоматической human-review паузы существует; не нужен фиктивный reviewer. Вопрос сужен до scope/изоляции и runtime.
+- H04: native completion не является publication validator/creative approval; защита должна предшествовать downstream и учитывать native worker mutations.
+- H07/H10: найдены конкретные пробелы enforcement, а не подтверждение готовых ограничений.
+- P02/P03, U01 и S01–S04 не приняты за автора. H01–H11 целиком не закрыты: source-level ответ не заменяет их критерии приёмки.
 
 ## UX и schema-вопросы
 - **U01:** библиотека отдельной вкладкой или Canvas/History с фильтрами? Flow/Grid обязателен или только референс?
@@ -61,7 +87,7 @@ H01–H10 переупаковывают очередь исходника; H11 
 4. Исходник сообщает, что пользователь проверил worker-session resume. Это **пользовательское свидетельство, пересказанное в источнике**, не выполненный нами тест; выясняем механизм, не объявляем функцию отсутствующей.
 5. Ссылки на старые Hermes snapshots, agent skills, workflows и test-results не включены в переданный каталог. Не используем их как проверенное доказательство. ^[raw/kinodel-plugin-raw/hermes-kinodel-roadmap.md]
 
-## Следующий разговор
-Рекомендую начать с **авторского прохода по Story review → Wardrobe → anchors review**: где автор смотрит данные, какие действия доступны и что он явно разрешает. Это небольшой сценарий, который проверит продуктовую ясность до выбора API. Затем H01/H02/H04/H05/H07 для первого backend-среза, не весь список сразу.
+## Следующий срез
+Согласовать предложенный browser/native-session и domain-command путь, затем проверить text-only Brief→Story→approval→Wardrobe. Первые feasibility вопросы: browser bootstrap, dispatcher human hold scope, worker restrictions, Stop admission и recovery двух БД. Render/полный Canvas не prerequisite этого среза; платные вызовы и установка требуют отдельного разрешения.
 
 Связи: [[kinodel-preproduction/source-map]], [[kinodel-preproduction/implementation-readiness]], [[kinodel-preproduction/overview]].

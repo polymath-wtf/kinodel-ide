@@ -195,7 +195,14 @@ terminal source продолжает polling связанного image consumer
 для Story reads. Первый image handoff показывает размеры, exact profile и явный Local/Server;
 offline `anchor-batch/prepare` возвращает configured connection pin, затем отдельный Continue click
 авторизует exact intent. Accepted settings read-only; provider preflight и автоматического approval/Retry нет.
-Cancel effective consumer — отдельная команда; недоступный здесь provider recovery так и обозначен.
+Cancel effective consumer — отдельная команда; provider recovery control в UI не добавляется.
+В UI только `resume` и исторический explicit `start_images` отправляют Continue. `open` раскрывает
+сохранённые детали локально; `review` открывает существующий Story reader только при совпадении полного
+текущего review. `resolve` — конкретный статус/причина, без no-op кнопки и списка protocol actions:
+доступные Cancel/Retry остаются в меню запуска, `new_run` открывает существующую форму новой Story без Start.
+Подтверждённая отмена effective consumer перечитывает также выбранный source process, если его cache
+содержит эту связь; отдельного реестра связей нет. `reference_unavailable` означает неподтверждённые
+референсы для следующего шага, а не потерю сохранённых оригиналов и не разрешение на платный повтор.
 [7.3A evidence / inspected Pipeline+Chat v78](../../test-results/README.md#comfyui-step-73a--backend-universal-continue-and-action-projection--10-october-2026).
 
 **7.3B originals:** один shared strip в существующей левой колонке Workspace для Pipeline/Chat
@@ -206,6 +213,11 @@ full-size links. Partial набор доступен до manifest; import-only/
 Strict DTO/media-ref/URL guards сверяют exact accepted consumer/project/group/N; no group — no image GET.
 Pending reads идут раз в 15 s без overlap; published/stopped/error snapshots прекращают background
 reads, manual reread — только GET. Синхронная стоимость validation остаётся ограничением в evidence.
+При transport/network ошибке остаётся последний успешно проверенный снимок только того же
+execution/project/group/N, с явным предупреждением об устаревании. Schema/foreign/HTTP ошибки скрывают
+и отзывают прежний снимок, в том числе для последующего сетевого сбоя; смена owner/N не переносит его.
+Новый store, автоматическая генерация/Retry и увеличение общего timeout не добавлены.
+[Incident UI follow-up](../../test-results/README.md#bug-4-local-actions-and-bounded-transient-image-reads--16-october-2026).
 [Exact DTO/API](../backend/dto.md#image-read-dtos-accepted-73b),
 [offline/real-API browser evidence и primary-inspected Pipeline/Chat v80](../../test-results/README.md#comfyui-step-73b--backend-guarded-originals-and-ordered-image-reads--10-october-2026).
 

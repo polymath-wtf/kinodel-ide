@@ -93,9 +93,84 @@ class StoryControlTests(unittest.IsolatedAsyncioTestCase):
                                             (control,)).fetchone(), ("cancel", "completed"))
                 self.assertEqual(read_story(db, receipt.execution_id)[0], current)
                 self.assertEqual(await run_story_work(db, saver, produce_story), 0)
-                self.assertEqual(cancel_story(db, receipt.execution_id, "cancel-1"), control)
-                with self.assertRaisesRegex(ValueError, "cancel"):
-                    cancel_story(db, receipt.execution_id, "different")
+                before, changes = list(db.iterdump()), db.total_changes
+                for key in ("cancel-1", "different", "different", "another"):
+                    self.assertEqual(cancel_story(db, receipt.execution_id, key), control)
+                self.assertEqual(list(db.iterdump()), before)
+                self.assertEqual(db.total_changes, changes)
+                self.assertFalse(db.in_transaction)
+
+    async def test_cancel_different_keys_converge_while_cancelling(self):
+        from backend.story_control import cancel_story
+
+        with open_database(self.root) as db:
+            async with open_saver(self.root, db) as saver:
+                receipt = await start_test_story(db, saver, self.project, "start", "A fox", ["s1"])
+                control = cancel_story(db, receipt.execution_id, "cancel-1")
+        with open_database(self.root) as db:
+            before, changes = list(db.iterdump()), db.total_changes
+            for key in ("cancel-1", "different", "different", "another"):
+                self.assertEqual(cancel_story(db, receipt.execution_id, key), control)
+            self.assertEqual(list(db.iterdump()), before)
+            self.assertEqual(db.total_changes, changes)
+            self.assertFalse(db.in_transaction)
+            self.assertIsNone(db.execute("SELECT outcome FROM execution_outcomes").fetchone())
+            async with open_saver(self.root, db) as saver:
+                def forbidden_owner(*args):
+                    self.fail("Repeated Cancel must not invoke the owner")
+
+                self.assertEqual(await run_story_work(db, saver, forbidden_owner), 2)  # Original start + cancel.
+                self.assertEqual(await run_story_work(db, saver, forbidden_owner), 0)
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM artifacts").fetchone(), (0,))
+
+    async def test_cancel_preserves_retry_key_conflict_before_and_after_cancellation(self):
+        from backend.story_control import cancel_story, retry_story_work
+
+        with open_database(self.root) as db:
+            async with open_saver(self.root, db) as saver:
+                receipt = await start_test_story(db, saver, self.project, "start", "A fox", ["s1"])
+                db.execute("UPDATE execution_work SET status='blocked',blocked_reason='owner_unavailable' "
+                           "WHERE work_id=?", (receipt.work_id,))
+                retry_story_work(db, receipt.execution_id, receipt.work_id, "retry", 0)
+                for phase in ("active", "cancelling", "cancelled"):
+                    with self.subTest(phase=phase):
+                        if phase == "cancelling":
+                            cancel_story(db, receipt.execution_id, "stop")
+                        elif phase == "cancelled":
+                            await run_story_work(db, saver, produce_story)
+                        before, changes = list(db.iterdump()), db.total_changes
+                        with self.assertRaisesRegex(ValueError, "Control command conflict"):
+                            cancel_story(db, receipt.execution_id, "retry")
+                        self.assertEqual(list(db.iterdump()), before)
+                        self.assertEqual(db.total_changes, changes)
+                        self.assertFalse(db.in_transaction)
+
+    async def test_cancel_rejects_terminal_unknown_and_retired_without_writes(self):
+        from backend.story_control import cancel_story
+        from backend.wardrobe_store import RETIRED_GRAPH_ID, RETIRED_GRAPH_VERSION, RETIRED_GRAPH_DIGEST
+
+        with open_database(self.root) as db:
+            async with open_saver(self.root, db) as saver:
+                for state in ("completed", "failed", "unknown", "retired"):
+                    with self.subTest(state=state):
+                        execution = str(uuid4())
+                        if state != "unknown":
+                            receipt = await start_test_story(db, saver, self.project, state, "A fox", ["s1"])
+                            execution = receipt.execution_id
+                            if state == "retired":
+                                db.execute("UPDATE executions SET graph_id=?,graph_version=?,graph_digest=? "
+                                           "WHERE execution_id=?", (RETIRED_GRAPH_ID, RETIRED_GRAPH_VERSION,
+                                                                   RETIRED_GRAPH_DIGEST, execution))
+                            else:
+                                db.execute("INSERT INTO execution_outcomes VALUES (?,?,?,NULL)",
+                                           (execution, state, state))
+                        before, changes = list(db.iterdump()), db.total_changes
+                        reason = "terminal" if state in ("completed", "failed") else state
+                        with self.assertRaisesRegex(ValueError, "(?i)" + reason):
+                            cancel_story(db, execution, "stop")
+                        self.assertEqual(list(db.iterdump()), before)
+                        self.assertEqual(db.total_changes, changes)
+                        self.assertFalse(db.in_transaction)
 
     async def test_cancel_during_awaited_owner_call_drains_before_terminal(self):
         from backend.story_control import cancel_story

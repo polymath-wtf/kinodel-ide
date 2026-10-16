@@ -282,8 +282,9 @@ Handoff pin не является принятой image activation/job; parent 
   попытке, без terminal group result/Retry. Только unsent deadline или verified provider failure по
   owned exact history разрешает failed group. Unresolved dispatched job сохраняет один global native
   slot независимо от graph block/cancel/terminal consumer; unclaimed blocked group slot не занимает.
-  Cancelled sent/unknown occupancy не освобождается автоматически; addressed terminal observation/release
-  — последующая step-8 capability. SQL consumer/turn и after-await checks ограждают native effects.
+  Cancelled/graph-blocked sent/unknown occupancy освобождается только по durable exact terminal history:
+  [GET-only observation, DB24](../backend/artifacts.md#sequential-image-execution-result-wake-and-exact-retry) — step-7 bugfix,
+  без import/promotion/Retry authority. Absence/eviction удерживают slot; SQL/after-await checks ограждают effects.
 - **Regenerate** меняет frozen seeds, **Revise** создаёт новый creative plan; это новые activations,
   не technical Retry. Изменённый parent инвалидирует transitive dependents. Anchor-local retained
   lineage требуется; selective creative frame repair остаётся последующим срезом.

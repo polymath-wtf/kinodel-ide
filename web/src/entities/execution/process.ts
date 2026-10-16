@@ -50,5 +50,5 @@ export const processReasonLabel: Record<NonNullable<Process['reason']>, string> 
   wardrobe_needs_input: 'Wardrobe нужны дополнительные данные.', wardrobe_out_of_scope: 'Запрос вне возможностей Wardrobe.',
   acceptance_unknown: 'Приём provider-задания не подтверждён. Нужна сверка, не повторная генерация.', contract_error: 'Контракт provider-задания не подтверждён.',
   deadline_exceeded: 'Срок ожидания результата истёк.', output_invalid: 'Результат не прошёл проверку.', history_unavailable: 'История provider-задания недоступна.',
-  provider_failed: 'Provider сообщил об ошибке.', reference_unavailable: 'Исходное изображение недоступно.', reference_contract_error: 'Контракт исходного изображения не подтверждён.',
+  provider_failed: 'Provider сообщил об ошибке.', reference_unavailable: 'Не удалось подтвердить изображения-референсы для следующего шага. Это не означает потерю сохранённых оригиналов.', reference_contract_error: 'Контракт исходного изображения не подтверждён.',
 };

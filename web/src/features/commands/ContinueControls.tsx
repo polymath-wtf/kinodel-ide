@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useProcess, readOptions } from '../../entities/execution/queries';
-import { processActionLabel, processReasonLabel, processStatusLabel, resolutionLabel } from '../../entities/execution/process';
+import { processActionLabel, processReasonLabel, processStatusLabel } from '../../entities/execution/process';
 import { mediaSizeSchema, type BatchPreparation } from '../../entities/production/contracts';
 import { prepareSavedImages, readProductionProfiles } from '../../entities/production/api';
 import { useFresh, type Commands } from './useCommands';
@@ -59,8 +59,8 @@ function ImageAuthorization({ process, choices, change, onIntent, enabled }: {
     {exact && <details><summary>Закрепляемые параметры</summary><pre>{JSON.stringify({ source_plan_ref: exact.source_plan_ref, image_size: exact.image_size, image_profile: exact.image_profile, connection: exact.connection }, null, 2)}</pre></details>}
   </div>;
 }
-export function ContinueControls({ query, commands, choices, change }: { query: ReturnType<typeof useProcess>; commands: Commands;
-  choices: Choices; change: (change: Partial<Choices>) => void }) {
+export function ContinueControls({ query, commands, choices, change, onReview, onNewRun }: { query: ReturnType<typeof useProcess>; commands: Commands;
+  choices: Choices; change: (change: Partial<Choices>) => void; onReview?: (opener: HTMLElement) => void; onNewRun: () => void }) {
   const p = query.data;
   const fresh = useFresh(query.dataUpdatedAt, query.isFetching, query.error);
   const detail = useRef<HTMLDetailsElement>(null);
@@ -70,7 +70,7 @@ export function ContinueControls({ query, commands, choices, change }: { query: 
   }, [accepted?.id, accepted?.receipt, p?.selected_execution_id]);
   const enabled = fresh && commands.ready && !!p && !commands.blocked('continue', p.selected_execution_id);
   const submit = (production_intent?: Parameters<Commands['submit']>[4]) => {
-    if (!p || !enabled) return;
+    if (!p || !enabled || !['resume', 'start_images'].includes(p.action)) return;
     commands.submit('continue', p.project_id, p.selected_execution_id, null, { command_key: crypto.randomUUID(), expected_token: p.occ_token,
       ...(production_intent ? { production_intent } : {}) });
   };
@@ -79,16 +79,16 @@ export function ContinueControls({ query, commands, choices, change }: { query: 
     {!p ? <p className="muted">Читаем сохранённый процесс…</p> : <>
       <div className="process-summary"><strong className={`status status-${p.status}`}>{processStatusLabel[p.status]}</strong>
         {p.image_progress && <span role="status">Готово {p.image_progress.completed} / {p.image_progress.total}</span>}
-        {p.action !== 'start_images' && <button className={p.action === 'resume' ? 'primary' : ''} disabled={!enabled || p.action === 'finished'} onClick={() => submit()}>{processActionLabel[p.action]}</button>}
+        {p.action === 'resume' && <button className="primary" disabled={!enabled} onClick={() => submit()}>{processActionLabel.resume}</button>}
+        {p.action === 'open' && <button onClick={() => { if (detail.current) { detail.current.open = true; detail.current.querySelector('summary')?.focus(); } }}>{processActionLabel.open}</button>}
+        {p.action === 'review' && <button disabled={!onReview} onClick={event => onReview?.(event.currentTarget)}>{processActionLabel.review}</button>}
+        {p.allowed_actions.includes('new_run') && <button onClick={onNewRun}>Новая история</button>}
         <button className="process-refresh" aria-label="Обновить процесс" disabled={query.isFetching} onClick={() => void query.refetch()}>Обновить</button>
       </div>
       {p.reason && <p className={p.action === 'resolve' ? 'warning' : 'muted'}>{processReasonLabel[p.reason]}</p>}
       {p.action === 'start_images' ? <ImageAuthorization process={p} choices={choices} change={change} enabled={enabled} onIntent={value => submit({
         source_plan_ref: value.source_plan_ref, image_size: value.image_size, image_profile: value.image_profile, connection: value.connection })} />
         : p.production && <p className="muted">{p.production.image_size.width} × {p.production.image_size.height} · {p.production.image_profile.profile_id} v{p.production.image_profile.version} · {p.production.connection} · настройки закреплены</p>}
-      {p.action === 'resolve' && <p>Разрешённые действия: {p.allowed_actions.length ? p.allowed_actions.map(a => resolutionLabel[a]).join(' · ') : 'нет'}.
-        {p.allowed_actions.some(a => ['diagnose', 'recover_provider', 'retry'].includes(a)) && ' Продолжение не выполняет восстановление или платный повтор; используйте отдельное доступное управление.'}
-        {p.allowed_actions.includes('recover_provider') && ' Восстановление provider в этом интерфейсе пока не подключено.'}</p>}
       <details ref={detail}><summary>Сохранённое состояние процесса</summary>
         <dl className="process-identities"><dt>Source</dt><dd>{p.source_execution_id}</dd><dt>Текущий запуск</dt><dd>{p.effective_execution_id}</dd></dl>
         <details><summary>Технические данные и exact refs</summary><pre>{JSON.stringify(p, null, 2)}</pre></details>

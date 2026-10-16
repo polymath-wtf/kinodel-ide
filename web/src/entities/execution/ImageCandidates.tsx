@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { readImages, type ImageUnit } from './images';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { readImages, type ImageProjection, type ImageUnit } from './images';
 import type { Process } from './process';
+import { ReadError } from '../../shared/api/http';
 
 const label = { 'hero-face': 'Портрет', location: 'Фон', 'hero-sheet': 'Лист персонажа' } as const;
 const reason = { unstarted: 'Ещё не начато', not_completed: 'Оригинал ещё не подтверждён',
@@ -19,31 +20,44 @@ function Original({ unit }: { unit: ImageUnit }) {
 }
 export function ImageCandidates({ process }: { process: Process }) {
   const waiting = ['created', 'running', 'waiting_job', 'cancelling'].includes(process.status);
+  const client = useQueryClient();
+  const queryKey = ['images', process.effective_execution_id, process.project_id, process.group_id, process.image_progress?.total ?? null];
   // Independent exact cache key: process polling/command invalidations must not reread expensive PNG validators.
-  const query = useQuery({ queryKey: ['images', process.effective_execution_id, process.project_id, process.group_id],
+  const query = useQuery({ queryKey,
     enabled: !!process.group_id, retry: false, networkMode: 'always', staleTime: 15000,
     refetchOnWindowFocus: false, refetchOnReconnect: false, refetchOnMount: false,
-    queryFn: async ({ signal }) => ({ images: await readImages(process, signal), waiting }),
-    refetchInterval: query => query.state.error || query.state.data?.images.result || !waiting || query.state.data?.waiting === false ? false : 15000,
+    queryFn: async ({ signal }): Promise<{ images: ImageProjection | null; waiting: boolean }> => {
+      try { return { images: await readImages(process, signal), waiting }; }
+      catch (error) {
+        // Only transport failure may retain a validated snapshot. Invalid/foreign/denied reads revoke it,
+        // including for a subsequent network failure or remount of this exact query.
+        if (!signal.aborted && !(error instanceof ReadError && error.kind === 'network')) client.setQueryData(queryKey, { images: null, waiting });
+        throw error;
+      }
+    },
+    refetchInterval: query => query.state.error || query.state.data?.images?.result || !waiting || query.state.data?.waiting === false ? false : 15000,
   });
   // One final storage snapshot when the process stops; wait for any slow GET rather than cancel/overlap it.
   useEffect(() => {
-    if (query.data && !query.data.images.result && query.data.waiting !== waiting && !query.isFetching && !query.error) void query.refetch({ cancelRefetch: false });
+    if (query.data?.images && !query.data.images.result && query.data.waiting !== waiting && !query.isFetching && !query.error) void query.refetch({ cancelRefetch: false });
   }, [waiting, query.data, query.isFetching, query.error, query.refetch]);
   const [reread, setReread] = useState(0);
   const refresh = async () => {
     const result = await query.refetch({ cancelRefetch: false });
     if (!result.error) setReread(value => value + 1); // Only explicit reread retries failed <img>; polling retains loaded originals.
   };
-  const images = query.error ? undefined : query.data?.images;
+  const transient = query.error instanceof ReadError && query.error.kind === 'network';
+  const images = query.error && !transient ? null : query.data?.images;
   if (!process.group_id) return null;
   return <section className="image-candidates" aria-label="Сохранённые изображения">
     <div className="image-heading"><h2>Сохранённые изображения</h2>
       {images && <span className="muted">Оригиналы {images.available_units} / {images.total_units}</span>}
       <button disabled={query.isFetching} aria-label="Перечитать изображения" onClick={() => void refresh()}>{query.isFetching ? 'Читаем…' : 'Перечитать'}</button>
     </div>
-    {query.error ? <div className="error" role="alert"><p>Не удалось перечитать изображения. Непроверенные данные не показаны; генерация не запускается.</p><p>{query.error.message}</p></div>
-      : !images ? <p className="muted" role="status">Читаем сохранённые оригиналы…</p> : <>
+    {query.error && <div className={images ? 'warning' : 'error'} role="alert"><p>{images
+      ? 'Не удалось обновить изображения. Показан последний проверенный снимок; он может быть устаревшим. «Перечитать» повторяет только чтение.'
+      : 'Не удалось перечитать изображения. Непроверенные данные не показаны; генерация не запускается.'}</p><p>{query.error.message}</p></div>}
+    {!images ? !query.error && <p className="muted" role="status">Читаем сохранённые оригиналы…</p> : <>
         <p className={images.result?.status === 'complete' ? 'status-completed' : 'muted'}>
           {images.result?.status === 'complete' ? 'Полный набор подтверждён' : images.result?.status === 'failed' ? 'Генерация завершилась с ошибкой · доступные кандидаты сохранены'
             : images.result ? 'Итоговый manifest недоступен или не прошёл проверку · завершение не подтверждено' : 'Итоговый manifest ещё не сохранён'}

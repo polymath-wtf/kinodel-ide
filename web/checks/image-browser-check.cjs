@@ -13,7 +13,7 @@ require.cache[hook] = { id: hook, filename: hook, loaded: true, exports: async (
   const page = await context.newPage(), mutations = [], imageReads = [], originalReads = [], foreign = [], errors = [];
   let state = { ...f.process, effective_execution_id: f.id, group_id: null, image_progress: null, production: null,
     status: 'completed', action: 'finished', reason: 'completed', allowed_actions: [] };
-  let images = structuredClone(f.images), failRead = false, failOriginal = false, delay = 0, active = 0, maxActive = 0;
+  let images = structuredClone(f.images), failRead = false, failNetwork = false, failOriginal = false, delay = 0, active = 0, maxActive = 0;
   // Existing local visual fixtures, served as mock originals without converting their PNG bytes.
   const png = readFileSync(resolve(__dirname, '../assets/cyber port.png'));
   const exactURLs = f.full.units.map(u => origin + u.original.url);
@@ -32,11 +32,12 @@ require.cache[hook] = { id: hook, filename: hook, loaded: true, exports: async (
       if (path.endsWith('/story-activity') || path.endsWith('/wardrobe-activity')) return json(null);
       if (path.endsWith(`/stories/${f.id}`)) return json({ ref: f.ref, story: f.story });
       if (path.endsWith(`/wardrobe-plans/${f.consumer}`)) return json({ ref: f.planRef, plan: f.plan });
-      if (path === `/api/executions/${f.consumer}/images`) {
+      if ([f.id, f.consumer].some(id => path === `/api/executions/${id}/images`)) {
         imageReads.push(request.url()); active++; maxActive = Math.max(maxActive, active);
         const reply = structuredClone(images), rejected = failRead;
         try {
           if (delay) await new Promise(resolve => setTimeout(resolve, delay));
+          if (failNetwork) return await route.abort('failed');
           return await (rejected ? route.fulfill({ status: 409, json: { detail: 'Published image manifest is invalid' } }) : json(reply));
         } finally { active--; }
       }
@@ -77,9 +78,8 @@ require.cache[hook] = { id: hook, filename: hook, loaded: true, exports: async (
     await refresh(); await expect(gallery).toContainText('Полный набор подтверждён');
     await expect(page.getByRole('region', { name: 'Продолжение процесса', exact: true })).toContainText('Готово 3 / 3', { timeout: 6000 });
     await expect(gallery).toContainText('Кандидаты · без approval');
-    await capture('pipeline');
     await page.getByRole('button', { name: 'Chat', exact: true }).click();
-    await expect(gallery).toContainText('Полный набор подтверждён'); await capture('chat');
+    await expect(gallery).toContainText('Полный набор подтверждён');
     const terminalReads = imageReads.length;
     await page.waitForTimeout(16500); assert.equal(imageReads.length, terminalReads, 'stable terminal stops image polling');
     const originalURLs = originalReads.slice(-3);
@@ -101,6 +101,23 @@ require.cache[hook] = { id: hook, filename: hook, loaded: true, exports: async (
     failOriginal = true; await reload(); await expect(gallery.getByText('Не удалось загрузить оригинал.', { exact: false })).toHaveCount(2);
     await expect(gallery).toContainText('Причина неизвестна');
     failOriginal = false; await refresh(); await expect(gallery.getByText('Не удалось загрузить оригинал.', { exact: false })).toHaveCount(0);
+    images.result = null; images.units[2].reason = 'not_completed'; await refresh();
+    const verifiedURLs = await gallery.locator('img').evaluateAll(images => images.map(image => image.getAttribute('src')));
+    const beforeTransientReads = imageReads.length, beforeOriginalReads = originalReads.length;
+    failNetwork = true; await refresh();
+    await expect(gallery).toContainText('Показан последний проверенный снимок');
+    await expect(gallery).toContainText('Оригиналы 2 / 3');
+    assert.deepEqual(await gallery.locator('img').evaluateAll(images => images.map(image => image.getAttribute('src'))), verifiedURLs, 'transient GET failure retains exact verified originals');
+    assert.equal(imageReads.length, beforeTransientReads + 1, 'one bounded manual GET, no implicit retry');
+    assert.equal(originalReads.length, beforeOriginalReads, 'loaded originals are not remounted on a transient error');
+    state = { ...state, reason: 'reference_unavailable', status: 'blocked', action: 'resolve', allowed_actions: ['cancel', 'new_run'], image_progress: { completed: 2, total: 3 } };
+    await page.getByRole('button', { name: 'Обновить процесс', exact: true }).click();
+    await page.getByRole('button', { name: 'Pipeline', exact: true }).click(); await capture('pipeline');
+    await page.getByRole('button', { name: 'Chat', exact: true }).click();
+    await expect(gallery).toContainText('Оригиналы 2 / 3'); await capture('chat');
+    failNetwork = false; images = structuredClone(f.full); await refresh();
+    await expect(gallery).toContainText('Оригиналы 3 / 3');
+    await expect(gallery).not.toContainText('Показан последний проверенный снимок');
     failRead = true; await refresh(); await expect(gallery).toContainText('Не удалось перечитать изображения');
     await expect(gallery).toContainText('409'); assert.equal(await gallery.locator('img').count(), 0, 'bad envelope never presented as no result or saved complete');
     failRead = false; images = structuredClone(f.full); images.result = f.result;
@@ -108,6 +125,21 @@ require.cache[hook] = { id: hook, filename: hook, loaded: true, exports: async (
     await refresh(); await expect(gallery).toContainText('Ответ не соответствует контракту'); assert.equal(await gallery.locator('img').count(), 0);
     images = { ...structuredClone(f.full), project_id: f.consumer };
     await refresh(); await expect(gallery).toContainText('другого запуска');
+    assert.equal(await gallery.locator('img').count(), 0, 'foreign DTO hides previous snapshot');
+    failNetwork = true; await refresh();
+    assert.equal(await gallery.locator('img').count(), 0, 'transient failure after invalid response never resurrects rejected cache');
+    failNetwork = false; images = structuredClone(f.full); await refresh();
+    await expect(gallery).toContainText('Оригиналы 3 / 3');
+    // Owner changes must not carry the successful snapshot, including same execution with a new group/N.
+    for (const owner of [{ group_id: f.result.digest }, { project_id: f.consumer }, { effective_execution_id: f.id }, { image_progress: { completed: 0, total: 4 } }]) {
+      const beforeOwnerReads = imageReads.length;
+      state = { ...f.process, source_plan_ref: null, ...owner }; failNetwork = true;
+      await page.getByLabel('Обновить процесс', { exact: true }).click();
+      await expect.poll(() => imageReads.length).toBeGreaterThan(beforeOwnerReads);
+      await expect(gallery).toContainText('Не удалось перечитать изображения');
+      assert.equal(await gallery.locator('img').count(), 0, 'no cached original across owner/declaration changes');
+    }
+    failNetwork = false;
     // Slow background reread is non-overlapping; partial snapshot refreshes even without Continue.
     images = structuredClone(f.images); state = structuredClone(f.process); delay = 2200;
     await reload(); await expect(gallery).toContainText('Оригиналы 1 / 3');

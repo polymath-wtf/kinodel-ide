@@ -13,7 +13,7 @@ from typing import Annotated, Literal
 
 from pydantic import Field
 
-from backend import batch_store, image_group_store as groups
+from backend import batch_store, image_group_store as groups, wardrobe_store
 from backend import portrait_candidate_store as candidates, portrait_submission_store as submissions
 from backend import render_job_store as jobs
 from backend.batch_generation import ParentBindings
@@ -296,6 +296,15 @@ def _snapshot(db, group):
     """SQL-only OCC facts; no transaction covers offline file/media validation."""
     retry = groups._retry_row(db, group.receipt.execution_id)
     root_id = group.batch.batch_id if retry is None else retry[5]
+    execution = group.receipt.execution_id
+    identity = db.execute('SELECT graph_id,graph_version,graph_digest FROM executions WHERE execution_id=?',
+                          (execution,)).fetchone()
+    # This route's source remains active in the SAME execution. Recheck the exact
+    # authority validated before file/media I/O, not only unit/result/work facts.
+    source = tuple(db.execute(f'SELECT * FROM {table} WHERE execution_id=? ORDER BY rowid',
+                              (execution,)).fetchall() for table in
+                   ('executions', 'execution_bindings', 'review_requests', 'wardrobe_operations',
+                    'story_operations', 'artifacts')) if wardrobe_store.is_story_anchor_graph(identity) else ()
     return (
         groups._row(db, group.receipt.execution_id), retry,
         db.execute('SELECT * FROM image_unit_attempts WHERE group_id=? ORDER BY unit_key', (group.receipt.group_id,)).fetchall(),
@@ -309,7 +318,8 @@ def _snapshot(db, group):
         db.execute('SELECT * FROM image_group_results WHERE group_id=?', (group.receipt.group_id,)).fetchone(),
         db.execute("SELECT work_id,execution_id,kind,source_id,resume_ref,payload_digest FROM execution_work "
                    "WHERE execution_id=? AND kind IN ('start','resume') ORDER BY kind,source_id",
-                   (group.receipt.execution_id,)).fetchall(),
+                    (group.receipt.execution_id,)).fetchall(),
+        source,
     )
 
 
@@ -390,7 +400,8 @@ def _wake_values(group, result):
 
 def _check_wake(db, group, result):
     rows = db.execute("SELECT work_id,execution_id,source_id,resume_ref,payload_digest FROM execution_work "
-                      "WHERE execution_id=? AND kind='resume'", (group.receipt.execution_id,)).fetchall()
+                      "WHERE execution_id=? AND kind='resume' AND source_id=?",
+                      (group.receipt.execution_id, group.receipt.wait_id)).fetchall()
     if rows != [_wake_values(group, result)]:
         raise ValueError('Image result/wake is missing, conflicting or belongs to another wait')
 

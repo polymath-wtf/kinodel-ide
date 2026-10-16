@@ -11,7 +11,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
 from backend.domain import ArtifactRef, OwnerResponseV1, StoryV1, sha256_digest
-from backend.review_store import _digest, apply_story_decision, prepare_story_review
+from backend.review_store import apply_story_decision, prepare_story_review
 from backend.story_store import (_assert_writable, _uuid, commit_owner_response, commit_story_operation,
                                  prepare_story_operation, read_story)
 
@@ -56,7 +56,14 @@ def initial_story_state(project_id: str, execution_id: str, *, live: bool = Fals
 def build_story_graph(db: sqlite3.Connection, saver: object,
                       produce_story: Callable[[str, list[str], StoryV1 | None, str | None], StoryV1 | Awaitable[StoryV1]],
                       *, wardrobe: bool = False, character_root: Path | None = None):
-    """Historical Story ends at approval; the verified new route continues to a saved plan."""
+    """Historical topology and terminal semantics remain frozen."""
+    return story_graph_builder(db, produce_story, wardrobe=wardrobe,
+                               character_root=character_root).compile(checkpointer=saver)
+
+
+def story_graph_builder(db, produce_story, *, wardrobe=False, character_root=None,
+                        anchor_batch=False, state_schema=StoryState):
+    """Concrete shared Story/review/Wardrobe nodes, not a pipeline compiler."""
 
     def require_route(state):
         from backend import wardrobe_store
@@ -64,7 +71,8 @@ def build_story_graph(db: sqlite3.Connection, saver: object,
 
         identity = db.execute("SELECT graph_id,graph_version,graph_digest FROM executions WHERE execution_id=?",
                               (state["execution_id"],)).fetchone()
-        supported = (wardrobe_store.is_current_wardrobe_graph(identity) if wardrobe else
+        supported = (wardrobe_store.is_story_anchor_graph(identity) if anchor_batch else
+            wardrobe_store.is_current_wardrobe_graph(identity) if wardrobe else
             identity == (GRAPH_ID, GRAPH_VERSION, GRAPH_DIGEST) or (identity is not None and
                 identity[0] == LIVE_GRAPH_ID and identity[1] in LIVE_GRAPH_DIGESTS and
                 identity[2] == LIVE_GRAPH_DIGESTS[identity[1]]))
@@ -196,9 +204,10 @@ def build_story_graph(db: sqlite3.Connection, saver: object,
                 if ref != result or db.execute("SELECT next_activation FROM wardrobe_operations WHERE operation_id=?",
                                                (ref.operation_id,)).fetchone() != (transition,):
                     raise ValueError("Wardrobe result ref/transition mismatch")
-                # Plan and exact approval are validated before the terminal commit and END.
-                db.execute("INSERT INTO execution_outcomes VALUES (?, 'completed', ?, ?)",
-                           (execution, ref.operation_id, ref.artifact_id))
+                if not anchor_batch:
+                    # Only the historical route completes at Wardrobe.
+                    db.execute("INSERT INTO execution_outcomes VALUES (?, 'completed', ?, ?)",
+                               (execution, ref.operation_id, ref.artifact_id))
                 db.execute("COMMIT")
             except BaseException:
                 db.execute("ROLLBACK")
@@ -215,7 +224,7 @@ def build_story_graph(db: sqlite3.Connection, saver: object,
         except (ValueError, OSError):
             raise WardrobeBlocked("wardrobe_invalid") from None
 
-    graph = StateGraph(StoryState)
+    graph = StateGraph(state_schema)
     graph.add_node(STAGE_ID, story)
     graph.add_node("story_prepare_review", prepare)
     graph.add_node("story_wait", wait)
@@ -226,53 +235,12 @@ def build_story_graph(db: sqlite3.Connection, saver: object,
     graph.add_edge("story_wait", "story_apply")
     if wardrobe:
         graph.add_node("wardrobe", wardrobe_node)
-        graph.add_edge("wardrobe", END)
-    return graph.compile(checkpointer=saver)
+        if not anchor_batch:
+            graph.add_edge("wardrobe", END)
+    return graph
 
 
 def validate_wardrobe_success(db: sqlite3.Connection, execution_id: str, request_id: str) -> ArtifactRef:
     """Read-only terminal validation, including after a terminal commit lost its checkpoint."""
-    from backend.story_start import load_test_story_start
     from backend import wardrobe_store
-
-    wardrobe_store._require_current_route(db, execution_id)
-    load_test_story_start(db, execution_id)
-    record = wardrobe_store.find_wardrobe_operation(db, execution_id, request_id)
-    if record is None or record["next_activation"] is None or record["candidate_kind"] != "plan":
-        raise ValueError("No committed Wardrobe plan for terminal outcome")
-    pins = record["pins"]
-    ref, plan = wardrobe_store.read_wardrobe_plan(db, execution_id)
-    cursor = db.execute("SELECT * FROM review_requests WHERE execution_id=? AND request_id=?", (execution_id, request_id))
-    row = cursor.fetchone()
-    if row is None:
-        raise ValueError("Missing Wardrobe approval")
-    review = dict(zip((column[0] for column in cursor.description), row))
-    start = db.execute("SELECT graph_id,graph_version,graph_digest,start_digest,owner_config FROM executions WHERE execution_id=?",
-                       (execution_id,)).fetchone()
-    if (start[:3] != (wardrobe_store.GRAPH_ID, wardrobe_store.GRAPH_VERSION, wardrobe_store.GRAPH_DIGEST)
-            or pins.start_digest != start[3] or pins.story_owner_config_digest != sha256_digest(start[4].encode("utf-8"))
-            or review["action"] != "approve" or review["message"] is not None
-            or not all(review[key] for key in ("checkpoint_id", "task_id", "interrupt_id", "decision_key"))
-            or (review["request_digest"], review["decision_id"], review["applied_activation"]) !=
-               (pins.approval_request_digest, pins.decision_id, pins.activation_id)
-            or request_id != _digest("kinodel.story-review.v1", execution_id, review["trigger_activation"])
-            or review["request_digest"] != _digest("kinodel.story-review-body.v1", request_id, review["request_revision"],
-                review["subject_artifact_id"], review["subject_digest"], review["binding_revision"], review["previous_request_id"])
-            or review["decision_digest"] != _digest("kinodel.story-decision.v1", request_id, review["request_digest"],
-                review["binding_revision"], "approve", None)
-            or review["decision_id"] != _digest("kinodel.story-decision-id.v1", request_id, review["decision_key"])
-            or db.execute("SELECT request_id FROM review_requests WHERE execution_id=? ORDER BY request_revision DESC LIMIT 1",
-                          (execution_id,)).fetchone() != (request_id,)
-            or db.execute("SELECT work_id,payload_digest,resume_ref FROM execution_work WHERE execution_id=? AND kind='resume' AND source_id=?",
-                          (execution_id, request_id)).fetchone() !=
-               (_digest("kinodel.story-resume-work.v1", pins.decision_id), review["decision_digest"], pins.decision_id)
-            or (review["subject_artifact_id"], review["subject_digest"], review["binding_revision"]) !=
-               (pins.story_ref.artifact_id, pins.story_ref.digest, pins.story_binding_revision)
-            or db.execute("SELECT artifact_id,binding_revision FROM execution_bindings WHERE execution_id=? AND slot='story'",
-                          (execution_id,)).fetchone() != (pins.story_ref.artifact_id, pins.story_binding_revision)
-            or db.execute("SELECT artifact_id,binding_revision FROM execution_bindings WHERE execution_id=? AND slot='wardrobe_plan'",
-                          (execution_id,)).fetchone() != (record["artifact_id"], 1)
-            or ref.operation_id != record["operation_id"] or plan.narrative_ref != pins.story_ref
-            or read_story(db, execution_id)[0] != pins.story_ref):
-        raise ValueError("Wardrobe terminal plan/approval authority mismatch")
-    return ref
+    return wardrobe_store.read_committed_wardrobe_plan(db, execution_id, request_id).ref

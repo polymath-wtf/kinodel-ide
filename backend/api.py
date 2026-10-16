@@ -28,6 +28,8 @@ from backend.domain import (
     StoryTextInputV1, StoryTextSubjectV1, StoryV1, Text, UnitKey,
 )
 from backend.story_control import open_story_runtime
+from backend.story_anchor_start import (AnchorRenderIntentV1, StoryAnchorStartOptionsV1,
+                                        StoryAnchorStartReceiptV1, story_anchor_start_options)
 from backend.openrouter import SelectedCharacter, StoryDiagnostic
 from backend.story_start import (DEFAULT_CHARACTER_ROOT, InvalidCharacterSelection, STORY_GRAPH_IDS,
                                  RetiredWardrobeRoute, RETIRED_WARDROBE_MESSAGE, reject_retired_wardrobe)
@@ -43,7 +45,7 @@ COOKIE = "kinodel_session"
 PORT = 8765
 DIST_ROOT = Path(__file__).resolve().parent.parent / "web" / "dist"
 log = logging.getLogger(__name__)
-ExecutionStatus = Literal["running", "waiting_review", "blocked", "cancelling", "completed", "cancelled", "failed"]
+ExecutionStatus = Literal["running", "waiting_review", "waiting_job", "blocked", "cancelling", "completed", "cancelled", "failed"]
 
 
 class TestStart(DomainModel):
@@ -66,6 +68,10 @@ class LiveStart(TestStart):
         if len(ids) > 16 or len(ids) != len(set(ids)):
             raise ValueError("Selected subjects and character refs must be unique, at most 16 combined")
         return self
+
+
+class StoryAnchorStart(LiveStart):
+    render_intent: AnchorRenderIntentV1
 
 
 class ResponseCommand(DomainModel):
@@ -590,10 +596,23 @@ def create_app(root: Path | None = None, produce_story=fixture_story, *,
     async def wardrobe_start(body: LiveStart, request: Request):
         return await accept_live_start(body, request, request.app.state.runtime.start_wardrobe)
 
+    @app.get("/api/executions/story-anchor-batch/v1/options", response_model=StoryAnchorStartOptionsV1)
+    async def anchor_start_options():
+        try:
+            return story_anchor_start_options()
+        except (ValueError, KeyError) as error:
+            raise HTTPException(409, "Anchor Start options are unavailable or invalid") from error
+
+    @app.post("/api/executions/story-anchor-batch/v1", status_code=202, response_model=StoryAnchorStartReceiptV1)
+    async def anchor_start(body: StoryAnchorStart, request: Request):
+        return await accept_live_start(body, request, request.app.state.runtime.start_anchor_batch)
+
     async def accept_live_start(body, request, start):
         try:
             brief = StoryTextInputV1(user_vibe=body.input_message, subjects=body.subjects, shot_duration_ms=body.shot_duration_ms)
-            receipt = await start(body.project_id, body.client_key, body.shot_ids, brief, character_refs=body.character_refs)
+            kwargs = {"render_intent": body.render_intent} if isinstance(body, StoryAnchorStart) else {}
+            receipt = await start(body.project_id, body.client_key, body.shot_ids, brief,
+                                  character_refs=body.character_refs, **kwargs)
         except RetiredWardrobeRoute as error:
             raise HTTPException(410, str(error)) from error
         except FileNotFoundError as error:
@@ -604,7 +623,7 @@ def create_app(root: Path | None = None, produce_story=fixture_story, *,
             raise HTTPException(409, "Character library unavailable") from error
         except ValueError as error:
             raise HTTPException(409, "Live Story start conflicts or server configuration is unavailable") from error
-        return {"execution_id": receipt.execution_id, "work_id": receipt.work_id}
+        return receipt if isinstance(body, StoryAnchorStart) else {"execution_id": receipt.execution_id, "work_id": receipt.work_id}
 
     @app.get("/api/executions/{execution_id}/projection", response_model=StoryProjection, response_model_exclude_unset=True)
     async def read_projection(execution_id: CanonicalUUID, request: Request, include_process: bool = False):
@@ -715,7 +734,7 @@ def create_app(root: Path | None = None, produce_story=fixture_story, *,
     @app.get("/api/executions/{execution_id}/stories/{artifact_id}")
     async def story(execution_id: CanonicalUUID, artifact_id: CanonicalUUID, request: Request):
         db = request.app.state.runtime.db
-        if db.execute("SELECT 1 FROM executions WHERE execution_id=? AND graph_id IN (?,?,?)", (execution_id, *STORY_GRAPH_IDS)).fetchone() is None:
+        if db.execute("SELECT 1 FROM executions WHERE execution_id=? AND graph_id IN (" + ','.join('?' for _ in STORY_GRAPH_IDS) + ")", (execution_id, *STORY_GRAPH_IDS)).fetchone() is None:
             raise HTTPException(404, "Unknown internal Story execution")
         try:
             reject_retired_wardrobe(db, execution_id)

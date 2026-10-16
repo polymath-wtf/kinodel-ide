@@ -15,12 +15,12 @@
       "docs-langchain": {
           "type": "remote",
           "url": "https://docs.langchain.com/mcp",
-          "enabled": false
+          "enabled": true
       },
       "reference-langchain": {
           "type": "remote",
           "url": "https://reference.langchain.com/mcp",
-          "enabled": false
+          "enabled": true
       },
       "context7": {
           "type": "remote",

@@ -197,14 +197,16 @@ def _native_slot(db):
         "WHERE s.state NOT IN ('authorized','completed')").fetchall()
     holders = []
     for key, job, attempt, digest, origin, state in rows:
+        facts, _ = results._facts(db, results.ImageUnitAttemptV1(key, job, attempt, digest, origin))
+        if submissions.read_native_terminal_observation(db, facts) is not None:
+            continue
         if state == 'failed':
-            facts, _ = results._facts(db, results.ImageUnitAttemptV1(key, job, attempt, digest, origin))
             if results.is_terminal_image_failure(facts):
                 continue
-        holders.append((origin, job, attempt))
+        holders.append((origin, facts))
     if len(holders) > 1:
         raise ValueError('Multiple unresolved image attempts hold the native provider slot')
-    return holders[0][0] if holders else None
+    return holders[0] if holders else None
 
 
 async def tick_image_groups(db: sqlite3.Connection, *, transport: httpx.AsyncBaseTransport | None = None,
@@ -220,9 +222,14 @@ async def tick_image_groups(db: sqlite3.Connection, *, transport: httpx.AsyncBas
         "AND NOT EXISTS (SELECT 1 FROM execution_work w WHERE w.execution_id=g.execution_id AND w.status='blocked') "
         "ORDER BY g.rowid").fetchall()
     if holder is not None:
-        # An ineligible holder still occupies the provider. Do not service its HTTP
-        # or dispatch another group; cancellation/graph failure is not native proof.
-        rows = [(execution, digest) for execution, digest in rows if execution == holder]
+        origin, record = holder
+        rows = [(execution, digest) for execution, digest in rows if execution == origin]
+        if not rows:
+            # Cancellation/graph failure cannot permit promotion, but observation must
+            # outlive them. A proved terminal release uses this turn, not a second job.
+            await native.observe_anchor_unit_terminal(db, record.preview.job_id, **native._args(record),
+                transport=transport, clock_ms=clock_ms, stop=stop)
+            return 1
     processed = 0
     for execution_id, digest in rows:
         if stop is not None and stop.is_set():
